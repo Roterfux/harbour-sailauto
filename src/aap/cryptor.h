@@ -31,6 +31,10 @@ public:
     QByteArray decrypt(const QByteArray &cipher, bool *ok);
 
     QString certificateInfo() const { return m_certInfo; }
+    // Last handshake failure (OpenSSL reason, alert); empty if none.
+    QString handshakeError() const { return m_handshakeError; }
+    // After the handshake: protocol, cipher, the HU's certificate subject/issuer.
+    QString sessionInfo() const;
     QString lastError() const;
 
 private:
@@ -41,6 +45,7 @@ private:
     BIO *m_rbio = nullptr; // network -> SSL
     BIO *m_wbio = nullptr; // SSL -> network
     QString m_certInfo;
+    QString m_handshakeError;
 };
 
 } // namespace aap

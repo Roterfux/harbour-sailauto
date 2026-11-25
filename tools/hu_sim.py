@@ -22,7 +22,7 @@ import threading
 import time
 
 # ---- protocol constants (same values as aasdk) ----------------------------
-CH_CONTROL, CH_INPUT, CH_SENSOR, CH_VIDEO, CH_MEDIA_AUDIO = 0, 1, 2, 3, 4
+CH_CONTROL, CH_INPUT, CH_SENSOR, CH_VIDEO, CH_MEDIA_AUDIO, CH_BT = 0, 1, 2, 3, 4, 8
 F_FIRST, F_LAST, F_BULK, F_CONTROL, F_ENC = 1, 2, 3, 4, 8
 
 VERSION_REQUEST, VERSION_RESPONSE, SSL_HANDSHAKE, AUTH_COMPLETE = 1, 2, 3, 4
@@ -112,11 +112,26 @@ class HeadUnit:
         self.video_bytes = 0
         self.out = open(args.out, "wb") if args.out else None
         self.opened = []
+        self.audio_setups = 0
         self.touch_ready = False
         self.focus_at = None
         self.errors = []
         self.night_sent = False
         self.done = False
+        self.discovery = open(args.discovery, "rb").read() if args.discovery else None
+        self.ch_video, self.ch_input, self.ch_sensor = CH_VIDEO, CH_INPUT, CH_SENSOR
+        if self.discovery:
+            for raw in pb_parse(self.discovery).get(1, []):
+                c = pb_parse(raw)
+                cid = c[1][0]
+                if 3 in c:
+                    av = pb_parse(c[3][0])
+                    if av.get(1, [0])[0] == 3 or 4 in av:
+                        self.ch_video = cid
+                elif 4 in c:
+                    self.ch_input = cid
+                elif 2 in c:
+                    self.ch_sensor = cid
 
     def log(self, *a):
         print("[hu %6.2f]" % (time.time() - self.t0), *a, flush=True)
@@ -236,7 +251,7 @@ class HeadUnit:
             elif msg_id == SD_REQUEST:
                 f = pb_parse(p)
                 self.log("service discovery from", f.get(4, [b"?"])[0].decode(), "/", f.get(5, [b"?"])[0].decode())
-                self.send(CH_CONTROL, SD_RESPONSE, self.sd_response())
+                self.send(CH_CONTROL, SD_RESPONSE, self.discovery or self.sd_response())
             elif msg_id == PING_RESPONSE:
                 self.pongs += 1
             elif msg_id == SHUTDOWN_REQUEST:
@@ -256,12 +271,20 @@ class HeadUnit:
             self.opened.append(ch)
             self.send(ch, CH_OPEN_RESPONSE, f_varint(1, 0), control=True)
             return
-        if ch == CH_VIDEO:
+        if ch == self.ch_video:
             self.handle_video(msg_id, p)
-        elif ch == CH_INPUT and msg_id == BINDING_REQ:
+        elif msg_id == AV_SETUP_REQ:
+            # audio channel: accept PCM setup like a car does
+            self.send(ch, AV_SETUP_RESP, f_varint(1, 2) + f_varint(2, 4) + f_varint(3, 0))
+            self.audio_setups += 1
+        elif msg_id == 0x8001 and ch == CH_BT:
+            f = pb_parse(p)
+            self.log("bluetooth pairing request from", f.get(1, [b"?"])[0].decode(), "method", f.get(2, [0])[0])
+            self.send(ch, 0x8002, f_varint(1, 0) + f_varint(2, 1))
+        elif ch == self.ch_input and msg_id == BINDING_REQ:
             self.send(ch, BINDING_RESP, f_varint(1, 0))
             self.touch_ready = True
-        elif ch == CH_SENSOR and msg_id == SENSOR_START_REQ:
+        elif ch == self.ch_sensor and msg_id == SENSOR_START_REQ:
             f = pb_parse(p)
             self.send(ch, SENSOR_START_RESP, f_varint(1, 0))
             if f[1][0] == 13:
@@ -273,13 +296,13 @@ class HeadUnit:
 
     def handle_video(self, msg_id, p):
         if msg_id == AV_SETUP_REQ:
-            self.send(CH_VIDEO, AV_SETUP_RESP, f_varint(1, 2) + f_varint(2, 1) + f_varint(3, 0))
+            self.send(self.ch_video, AV_SETUP_RESP, f_varint(1, 2) + f_varint(2, 1) + f_varint(3, 0))
         elif msg_id == AV_START:
             f = pb_parse(p)
             self.session = f.get(1, [0])[0]
             self.log("video start, session", self.session)
         elif msg_id == VIDEO_FOCUS_REQ:
-            self.send(CH_VIDEO, VIDEO_FOCUS_IND, f_varint(1, 1) + f_varint(2, 0))
+            self.send(self.ch_video, VIDEO_FOCUS_IND, f_varint(1, 1) + f_varint(2, 0))
             self.focus_at = time.time()
         elif msg_id in (AV_MEDIA, AV_MEDIA_TS):
             data = p if msg_id == AV_MEDIA else p[8:]
@@ -290,7 +313,7 @@ class HeadUnit:
             self.video_bytes += len(data)
             if self.out and not self.out.closed:
                 self.out.write(data)
-            self.send(CH_VIDEO, AV_ACK, f_varint(1, self.session or 0) + f_varint(2, 1))
+            self.send(self.ch_video, AV_ACK, f_varint(1, self.session or 0) + f_varint(2, 1))
         elif msg_id == AV_STOP:
             self.log("video stop")
         else:
@@ -305,7 +328,11 @@ class HeadUnit:
         sensor = f_varint(1, CH_SENSOR) + f_bytes(2, f_bytes(1, f_varint(1, 13)) + f_bytes(1, f_varint(1, 10)))
         acfg = f_varint(1, 48000) + f_varint(2, 16) + f_varint(3, 2)
         audio = f_varint(1, CH_MEDIA_AUDIO) + f_bytes(3, f_varint(1, 1) + f_varint(2, 3) + f_bytes(3, acfg))
-        body = b"".join(f_bytes(1, c) for c in (audio, video, inp, sensor))
+        speech = f_varint(1, 5) + f_bytes(3, f_varint(1, 1) + f_varint(2, 1) +
+                                          f_bytes(3, f_varint(1, 16000) + f_varint(2, 16) + f_varint(3, 1)))
+        mic = f_varint(1, 7) + f_bytes(5, f_varint(1, 1) + f_bytes(2, f_varint(1, 16000) + f_varint(2, 16) + f_varint(3, 1)))
+        bt = f_varint(1, CH_BT) + f_bytes(6, f_bytes(1, "AA:BB:CC:DD:EE:FF") + f_bytes(2, varint(2) + varint(4)))
+        body = b"".join(f_bytes(1, c) for c in (audio, speech, video, inp, sensor, mic, bt))
         body += f_bytes(2, "OpenAuto") + f_bytes(3, "Universal") + f_bytes(4, "2018") + f_bytes(5, "20180301")
         body += f_varint(6, 1) + f_bytes(7, "f1x") + f_bytes(8, "OpenAuto Autoapp") + f_bytes(9, "1") + f_bytes(10, "1.0")
         body += f_varint(11, 0) + f_varint(12, 0)
@@ -314,7 +341,7 @@ class HeadUnit:
     def touch(self, action, x, y):
         loc = f_varint(1, x) + f_varint(2, y) + f_varint(3, 0)
         ev = f_bytes(1, loc) + f_varint(2, 0) + f_varint(3, action)
-        self.send(CH_INPUT, INPUT_EVENT, f_varint(1, int(time.time() * 1e6)) + f_bytes(3, ev))
+        self.send(self.ch_input, INPUT_EVENT, f_varint(1, int(time.time() * 1e6)) + f_bytes(3, ev))
 
     def tap(self, x, y, drag_to=None):
         self.touch(0, x, y)
@@ -335,6 +362,8 @@ def main():
     ap.add_argument("--out", help="write the received H.264 stream here")
     ap.add_argument("--ping", type=float, default=2.0, help="ping interval (OpenAuto: 5 s)")
     ap.add_argument("--night", action="store_true")
+    ap.add_argument("--discovery", help="replay a ServiceDiscoveryResponse recorded by SailAuto "
+                    "(discovery.bin from ~/Documents/SailAuto/<session>/) instead of the built-in one")
     ap.add_argument("--tap", action="append", default=[],
                     help="x,y[@seconds] tap on the 800x480 car screen, e.g. 300,250@3")
     args = ap.parse_args()
@@ -362,6 +391,7 @@ def main():
         hu.out.close()
     print("---")
     print("channels opened : %s" % hu.opened)
+    print("audio setups    : %d" % hu.audio_setups)
     print("codec config msgs: %d" % hu.config_msgs)
     print("video frames    : %d (%.1f fps)" % (hu.frames, hu.frames / elapsed if elapsed > 0 else 0))
     print("video bytes     : %d" % hu.video_bytes)

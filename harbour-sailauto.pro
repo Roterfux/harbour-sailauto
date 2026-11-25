@@ -1,5 +1,5 @@
 TARGET = harbour-sailauto
-QT += network quick qml
+QT += network quick qml dbus
 CONFIG += c++14 link_pkgconfig
 
 include(third_party/openh264/openh264.pri)
@@ -42,6 +42,7 @@ HEADERS += \
     src/aap/cryptor.h \
     src/aap/session.h \
     src/aap/usbaccessory.h \
+    src/aap/trace.h \
     src/video/carscreen.h \
     src/video/h264encoder.h \
     src/video/pcmh264.h \
@@ -53,6 +54,7 @@ SOURCES += \
     src/aap/cryptor.cpp \
     src/aap/session.cpp \
     src/aap/usbaccessory.cpp \
+    src/aap/trace.cpp \
     src/video/carscreen.cpp \
     src/video/h264encoder.cpp \
     src/video/pcmh264.cpp \
@@ -67,4 +69,5 @@ DISTFILES += \
     qml/cover/CoverPage.qml \
     rpm/harbour-sailauto.spec \
     tools/hu_sim.py \
-    tools/aoa-gadget.sh
+    tools/aoa-gadget.sh \
+    tools/aap_trace.py

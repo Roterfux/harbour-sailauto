@@ -171,6 +171,33 @@ Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
 (`usbipd attach --wsl --auto-attach --busid <id>`) und `autoapp` mit
 `sudo -E` starten (libusb braucht Rechte).
 
+## Diagnose ohne Auto
+
+Jede Sitzung (WLAN oder USB) wird aufgezeichnet in
+`~/Documents/SailAuto/<Datum-Uhrzeit>/`:
+
+| Datei | Inhalt |
+|---|---|
+| `log.txt` | alles lesbar: jede Nachricht beider Richtungen mit Namen und dekodiertem Inhalt, TLS-Details (Version, Cipher, Zertifikat des Autos), Fehler, „HÄNGT“-Warnungen nach 10 s ohne Fortschritt, Zusammenfassung am Ende |
+| `trace.bin` | alle Nachrichten roh (ausgehendes Video gekürzt) |
+| `discovery.bin` / `.txt` | was das Auto anbietet (Kanäle, Audio-Formate, Bluetooth, Hersteller) |
+
+Am PC auswerten bzw. das Auto nachspielen:
+
+```bash
+python3 tools/aap_trace.py ~/Documents/SailAuto/<Sitzung>/trace.bin
+```
+
+```bash
+python3 tools/hu_sim.py --discovery discovery.bin --seconds 10
+```
+
+Holen vom Telefon (WLAN, SSH an):
+
+```bash
+scp -r defaultuser@<telefon-ip>:Documents/SailAuto ./sailauto-logs
+```
+
 ## Zertifikat
 
 - Ohne Dateien: selbstsigniertes Dev-Zertifikat (OpenAuto prüft das Telefon nicht).

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "aap/session.h"
+#include "aap/trace.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -32,6 +33,7 @@ class Controller : public QObject
     Q_PROPERTY(double fps READ fps NOTIFY statsChanged)
     Q_PROPERTY(double kbps READ kbps NOTIFY statsChanged)
     Q_PROPERTY(bool usbActive READ usbActive NOTIFY listeningChanged)
+    Q_PROPERTY(QString traceDir READ traceDir NOTIFY statusChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -47,6 +49,7 @@ public:
 
     bool listening() const { return m_server.isListening(); }
     bool usbActive() const { return m_usbWanted; }
+    QString traceDir() const { return m_lastTraceDir; }
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
     QString status() const { return m_status; }
@@ -71,6 +74,7 @@ private:
     void tryOpenUsb();
     bool requestAoa(const QString &cmd);
     QString aoaState() const;
+    QString phoneBluetoothAddress() const;
     void onSessionState(aap::Session::State s);
     void onVideoStart(const aap::VideoConfig &cfg);
     void onVideoStop();
@@ -91,6 +95,8 @@ private:
     bool m_aoaReported = false;
     QElapsedTimer m_aoaWait;
     aap::Session *m_session = nullptr;
+    aap::Trace *m_trace = nullptr;
+    QString m_traceBase, m_lastTraceDir;
     CarScreen m_screen;
     H264Encoder m_encoder;
     QTimer m_frameTimer;

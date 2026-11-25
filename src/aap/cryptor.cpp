@@ -137,6 +137,8 @@ bool Cryptor::init(const QString &certPath, const QString &keyPath, QString *err
     m_wbio = BIO_new(BIO_s_mem());
     SSL_set_bio(m_ssl, m_rbio, m_wbio);
     SSL_set_accept_state(m_ssl);
+    // Ask for the HU's certificate (only to log it; never rejected).
+    SSL_set_verify(m_ssl, SSL_VERIFY_PEER, [](int, X509_STORE_CTX *) { return 1; });
     return true;
 }
 
@@ -154,11 +156,17 @@ QByteArray Cryptor::handshake(const QByteArray &in)
 {
     if (!in.isEmpty())
         BIO_write(m_rbio, in.constData(), in.size());
+    m_handshakeError.clear();
     int r = SSL_do_handshake(m_ssl);
     if (r != 1) {
         int e = SSL_get_error(m_ssl, r);
-        if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE)
-            qWarning("[aap] TLS handshake error %d: %s", e, qPrintable(opensslErrors()));
+        if (e != SSL_ERROR_WANT_READ && e != SSL_ERROR_WANT_WRITE) {
+            m_handshakeError = QStringLiteral("SSL-Fehler %1 im Schritt \"%2\": %3")
+                                   .arg(e)
+                                   .arg(QString::fromLatin1(SSL_state_string_long(m_ssl)))
+                                   .arg(opensslErrors());
+            qWarning("[aap] TLS handshake error: %s", qPrintable(m_handshakeError));
+        }
     }
     return drainWriteBio();
 }
@@ -199,6 +207,25 @@ QByteArray Cryptor::decrypt(const QByteArray &cipher, bool *ok)
         break;
     }
     return out;
+}
+
+QString Cryptor::sessionInfo() const
+{
+    if (!m_ssl) return QString();
+    QString info = QStringLiteral("%1, %2").arg(QString::fromLatin1(SSL_get_version(m_ssl)),
+                                                QString::fromLatin1(SSL_get_cipher_name(m_ssl)));
+    X509 *peer = SSL_get_peer_certificate(m_ssl);
+    if (peer) {
+        char buf[512];
+        X509_NAME_oneline(X509_get_subject_name(peer), buf, sizeof(buf));
+        info += QStringLiteral(", Auto-Zertifikat: ") + QString::fromUtf8(buf);
+        X509_NAME_oneline(X509_get_issuer_name(peer), buf, sizeof(buf));
+        info += QStringLiteral(" (ausgestellt von ") + QString::fromUtf8(buf) + QLatin1Char(')');
+        X509_free(peer);
+    } else {
+        info += QStringLiteral(", Auto schickt kein Zertifikat");
+    }
+    return info;
 }
 
 QString Cryptor::lastError() const

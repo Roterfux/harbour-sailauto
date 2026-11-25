@@ -64,6 +64,11 @@ Page {
                 visible: controller.streaming
             }
             DetailItem {
+                label: qsTr("Diagnose")
+                value: controller.traceDir
+                visible: controller.traceDir !== ""
+            }
+            DetailItem {
                 label: qsTr("Zertifikat")
                 value: controller.customCert ? qsTr("eigenes") : qsTr("Entwickler (selbstsigniert)")
             }

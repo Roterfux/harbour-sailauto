@@ -16,6 +16,11 @@ Page {
                 onClicked: controller.clearLog()
             }
             MenuItem {
+                visible: controller.traceDir !== ""
+                text: qsTr("Diagnose-Ordner kopieren")
+                onClicked: Clipboard.text = controller.traceDir
+            }
+            MenuItem {
                 text: qsTr("In Zwischenablage kopieren")
                 onClicked: Clipboard.text = controller.logLines.join("\n")
             }

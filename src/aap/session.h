@@ -15,12 +15,14 @@
 
 #include "cryptor.h"
 #include "protocol.h"
+#include "trace.h"
 
 #include <QByteArray>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
 #include <QTimer>
+#include <QElapsedTimer>
 
 class QIODevice;
 
@@ -49,6 +51,11 @@ public:
             QObject *parent = nullptr);
 
     bool start(QString *error);
+    // Optional recorder (owned by the caller), see trace.h.
+    void setTrace(Trace *trace) { m_trace = trace; }
+    // Phone Bluetooth address for the car's pairing (empty = skip).
+    void setPhoneBluetoothAddress(const QString &a) { m_phoneBt = a; }
+    QString summary() const;
     State state() const { return m_state; }
     QString headUnitName() const { return m_huName; }
     VideoConfig videoConfig() const { return m_video; }
@@ -89,6 +96,8 @@ private:
     void handleVideo(quint16 id, const QByteArray &payload);
     void handleInput(quint16 id, const QByteArray &payload);
     void handleSensor(quint16 id, const QByteArray &payload);
+    void handleAudio(quint8 channel, quint16 id, const QByteArray &payload);
+    void handleBluetooth(quint16 id, const QByteArray &payload);
     void handleServiceDiscovery(const QByteArray &payload);
     void onChannelOpened(quint8 channel, bool ok);
 
@@ -109,6 +118,17 @@ private:
     int m_inputChannel = -1;
     int m_sensorChannel = -1;
     int m_pendingOpens = 0;
+    // Every channel the HU offered: id -> kind; audio channels -> stream type
+    QHash<int, Trace::Kind> m_kinds;
+    QHash<int, int> m_audioType;
+    QString m_carBt;
+    QList<int> m_btMethods;
+    QString m_phoneBt;
+    Trace *m_trace = nullptr;
+    QTimer m_watchdog;       // logs when the handshake hangs in one state
+    qint64 m_txTotal = 0;
+    int m_framesSent = 0;
+    QElapsedTimer m_age;
     bool m_touchInVideoSpace = false;
 
     int m_videoSession = 1;

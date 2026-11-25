@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QIODevice>
 #include <QtEndian>
+#include <algorithm>
 
 namespace aap {
 
@@ -41,6 +42,16 @@ Session::Session(QIODevice *transport, const QString &certPath, const QString &k
 
     // OpenAuto only sends VIDEO_FOCUS_INDICATION when asked. If a head unit
     // never answers, start streaming anyway after a short grace period.
+    // Watchdog: report when the setup hangs in one state (key info when
+    // testing against an unknown car).
+    m_watchdog.setInterval(10000);
+    connect(&m_watchdog, &QTimer::timeout, this, [this]() {
+        if (m_state == Streaming || m_state == Closed || m_state == Idle) return;
+        static const char *names[] = {"Idle", "Versioning", "Handshaking", "Discovering", "OpeningChannels", "Streaming", "Closed"};
+        emit log(QStringLiteral("HÄNGT: seit 10 s im Zustand %1 (offene Kanalanfragen: %2)")
+                     .arg(QLatin1String(names[m_state])).arg(m_pendingOpens));
+    });
+
     // OpenAuto speaks first. Say so if it stays silent.
     m_silence.setSingleShot(true);
     m_silence.setInterval(5000);
@@ -64,6 +75,7 @@ bool Session::start(QString *error)
 {
     if (!m_crypto.init(m_certPath, m_keyPath, error))
         return false;
+    m_age.start();
     emit log(QStringLiteral("TLS: ") + m_crypto.certificateInfo());
     setState(Versioning);
     emit log(QStringLiteral("Warte auf VERSION_REQUEST der Head Unit"));
@@ -77,6 +89,7 @@ void Session::setState(State s)
 {
     if (m_state == s) return;
     m_state = s;
+    m_watchdog.start();
     emit stateChanged(s);
 }
 
@@ -84,7 +97,9 @@ void Session::fail(const QString &reason)
 {
     if (m_state == Closed) return;
     m_silence.stop();
+    m_watchdog.stop();
     emit log(QStringLiteral("Fehler: ") + reason);
+    emit log(summary());
     setState(Closed);
     if (m_videoFocused) emit videoStop();
     m_videoFocused = false;
@@ -205,16 +220,22 @@ void Session::send(quint8 channel, quint16 id, const QByteArray &payload, bool e
     quint8 flags = 0;
     if (encrypted) flags |= Encrypted;
     if (controlType) flags |= MsgControl;
+    if (m_trace) m_trace->message(true, channel, flags, id, payload);
+    m_txTotal += payload.size() + 2;
     sendRaw(channel, flags, u16(id) + payload);
 }
 
 // ---------------------------------------------------------------- dispatch
 
-void Session::handleMessage(quint8 channel, quint8 /*flags*/, const QByteArray &msg)
+void Session::handleMessage(quint8 channel, quint8 flags, const QByteArray &msg)
 {
-    if (msg.size() < 2) return;
+    if (msg.size() < 2) {
+        emit log(QStringLiteral("Zu kurze Nachricht auf Kanal %1 (%2 B)").arg(channel).arg(msg.size()));
+        return;
+    }
     const quint16 id = be16(msg, 0);
     const QByteArray payload = msg.mid(2);
+    if (m_trace) m_trace->message(false, channel, flags, id, payload);
 
     if (channel == ChControl) {
         handleControl(id, payload);
@@ -225,10 +246,25 @@ void Session::handleMessage(quint8 channel, quint8 /*flags*/, const QByteArray &
         onChannelOpened(channel, r.number(1, 1) == 0);
         return;
     }
-    if (channel == m_videoChannel) handleVideo(id, payload);
-    else if (channel == m_inputChannel) handleInput(id, payload);
-    else if (channel == m_sensorChannel) handleSensor(id, payload);
-    else emit log(QStringLiteral("Nachricht 0x%1 auf unbenutztem Kanal %2").arg(id, 4, 16, QChar('0')).arg(channel));
+    switch (m_kinds.value(channel, Trace::Other)) {
+    case Trace::Video: handleVideo(id, payload); break;
+    case Trace::Input: handleInput(id, payload); break;
+    case Trace::Sensor: handleSensor(id, payload); break;
+    case Trace::Audio: handleAudio(channel, id, payload); break;
+    case Trace::Bluetooth: handleBluetooth(id, payload); break;
+    case Trace::Mic:
+    case Trace::Playback:
+    case Trace::Navigation:
+    case Trace::Phone:
+        // Opened so the car sees a complete phone; content not used yet.
+        emit log(QStringLiteral("Info vom Auto: %1 %2")
+                     .arg(m_trace ? m_trace->messageName(channel, id) : QString::number(id, 16),
+                          Trace::dump(payload)));
+        break;
+    default:
+        emit log(QStringLiteral("Nachricht 0x%1 auf unbekanntem Kanal %2: %3")
+                     .arg(id, 4, 16, QChar('0')).arg(channel).arg(Trace::dump(payload)));
+    }
 }
 
 void Session::handleControl(quint16 id, const QByteArray &payload)
@@ -245,10 +281,12 @@ void Session::handleControl(quint16 id, const QByteArray &payload)
     }
     case ctrl::SslHandshake: {
         QByteArray out = m_crypto.handshake(payload);
+        if (!m_crypto.handshakeError().isEmpty())
+            emit log(QStringLiteral("TLS-FEHLER: ") + m_crypto.handshakeError());
         if (!out.isEmpty())
             send(ChControl, ctrl::SslHandshake, out, false);
         if (m_crypto.handshakeDone())
-            emit log(QStringLiteral("TLS-Handshake fertig"));
+            emit log(QStringLiteral("TLS-Handshake fertig: ") + m_crypto.sessionInfo());
         break;
     }
     case ctrl::AuthComplete: {
@@ -289,11 +327,22 @@ void Session::handleControl(quint16 id, const QByteArray &payload)
     case ctrl::ShutdownResponse:
         fail(QStringLiteral("Sitzung beendet"));
         break;
-    case ctrl::AudioFocusResponse:
-    case ctrl::NavFocusResponse:
+    case ctrl::AudioFocusResponse: // AUDIO_FOCUS_NOTIFICATION
+    case ctrl::NavFocusResponse:   // NAV_FOCUS_NOTIFICATION
+    case 9:  // CHANNEL_CLOSE_NOTIFICATION
+    case 17: // VOICE_SESSION_NOTIFICATION
+    case 20: case 21: case 22: case 23: case 24: case 25: case 26:
+        emit log(QStringLiteral("Auto meldet: %1 %2")
+                     .arg(m_trace ? m_trace->messageName(0, id) : QString::number(id), Trace::dump(payload)));
+        break;
+    case 255:
+        emit log(QStringLiteral("AUTO MELDET FEHLER: unerwartete Nachricht (UNEXPECTED_MESSAGE) %1").arg(Trace::dump(payload)));
+        break;
+    case 0xffff:
+        emit log(QStringLiteral("AUTO MELDET FEHLER: Framing-Fehler %1").arg(Trace::dump(payload)));
         break;
     default:
-        emit log(QStringLiteral("Unbekannte Steuernachricht 0x%1").arg(id, 4, 16, QChar('0')));
+        emit log(QStringLiteral("Unbekannte Steuernachricht 0x%1: %2").arg(id, 4, 16, QChar('0')).arg(Trace::dump(payload)));
     }
 }
 
@@ -320,34 +369,102 @@ void Session::handleServiceDiscovery(const QByteArray &payload)
     else if (forced == "1") m_touchInVideoSpace = false;
     if (m_touchInVideoSpace) emit log(QStringLiteral("Touch-Koordinaten kommen bereits in Videogröße (OpenAuto)"));
 
+    if (m_trace) m_trace->discovery(payload);
+    static const char *kindNames[] = {"Steuerung", "Video", "Audio", "Touch/Tasten", "Sensoren", "Mikrofon",
+                                      "Bluetooth", "Musikstatus", "Navigationsstatus", "Telefonstatus", "anderes"};
     for (const pb::Value &cv : r.all(1)) {
         pb::Reader ch(cv.bytes);
         const int id = static_cast<int>(ch.number(1));
+        Trace::Kind kind = Trace::Other;
+        QString detail;
         if (ch.has(3)) {
             pb::Reader av(ch.bytes(3));
-            if (av.number(1) == 3 /* VIDEO */ && m_videoChannel < 0) {
-                m_videoChannel = id;
-                QList<pb::Value> cfgs = av.all(4);
-                if (!cfgs.isEmpty()) {
-                    pb::Reader vc(cfgs.first().bytes);
-                    resolutionSize(static_cast<int>(vc.number(1, 1)), m_video.width, m_video.height);
-                    m_video.fps = vc.number(2, 1) == 2 ? 60 : 30;
-                    m_video.marginWidth = static_cast<int>(vc.number(3));
-                    m_video.marginHeight = static_cast<int>(vc.number(4));
-                    m_video.dpi = static_cast<int>(vc.number(5, 140));
+            // old: stream_type VIDEO=3 / new: codec H264_BP=3; video configs in field 4
+            if (av.number(1) == 3 || av.has(4)) {
+                kind = Trace::Video;
+                if (m_videoChannel < 0) {
+                    m_videoChannel = id;
+                    QList<pb::Value> cfgs = av.all(4);
+                    if (!cfgs.isEmpty()) {
+                        pb::Reader vc(cfgs.first().bytes);
+                        resolutionSize(static_cast<int>(vc.number(1, 1)), m_video.width, m_video.height);
+                        m_video.fps = vc.number(2, 1) == 2 ? 60 : 30;
+                        m_video.marginWidth = static_cast<int>(vc.number(3));
+                        m_video.marginHeight = static_cast<int>(vc.number(4));
+                        m_video.dpi = static_cast<int>(vc.number(5, 140));
+                    }
+                    detail = QStringLiteral("%1 Konfiguration(en)").arg(cfgs.size());
+                } else {
+                    detail = QStringLiteral("zweites Display, nicht benutzt");
+                    kind = Trace::Other;
+                }
+            } else {
+                kind = Trace::Audio;
+                const int type = static_cast<int>(av.number(2));
+                m_audioType[id] = type;
+                static const char *types[] = {"?", "Ansagen", "System", "Medien", "Telefon"};
+                detail = QLatin1String(type >= 0 && type <= 4 ? types[type] : "?");
+                for (const pb::Value &ac : av.all(3)) {
+                    pb::Reader a(ac.bytes);
+                    detail += QStringLiteral(" %1Hz/%2bit/%3ch").arg(a.number(1)).arg(a.number(2)).arg(a.number(3));
                 }
             }
-        } else if (ch.has(4) && m_inputChannel < 0) {
-            m_inputChannel = id;
-            pb::Reader in(ch.bytes(4));
-            if (in.has(2)) {
-                pb::Reader tc(in.bytes(2));
-                m_video.touchWidth = static_cast<int>(tc.number(1, 800));
-                m_video.touchHeight = static_cast<int>(tc.number(2, 480));
+        } else if (ch.has(4)) {
+            kind = Trace::Input;
+            if (m_inputChannel < 0) {
+                m_inputChannel = id;
+                pb::Reader in(ch.bytes(4));
+                if (in.has(2)) {
+                    pb::Reader tc(in.bytes(2));
+                    m_video.touchWidth = static_cast<int>(tc.number(1, 800));
+                    m_video.touchHeight = static_cast<int>(tc.number(2, 480));
+                }
+                detail = QStringLiteral("%1 Tasten").arg(in.all(1).size());
             }
-        } else if (ch.has(2) && m_sensorChannel < 0) {
-            m_sensorChannel = id;
+        } else if (ch.has(2)) {
+            kind = Trace::Sensor;
+            if (m_sensorChannel < 0) m_sensorChannel = id;
+            pb::Reader se(ch.bytes(2));
+            QStringList types;
+            for (const pb::Value &sv : se.all(1)) types << QString::number(pb::Reader(sv.bytes).number(1));
+            detail = QStringLiteral("Typen ") + types.join(QLatin1Char(','));
+        } else if (ch.has(5)) {
+            kind = Trace::Mic;
+        } else if (ch.has(6)) {
+            kind = Trace::Bluetooth;
+            pb::Reader bt(ch.bytes(6));
+            m_carBt = bt.string(1);
+            m_btMethods.clear();
+            for (const pb::Value &mv : bt.all(2)) {
+                if (mv.type == pb::Varint) m_btMethods << static_cast<int>(static_cast<qint64>(mv.number));
+                else { // packed
+                    int pos = 0;
+                    while (pos < mv.bytes.size()) {
+                        quint64 v = 0; int shift = 0;
+                        while (pos < mv.bytes.size()) {
+                            const quint8 b = static_cast<quint8>(mv.bytes[pos++]);
+                            v |= static_cast<quint64>(b & 0x7f) << shift; shift += 7;
+                            if (!(b & 0x80)) break;
+                        }
+                        m_btMethods << static_cast<int>(static_cast<qint64>(v));
+                    }
+                }
+            }
+            detail = QStringLiteral("Auto %1, Methoden %2").arg(m_carBt).arg(m_btMethods.size());
+        } else if (ch.has(8)) {
+            kind = Trace::Navigation;
+        } else if (ch.has(9)) {
+            kind = Trace::Playback;
+        } else if (ch.has(10)) {
+            kind = Trace::Phone;
+        } else {
+            int f = 0;
+            for (int k = 2; k <= 20; ++k) if (ch.has(k)) { f = k; break; }
+            detail = QStringLiteral("unbekannter Dienst (Feld %1)").arg(f);
         }
+        m_kinds[id] = kind;
+        if (m_trace) m_trace->setKind(id, kind);
+        emit log(QStringLiteral("Dienst %1: %2 %3").arg(id).arg(QLatin1String(kindNames[kind])).arg(detail));
     }
 
     emit log(QStringLiteral("Video %1x%2@%3 (Rand %4x%5, %6 dpi), Touch %7x%8")
@@ -361,8 +478,28 @@ void Session::handleServiceDiscovery(const QByteArray &payload)
     }
 
     setState(OpeningChannels);
-    for (int ch : {m_videoChannel, m_inputChannel, m_sensorChannel}) {
-        if (ch < 0) continue;
+    QList<int> toOpen;
+    for (auto it = m_kinds.constBegin(); it != m_kinds.constEnd(); ++it) {
+        switch (it.value()) {
+        case Trace::Video:
+            if (it.key() == m_videoChannel) toOpen << it.key();
+            break;
+        case Trace::Input:
+            if (it.key() == m_inputChannel) toOpen << it.key();
+            break;
+        case Trace::Sensor:
+            if (it.key() == m_sensorChannel) toOpen << it.key();
+            break;
+        case Trace::Audio: case Trace::Mic: case Trace::Bluetooth:
+        case Trace::Playback: case Trace::Navigation: case Trace::Phone:
+            toOpen << it.key();
+            break;
+        default:
+            break;
+        }
+    }
+    std::sort(toOpen.begin(), toOpen.end());
+    for (int ch : toOpen) {
         pb::Writer w;
         w.sint(1, 0).sint(2, ch);
         send(static_cast<quint8>(ch), ctrl::ChannelOpenRequest, w.data(), true, true);
@@ -378,9 +515,31 @@ void Session::onChannelOpened(quint8 channel, bool ok)
         if (channel == m_videoChannel) fail(QStringLiteral("Videokanal abgelehnt"));
         return;
     }
+    if (m_pendingOpens == 0)
+        emit log(QStringLiteral("Alle Kanäle beantwortet"));
+    const Trace::Kind kind = m_kinds.value(channel, Trace::Other);
+    if (kind == Trace::Audio) {
+        pb::Writer w;
+        w.varint(1, 1); // MEDIA_CODEC_AUDIO_PCM
+        send(channel, av::SetupRequest, w.data(), true);
+        return;
+    }
+    if (kind == Trace::Bluetooth) {
+        if (m_phoneBt.isEmpty()) {
+            emit log(QStringLiteral("Bluetooth: Telefonadresse unbekannt, keine Kopplungsanfrage"));
+            return;
+        }
+        // Prefer numeric comparison (2), else whatever the car lists first.
+        int method = m_btMethods.contains(2) ? 2 : (m_btMethods.isEmpty() ? 2 : m_btMethods.first());
+        pb::Writer w;
+        w.string(1, m_phoneBt).sint(2, method);
+        send(channel, 0x8001 /* PAIRING_REQUEST */, w.data(), true);
+        emit log(QStringLiteral("Bluetooth: Kopplungsanfrage %1 -> Auto %2 (Methode %3)").arg(m_phoneBt, m_carBt).arg(method));
+        return;
+    }
     if (channel == m_videoChannel) {
         pb::Writer w;
-        w.varint(1, 3); // config_index (Android sends the stream type here)
+        w.varint(1, 3); // MEDIA_CODEC_VIDEO_H264_BP
         send(channel, av::SetupRequest, w.data(), true);
     } else if (channel == m_inputChannel) {
         send(channel, input::BindingRequest, QByteArray(), true); // no hardware keys
@@ -497,6 +656,7 @@ void Session::sendVideoFrame(const QByteArray &accessUnit, quint64 timestampUs)
     if (m_state != Streaming) return;
     send(static_cast<quint8>(m_videoChannel), av::MediaWithTimestamp, u64(timestampUs) + accessUnit, true);
     ++m_unacked;
+    ++m_framesSent;
 }
 
 void Session::requestShutdown()
@@ -509,6 +669,45 @@ void Session::requestShutdown()
     w.varint(1, 1 /* QUIT */);
     send(ChControl, ctrl::ShutdownRequest, w.data(), true);
     QTimer::singleShot(1000, this, [this]() { fail(QStringLiteral("Sitzung beendet")); });
+}
+
+void Session::handleAudio(quint8 channel, quint16 id, const QByteArray &payload)
+{
+    pb::Reader r(payload);
+    if (id == av::SetupResponse) { // CONFIG
+        const bool ok = r.number(1) == 2;
+        emit log(QStringLiteral("Audio-Kanal %1 (Typ %2): Setup %3, max. %4 offen")
+                     .arg(channel).arg(m_audioType.value(channel)).arg(ok ? QStringLiteral("ok") : QStringLiteral("ABGELEHNT"))
+                     .arg(r.number(2)));
+        return;
+    }
+    if (id == av::MediaAck) return;
+    emit log(QStringLiteral("Audio-Kanal %1: Nachricht 0x%2 %3").arg(channel).arg(id, 4, 16, QChar('0')).arg(Trace::dump(payload)));
+}
+
+void Session::handleBluetooth(quint16 id, const QByteArray &payload)
+{
+    pb::Reader r(payload);
+    if (id == 0x8002) { // PAIRING_RESPONSE
+        emit log(QStringLiteral("Bluetooth: Antwort Status %1, schon gekoppelt: %2")
+                     .arg(static_cast<qint64>(r.number(1))).arg(r.boolean(2) ? QStringLiteral("ja") : QStringLiteral("nein")));
+        return;
+    }
+    if (id == 0x8003) {
+        emit log(QStringLiteral("Bluetooth: Auto schickt Kopplungsdaten %1 (bitte am Telefon bestätigen, falls gefragt)")
+                     .arg(Trace::dump(payload)));
+        return;
+    }
+    emit log(QStringLiteral("Bluetooth: Nachricht 0x%1 %2").arg(id, 4, 16, QChar('0')).arg(Trace::dump(payload)));
+}
+
+QString Session::summary() const
+{
+    static const char *names[] = {"Idle", "Versioning", "Handshaking", "Discovering", "OpeningChannels", "Streaming", "Closed"};
+    return QStringLiteral("Zusammenfassung: Dauer %1 s, Zustand %2, empfangen %3 B, gesendet %4 B, Videoframes %5, "
+                          "offene Kanalanfragen %6")
+        .arg(m_age.isValid() ? m_age.elapsed() / 1000.0 : 0.0, 0, 'f', 1)
+        .arg(QLatin1String(names[m_state])).arg(m_rxTotal).arg(m_txTotal).arg(m_framesSent).arg(m_pendingOpens);
 }
 
 } // namespace aap

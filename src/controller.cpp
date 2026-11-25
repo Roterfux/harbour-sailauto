@@ -3,6 +3,11 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusArgument>
+#include <QDBusReply>
+#include <QDBusInterface>
 #include <QNetworkInterface>
 #include <QStandardPaths>
 #include <QTcpSocket>
@@ -19,6 +24,10 @@ Controller::Controller(QObject *parent) : QObject(parent)
     if (m_certDir.isEmpty())
         m_certDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(m_certDir);
+
+    m_traceBase = QString::fromLocal8Bit(qgetenv("SAILAUTO_TRACE_DIR"));
+    if (m_traceBase.isEmpty())
+        m_traceBase = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + QStringLiteral("/SailAuto");
 
     connect(&m_server, &QTcpServer::newConnection, this, &Controller::onNewConnection);
     connect(&m_frameTimer, &QTimer::timeout, this, &Controller::tick);
@@ -41,6 +50,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
 
 Controller::~Controller()
 {
+    delete m_trace;
     if (m_usbWanted && m_aoaRequested) requestAoa(QStringLiteral("off"));
     m_encoder.stop();
 }
@@ -207,10 +217,36 @@ void Controller::tryOpenUsb()
     attachTransport(dev, QStringLiteral("USB-Accessory geöffnet, warte auf Head Unit"));
 }
 
+QString Controller::phoneBluetoothAddress() const
+{
+    const QByteArray forced = qgetenv("SAILAUTO_BT_ADDRESS");
+    if (!forced.isEmpty()) return QString::fromLatin1(forced);
+    // BlueZ 5: first adapter's Address property.
+    QDBusInterface adapter(QStringLiteral("org.bluez"), QStringLiteral("/org/bluez/hci0"),
+                           QStringLiteral("org.bluez.Adapter1"), QDBusConnection::systemBus());
+    if (adapter.isValid()) {
+        const QString a = adapter.property("Address").toString();
+        if (!a.isEmpty()) return a;
+    }
+    QFile f(QStringLiteral("/sys/class/bluetooth/hci0/address"));
+    if (f.open(QIODevice::ReadOnly)) return QString::fromLatin1(f.readAll()).trimmed().toUpper();
+    return QString();
+}
+
 void Controller::attachTransport(QIODevice *io, const QString &label)
 {
     m_socket = io;
+    delete m_trace;
+    m_trace = new aap::Trace;
+    if (m_trace->open(m_traceBase)) {
+        m_lastTraceDir = m_trace->dir();
+    } else {
+        delete m_trace;
+        m_trace = nullptr;
+    }
     appendLog(label);
+    if (m_trace) appendLog(QStringLiteral("Diagnose-Aufzeichnung: ") + m_lastTraceDir);
+    else appendLog(QStringLiteral("Diagnose-Aufzeichnung nicht möglich in ") + m_traceBase);
 
     m_session = new aap::Session(io, m_certDir + QStringLiteral("/cert.pem"),
                                  m_certDir + QStringLiteral("/key.pem"), this);
@@ -225,6 +261,11 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
+    m_session->setTrace(m_trace);
+    const QString bt = phoneBluetoothAddress();
+    m_session->setPhoneBluetoothAddress(bt);
+    appendLog(QStringLiteral("Bluetooth-Adresse Telefon: %1").arg(bt.isEmpty() ? QStringLiteral("unbekannt") : bt));
+    appendLog(QStringLiteral("Zertifikat: %1").arg(customCert() ? QStringLiteral("eigenes") : QStringLiteral("Entwickler (selbstsigniert)")));
 
     QString err;
     if (!m_session->start(&err)) {
@@ -318,6 +359,7 @@ void Controller::onSessionClosed(const QString &reason)
 {
     if (!m_session) return;
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
+    if (m_session->state() != aap::Session::Closed) appendLog(m_session->summary());
     onVideoStop();
     m_session->disconnect(this);
     m_session->deleteLater();
@@ -329,6 +371,11 @@ void Controller::onSessionClosed(const QString &reason)
     }
     m_fps = m_kbps = 0;
     emit statsChanged();
+    if (m_trace) {
+        m_trace->text(QStringLiteral("--- Ende ---"));
+        delete m_trace;
+        m_trace = nullptr;
+    }
     setStatus(m_server.isListening() ? QStringLiteral("Warte auf Head Unit")
               : m_usbWanted ? QStringLiteral("Warte auf USB") : QStringLiteral("Bereit"));
     if (m_usbWanted) m_usbRetry.start(); // car may come back (ignition, replug)
@@ -338,6 +385,7 @@ void Controller::appendLog(const QString &line)
 {
     const QString l = QTime::currentTime().toString(QStringLiteral("HH:mm:ss ")) + line;
     qInfo("%s", qPrintable(l));
+    if (m_trace) m_trace->text(line);
     m_log.append(l);
     while (m_log.size() > 200) m_log.removeFirst();
     emit logChanged();
