@@ -101,7 +101,7 @@ void Session::onReadyRead()
     if (m_rxTotal == 0 && !chunk.isEmpty()) {
         m_silence.stop();
         emit log(QStringLiteral("Erste Daten von der Head Unit: %1 Bytes (%2)")
-                     .arg(chunk.size()).arg(QString::fromLatin1(chunk.left(8).toHex(' '))));
+                     .arg(chunk.size()).arg(QString::fromLatin1(chunk.left(8).toHex())));
     }
     m_rxTotal += chunk.size();
     m_rx.append(chunk);
