@@ -78,10 +78,52 @@ ffmpeg -i out.h264 -vf "select=eq(n\,120)" -frames:v 1 shot.png
 Ergebnis hier im Container: TLS 1.2, 3 Kanäle offen, ~31 fps, Pings
 beantwortet, Touch wechselt die Seite, Nachtmodus schaltet das Theme.
 
+## OpenAuto unter Windows (WSL2) – getestet
+
+Das Original `f1xpl/openauto` baut mit aktuellem Boost nicht mehr. Der
+gepflegte Fork `opencardev` (Crankshaft NG) baut auf Ubuntu 24.04 und
+funktioniert mit SailAuto (getestet: aasdk `9bf6adf`, openauto `4cc739b`,
+Video 800x480@60 und Touch).
+
+Windows 10/11, PowerShell als Admin:
+
+```powershell
+wsl --install -d Ubuntu-24.04
+```
+
+Danach im Ubuntu-Fenster:
+
+```bash
+sudo apt update && sudo apt install -y git build-essential cmake pkg-config libboost-all-dev libusb-1.0-0-dev libssl-dev libprotobuf-dev protobuf-compiler libabsl-dev qtbase5-dev qt5-qmake qtmultimedia5-dev libqt5multimedia5-plugins libqt5multimediawidgets5 qtconnectivity5-dev librtaudio-dev libpulse-dev libtag1-dev libblkid-dev libgps-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav
+```
+
+```bash
+git clone https://github.com/opencardev/aasdk && cd aasdk && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release .. && make -j$(nproc) && sudo make install && sudo ldconfig && cd ~
+```
+
+```bash
+git clone https://github.com/opencardev/openauto && cd openauto && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DNOPI=ON .. && make -j$(nproc) && cd ~
+```
+
+Starten (der Fork zeigt den WLAN-Knopf nur, wenn diese Datei existiert;
+`gateway_wlan0` trägt die IP vor und verbindet sofort):
+
+```bash
+touch /tmp/mobile_hotspot_detected && echo 192.168.1.23 > /tmp/gateway_wlan0
+```
+
+```bash
+~/openauto/build/bin/autoapp-*
+```
+
+Sicherheitshinweis „OK“ → Kachel oben links („WiFi“) → verbindet zu Port 5277.
+Ohne Telefon zuerst gegen den Linux-Build von SailAuto in derselben WSL
+testen: IP `127.0.0.1`.
+
 ## Testen mit OpenAuto
 
-1. OpenAuto auf Raspberry Pi oder Linux-PC bauen (f1xpl/openauto bzw.
-   OpenDsh / Crankshaft enthalten es fertig).
+1. OpenAuto auf Raspberry Pi, Linux-PC oder Windows/WSL2 (siehe oben)
+   bauen. Crankshaft-NG-Images enthalten es fertig.
 2. Telefon und OpenAuto ins selbe WLAN (oder Pi in den Hotspot des Telefons).
 3. Auf dem Telefon SailAuto öffnen, Schalter „Auf Head Unit warten“ an.
 4. In OpenAuto „Wireless“ / „Connect to device“ → IP aus der App eingeben.
