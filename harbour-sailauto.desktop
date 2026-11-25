@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=SailAuto
+Comment=Android-Auto-Projektion zu OpenAuto
+Icon=harbour-sailauto
+Exec=harbour-sailauto
+X-Nemo-Application-Type=silica-qt5
+X-Nemo-Single-Instance=yes
+
+[X-Sailjail]
+Permissions=Internet
+OrganizationName=org.roterfux
+ApplicationName=harbour-sailauto

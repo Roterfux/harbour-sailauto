@@ -1,0 +1,51 @@
+TARGET = harbour-sailauto
+QT += network quick qml
+CONFIG += c++14 link_pkgconfig
+PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0
+
+desktop {
+    # Headless test build:  qmake CONFIG+=desktop && make
+    QT -= quick qml
+    DEFINES += SAILAUTO_DESKTOP
+} else {
+    CONFIG += sailfishapp
+    desktopfile.files = harbour-sailauto.desktop
+    desktopfile.path = /usr/share/applications
+    INSTALLS += desktopfile
+
+    icon86.files = icons/86x86/harbour-sailauto.png
+    icon86.path = /usr/share/icons/hicolor/86x86/apps
+    icon108.files = icons/108x108/harbour-sailauto.png
+    icon108.path = /usr/share/icons/hicolor/108x108/apps
+    icon128.files = icons/128x128/harbour-sailauto.png
+    icon128.path = /usr/share/icons/hicolor/128x128/apps
+    icon172.files = icons/172x172/harbour-sailauto.png
+    icon172.path = /usr/share/icons/hicolor/172x172/apps
+    INSTALLS += icon86 icon108 icon128 icon172
+}
+
+HEADERS += \
+    src/aap/protobuf.h \
+    src/aap/protocol.h \
+    src/aap/cryptor.h \
+    src/aap/session.h \
+    src/video/carscreen.h \
+    src/video/h264encoder.h \
+    src/controller.h
+
+SOURCES += \
+    src/main.cpp \
+    src/aap/cryptor.cpp \
+    src/aap/session.cpp \
+    src/video/carscreen.cpp \
+    src/video/h264encoder.cpp \
+    src/controller.cpp
+
+DISTFILES += \
+    harbour-sailauto.desktop \
+    qml/harbour-sailauto.qml \
+    qml/pages/MainPage.qml \
+    qml/pages/LogPage.qml \
+    qml/cover/CoverPage.qml \
+    rpm/harbour-sailauto.spec \
+    tools/hu_sim.py

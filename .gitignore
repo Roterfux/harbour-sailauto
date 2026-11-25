@@ -1,0 +1,13 @@
+build/
+*.o
+moc_*
+Makefile
+.qmake.stash
+RPMS/
+*.h264
+*.png
+!icons/**/*.png
+__pycache__/
+cert.pem
+key.pem
+CLAUDE.md
