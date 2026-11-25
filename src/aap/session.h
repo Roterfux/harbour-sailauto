@@ -115,6 +115,8 @@ private:
     int m_unacked = 0;
     bool m_videoFocused = false;
     QTimer m_focusFallback;
+    QTimer m_silence;
+    qint64 m_rxTotal = 0;
 };
 
 } // namespace aap

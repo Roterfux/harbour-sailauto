@@ -41,6 +41,14 @@ Session::Session(QIODevice *transport, const QString &certPath, const QString &k
 
     // OpenAuto only sends VIDEO_FOCUS_INDICATION when asked. If a head unit
     // never answers, start streaming anyway after a short grace period.
+    // OpenAuto speaks first. Say so if it stays silent.
+    m_silence.setSingleShot(true);
+    m_silence.setInterval(5000);
+    connect(&m_silence, &QTimer::timeout, this, [this]() {
+        emit log(QStringLiteral("5 s keine Daten von der Head Unit (TCP steht, aber OpenAuto sendet nichts). "
+                                "OpenAuto neu starten?"));
+    });
+
     m_focusFallback.setSingleShot(true);
     m_focusFallback.setInterval(1500);
     connect(&m_focusFallback, &QTimer::timeout, this, [this]() {
@@ -58,6 +66,8 @@ bool Session::start(QString *error)
         return false;
     emit log(QStringLiteral("TLS: ") + m_crypto.certificateInfo());
     setState(Versioning);
+    emit log(QStringLiteral("Warte auf VERSION_REQUEST der Head Unit"));
+    m_silence.start();
     if (m_io->bytesAvailable())
         onReadyRead();
     return true;
@@ -73,6 +83,7 @@ void Session::setState(State s)
 void Session::fail(const QString &reason)
 {
     if (m_state == Closed) return;
+    m_silence.stop();
     emit log(QStringLiteral("Fehler: ") + reason);
     setState(Closed);
     if (m_videoFocused) emit videoStop();
@@ -86,7 +97,14 @@ void Session::fail(const QString &reason)
 void Session::onReadyRead()
 {
     if (!m_io || m_state == Closed || m_state == Idle) return;
-    m_rx.append(m_io->readAll());
+    const QByteArray chunk = m_io->readAll();
+    if (m_rxTotal == 0 && !chunk.isEmpty()) {
+        m_silence.stop();
+        emit log(QStringLiteral("Erste Daten von der Head Unit: %1 Bytes (%2)")
+                     .arg(chunk.size()).arg(QString::fromLatin1(chunk.left(8).toHex(' '))));
+    }
+    m_rxTotal += chunk.size();
+    m_rx.append(chunk);
 
     for (;;) {
         if (m_rx.size() < 4) return;
