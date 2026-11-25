@@ -15,7 +15,7 @@ zurück. Testziel ist **OpenAuto** (Raspberry Pi / Linux-PC), kein echtes Auto.
 | Transport | TCP, Telefon lauscht auf Port 5277 (OpenAuto „Wireless“/„Connect to device“) |
 | Version + TLS | Telefon = TLS-Server (TLS 1.2), eigenes Zertifikat oder selbstsigniertes Dev-Zertifikat |
 | Service Discovery | liest Video-Auflösung, Ränder, DPI, Touch-Größe der Head Unit |
-| Video | QPainter-Oberfläche → GStreamer → H.264 (droidvenc auf dem Telefon, x264/openh264 als Fallback), Flusskontrolle über ACKs |
+| Video | QPainter-Oberfläche → H.264. Versucht GStreamer (droidvenc, x264, openh264), sonst eingebauter Encoder: geänderte 16×16-Blöcke unkomprimiert (I_PCM), unveränderte als Skip – verlustfrei, ohne Abhängigkeiten. Flusskontrolle über ACKs |
 | Touch | Tippen/Ziehen der Head Unit landet in der Auto-Oberfläche |
 | Sensoren | Nachtmodus (dunkles Theme), Fahrstatus |
 | Keepalive | Antwortet auf Pings (OpenAuto trennt sonst nach ~10 s) |
@@ -32,7 +32,8 @@ src/aap/protocol.h     Kanal- und Nachrichten-IDs (aus aasdk_proto geprüft)
 src/aap/cryptor.*      OpenSSL über Memory-BIOs (TLS läuft in AAP-Nachrichten)
 src/aap/session.*      Zustandsmaschine Telefon-Seite, Framing, Verschlüsselung
 src/video/carscreen.*  Auto-Oberfläche (800x480 / 720p / 1080p, Sicherheitsrand)
-src/video/h264encoder.* GStreamer appsrc → Encoder → h264parse → appsink
+src/video/h264encoder.* GStreamer appsrc → Encoder → h264parse → appsink, Fallback-Kette
+src/video/pcmh264.*    eingebauter H.264-Encoder (I_PCM + P_Skip), immer verfügbar
 src/controller.*       TCP-Server, verbindet alles, QML-Schnittstelle
 qml/                   Silica-Oberfläche auf dem Telefon
 tools/hu_sim.py        Head-Unit-Simulator (verhält sich wie OpenAuto)
@@ -103,6 +104,20 @@ git clone https://github.com/opencardev/aasdk && cd aasdk && mkdir build && cd b
 
 ```bash
 git clone https://github.com/opencardev/openauto && cd openauto && mkdir build && cd build && cmake -DCMAKE_BUILD_TYPE=Release -DNOPI=ON .. && make -j$(nproc) && cd ~
+```
+
+**Wichtig unter WSL:** OpenAuto verbindet sich beim Start mit einem GPS-Dienst
+auf `127.0.0.1:2947`. Unter WSL (mirrored) hängt das ewig, OpenAuto sendet dann
+nie etwas. Abhilfe: in einem eigenen Fenster einen Dummy offen lassen:
+
+```bash
+nc -lk 127.0.0.1 2947
+```
+
+Audio von OpenAuto abschalten (SailAuto hat noch keinen Ton), im Startordner:
+
+```bash
+cd ~ && printf '[AudioChannel]\nMediaEnabled=false\nGuidanceEnabled=false\nSystemEnabled=false\nTelephonyEnabled=false\n\n[Audio]\nOutputBackendType=1\n' > ~/openauto.ini
 ```
 
 Starten (der Fork zeigt den WLAN-Knopf nur, wenn diese Datei existiert;

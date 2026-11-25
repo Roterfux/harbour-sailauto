@@ -73,6 +73,8 @@ bool H264Encoder::tryFrom(int index, QString *error)
 {
     stop();
     const QByteArray custom = qgetenv("SAILAUTO_ENCODER");
+    if (custom == "builtin")
+        return index == 0 && startBuiltin();
     if (!custom.isEmpty()) {
         // Full override of "videoconvert ! <this>", e.g. "video/x-raw,format=NV12 ! droidvenc"
         if (index > 0) return false;
@@ -101,10 +103,27 @@ bool H264Encoder::tryFrom(int index, QString *error)
         m_errors << QStringLiteral("%1: %2").arg(name, err);
         qWarning("[enc] %s failed: %s", qPrintable(name), qPrintable(err));
     }
-    if (error)
-        *error = m_errors.isEmpty() ? QStringLiteral("Kein H.264-Encoder gefunden (droidvenc/x264enc/openh264enc)")
-                                    : QStringLiteral("Kein Encoder lief: ") + m_errors.join(QStringLiteral(" | "));
+    // Last resort, always works: built-in lossless encoder.
+    if (!m_errors.isEmpty())
+        qWarning("[enc] GStreamer encoders failed: %s", qPrintable(m_errors.join(QStringLiteral(" | "))));
+    if (startBuiltin())
+        return true;
+    if (error) *error = QStringLiteral("Kein Encoder lief: ") + m_errors.join(QStringLiteral(" | "));
     return false;
+}
+
+bool H264Encoder::startBuiltin()
+{
+    stop();
+    m_pcm.reset(m_width, m_height);
+    m_builtin = true;
+    m_builtinFrames = 0;
+    m_pending = 0;
+    m_sentConfig = false;
+    m_gotSample = true;
+    m_encoderName = QStringLiteral("eingebaut (PCM)");
+    qInfo("[enc] built-in PCM/skip encoder %dx%d", m_width, m_height);
+    return true;
 }
 
 bool H264Encoder::launch(const QString &enc, const QString &name, QString *error)
@@ -147,6 +166,7 @@ bool H264Encoder::launch(const QString &enc, const QString &name, QString *error
 
 void H264Encoder::stop()
 {
+    m_builtin = false;
     m_busTimer.stop();
     if (!m_pipeline) return;
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
@@ -159,6 +179,17 @@ void H264Encoder::stop()
 
 void H264Encoder::push(const QImage &frame, quint64 timestampUs)
 {
+    if (m_builtin) {
+        if (!m_sentConfig) {
+            m_sentConfig = true;
+            emit encoded(m_pcm.codecConfig(), timestampUs, true);
+        }
+        // Keyframe every ~10 s so a decoder that lost track recovers.
+        const bool key = ++m_builtinFrames % (m_fps * 10) == 1;
+        const QByteArray au = m_pcm.encode(frame, key);
+        if (!au.isEmpty()) emit encoded(au, timestampUs, false);
+        return;
+    }
     if (!m_src) return;
     const int bytes = frame.bytesPerLine() * frame.height();
     GstBuffer *buf = gst_buffer_new_allocate(nullptr, static_cast<gsize>(bytes), nullptr);

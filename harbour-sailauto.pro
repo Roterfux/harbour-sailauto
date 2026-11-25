@@ -31,6 +31,7 @@ HEADERS += \
     src/aap/session.h \
     src/video/carscreen.h \
     src/video/h264encoder.h \
+    src/video/pcmh264.h \
     src/controller.h
 
 SOURCES += \
@@ -39,6 +40,7 @@ SOURCES += \
     src/aap/session.cpp \
     src/video/carscreen.cpp \
     src/video/h264encoder.cpp \
+    src/video/pcmh264.cpp \
     src/controller.cpp
 
 DISTFILES += \

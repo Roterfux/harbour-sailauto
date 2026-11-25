@@ -11,6 +11,8 @@
 #include <QStringList>
 #include <QTimer>
 
+#include "pcmh264.h"
+
 typedef struct _GstElement GstElement;
 
 class H264Encoder : public QObject
@@ -22,7 +24,7 @@ public:
 
     bool start(int width, int height, int fps, int bitrateKbps, QString *error);
     void stop();
-    bool running() const { return m_pipeline != nullptr; }
+    bool running() const { return m_pipeline != nullptr || m_builtin; }
     QString encoderName() const { return m_encoderName; }
 
     // Frames in flight inside the encoder (pushed, not yet out).
@@ -54,5 +56,9 @@ private:
     int m_candidate = 0;
     int m_width = 0, m_height = 0, m_fps = 30, m_kbps = 2000;
     QStringList m_errors;
+    bool m_builtin = false;
+    int m_builtinFrames = 0;
+    PcmH264Encoder m_pcm;
+    bool startBuiltin();
     QTimer m_busTimer;
 };
