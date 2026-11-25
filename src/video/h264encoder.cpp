@@ -7,17 +7,26 @@
 
 namespace {
 
-struct Candidate { const char *element; const char *pipeline; };
+struct Candidate { const char *element; const char *input; const char *pipeline; };
 
+// Tried in order; the first one that links and starts wins. If an encoder
+// fails before producing its first frame, the next one is tried.
 // {KBPS} = bitrate kbit/s, {GOP} = keyframe interval (frames), {BPS} = bitrate bit/s
+// input = caps between videoconvert and the encoder ("" = let them negotiate).
 const Candidate kCandidates[] = {
-    // Sailfish OS hardware encoder (gst-droid)
-    {"droidvenc", "droidvenc target-bitrate={BPS}"},
-    {"x264enc", "x264enc tune=zerolatency speed-preset=ultrafast bitrate={KBPS} key-int-max={GOP} bframes=0"
-                " ! video/x-h264,profile=constrained-baseline"},
-    {"openh264enc", "openh264enc bitrate={BPS} gop-size={GOP} complexity=low rate-control=bitrate"},
-    {"avenc_h264_omx", "avenc_h264_omx bitrate={BPS}"},
+    // Sailfish OS hardware encoder (gst-droid). Its accepted raw formats differ
+    // per device, so try free negotiation first, then common formats.
+    {"droidvenc", "", "droidvenc target-bitrate={BPS}"},
+    {"droidvenc", "video/x-raw,format=NV12", "droidvenc target-bitrate={BPS}"},
+    {"droidvenc", "video/x-raw,format=YV12", "droidvenc target-bitrate={BPS}"},
+    {"droidvenc", "video/x-raw,format=I420", "droidvenc target-bitrate={BPS}"},
+    {"x264enc", "video/x-raw,format=I420",
+     "x264enc tune=zerolatency speed-preset=ultrafast bitrate={KBPS} key-int-max={GOP} bframes=0"
+     " ! video/x-h264,profile=constrained-baseline"},
+    {"openh264enc", "video/x-raw,format=I420", "openh264enc bitrate={BPS} gop-size={GOP} complexity=low rate-control=bitrate"},
+    {"avenc_h264_omx", "", "avenc_h264_omx bitrate={BPS}"},
 };
+const int kCandidateCount = sizeof(kCandidates) / sizeof(kCandidates[0]);
 
 int nalType(const QByteArray &d, int pos) { return static_cast<quint8>(d[pos]) & 0x1f; }
 
@@ -52,42 +61,66 @@ H264Encoder::~H264Encoder()
 
 bool H264Encoder::start(int width, int height, int fps, int bitrateKbps, QString *error)
 {
+    m_width = width;
+    m_height = height;
+    m_fps = fps;
+    m_kbps = bitrateKbps;
+    m_errors.clear();
+    return tryFrom(0, error);
+}
+
+bool H264Encoder::tryFrom(int index, QString *error)
+{
     stop();
-    QString enc;
     const QByteArray custom = qgetenv("SAILAUTO_ENCODER");
     if (!custom.isEmpty()) {
-        enc = QString::fromUtf8(custom);
-        m_encoderName = enc.section(' ', 0, 0);
-    } else {
-        for (const Candidate &c : kCandidates) {
-            GstElementFactory *f = gst_element_factory_find(c.element);
-            if (!f) continue;
-            gst_object_unref(f);
-            enc = QString::fromLatin1(c.pipeline)
-                      .replace(QLatin1String("{KBPS}"), QString::number(bitrateKbps))
-                      .replace(QLatin1String("{GOP}"), QString::number(fps * 2))
-                      .replace(QLatin1String("{BPS}"), QString::number(bitrateKbps * 1000));
-            m_encoderName = QString::fromLatin1(c.element);
-            break;
-        }
-    }
-    if (enc.isEmpty()) {
-        if (error) *error = QStringLiteral("Kein H.264-Encoder gefunden (droidvenc/x264enc/openh264enc)");
+        // Full override of "videoconvert ! <this>", e.g. "video/x-raw,format=NV12 ! droidvenc"
+        if (index > 0) return false;
+        m_candidate = 0;
+        if (launch(QString::fromUtf8(custom), QString::fromUtf8(custom).section(QLatin1Char(' '), 0, 0), error))
+            return true;
         return false;
     }
 
+    for (int i = index; i < kCandidateCount; ++i) {
+        const Candidate &c = kCandidates[i];
+        GstElementFactory *f = gst_element_factory_find(c.element);
+        if (!f) continue;
+        gst_object_unref(f);
+        QString enc = QString::fromLatin1(c.pipeline)
+                          .replace(QLatin1String("{KBPS}"), QString::number(m_kbps))
+                          .replace(QLatin1String("{GOP}"), QString::number(m_fps * 2))
+                          .replace(QLatin1String("{BPS}"), QString::number(m_kbps * 1000));
+        if (*c.input) enc = QString::fromLatin1(c.input) + QStringLiteral(" ! ") + enc;
+        QString name = QString::fromLatin1(c.element);
+        if (*c.input) name += QStringLiteral(" (") + QString::fromLatin1(c.input).section(QLatin1Char('='), -1) + QLatin1Char(')');
+        QString err;
+        m_candidate = i;
+        if (launch(enc, name, &err))
+            return true;
+        m_errors << QStringLiteral("%1: %2").arg(name, err);
+        qWarning("[enc] %s failed: %s", qPrintable(name), qPrintable(err));
+    }
+    if (error)
+        *error = m_errors.isEmpty() ? QStringLiteral("Kein H.264-Encoder gefunden (droidvenc/x264enc/openh264enc)")
+                                    : QStringLiteral("Kein Encoder lief: ") + m_errors.join(QStringLiteral(" | "));
+    return false;
+}
+
+bool H264Encoder::launch(const QString &enc, const QString &name, QString *error)
+{
     const QString desc = QStringLiteral(
         "appsrc name=src is-live=true format=time do-timestamp=false block=false "
-        "caps=video/x-raw,format=BGRx,width=%1,height=%2,framerate=0/1 "
-        "! videoconvert ! video/x-raw,format=I420 ! %3 "
+        "caps=video/x-raw,format=BGRx,width=%1,height=%2,framerate=%3/1 "
+        "! videoconvert ! %4 "
         "! h264parse config-interval=-1 ! video/x-h264,stream-format=byte-stream,alignment=au "
         "! appsink name=sink sync=false emit-signals=true max-buffers=8 drop=false")
-        .arg(width).arg(height).arg(enc);
+        .arg(m_width).arg(m_height).arg(m_fps).arg(enc);
 
     GError *err = nullptr;
     m_pipeline = gst_parse_launch(desc.toUtf8().constData(), &err);
     if (!m_pipeline || err) {
-        if (error) *error = QStringLiteral("GStreamer: %1").arg(err ? QString::fromUtf8(err->message) : QStringLiteral("?"));
+        if (error) *error = err ? QString::fromUtf8(err->message) : QStringLiteral("?");
         if (err) g_error_free(err);
         if (m_pipeline) gst_object_unref(m_pipeline);
         m_pipeline = nullptr;
@@ -100,13 +133,15 @@ bool H264Encoder::start(int width, int height, int fps, int bitrateKbps, QString
 
     m_pending = 0;
     m_sentConfig = false;
+    m_gotSample = false;
     if (gst_element_set_state(m_pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-        if (error) *error = QStringLiteral("Pipeline startet nicht (%1)").arg(m_encoderName);
+        if (error) *error = QStringLiteral("Pipeline startet nicht");
         stop();
         return false;
     }
+    m_encoderName = name;
     m_busTimer.start();
-    qInfo("[enc] %s %dx%d @%d fps, %d kbit/s", qPrintable(m_encoderName), width, height, fps, bitrateKbps);
+    qInfo("[enc] %s %dx%d @%d fps, %d kbit/s", qPrintable(name), m_width, m_height, m_fps, m_kbps);
     return true;
 }
 
@@ -156,6 +191,7 @@ void H264Encoder::onSample(const QByteArray &data, quint64 timestampUs)
 {
     if (!m_pipeline) return;
     m_pending = qMax(0, m_pending - 1);
+    m_gotSample = true;
 
     // Android phones send SPS/PPS once as a separate "codec config" message
     // before the first frame. Do the same.
@@ -188,11 +224,25 @@ void H264Encoder::pollBus()
         if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) gst_message_parse_error(msg, &err, &dbg);
         else gst_message_parse_warning(msg, &err, &dbg);
         const QString text = QStringLiteral("%1 (%2)").arg(QString::fromUtf8(err ? err->message : "?"), QString::fromUtf8(dbg ? dbg : ""));
-        if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) emit error(text);
-        else qWarning("[enc] %s", qPrintable(text));
+        const bool isError = GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR;
         if (err) g_error_free(err);
         g_free(dbg);
         gst_message_unref(msg);
+        if (!isError) {
+            qWarning("[enc] %s", qPrintable(text));
+            continue;
+        }
+        if (!m_gotSample) {
+            // Failed while negotiating: try the next encoder/format.
+            m_errors << QStringLiteral("%1: %2").arg(m_encoderName, text);
+            emit error(QStringLiteral("%1 geht nicht, versuche nächsten Encoder").arg(m_encoderName));
+            gst_object_unref(bus);
+            QString e;
+            if (tryFrom(m_candidate + 1, &e)) emit restarted(m_encoderName);
+            else emit error(e);
+            return;
+        }
+        emit error(text);
     }
     gst_object_unref(bus);
 }

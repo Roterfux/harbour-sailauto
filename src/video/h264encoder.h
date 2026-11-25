@@ -1,12 +1,14 @@
 // RGB frames in, H.264 Annex-B access units out, via GStreamer.
 // On Sailfish OS the hardware encoder (droidvenc from gst-droid) is tried
-// first, then software encoders. SAILAUTO_ENCODER overrides the encoder part
-// of the pipeline, e.g. SAILAUTO_ENCODER="x264enc tune=zerolatency".
+// first (several input formats), then software encoders. SAILAUTO_ENCODER
+// overrides everything between videoconvert and h264parse, e.g.
+// SAILAUTO_ENCODER="video/x-raw,format=NV12 ! droidvenc".
 #pragma once
 
 #include <QByteArray>
 #include <QImage>
 #include <QObject>
+#include <QStringList>
 #include <QTimer>
 
 typedef struct _GstElement GstElement;
@@ -28,6 +30,8 @@ public:
     void push(const QImage &frame, quint64 timestampUs);
 
 signals:
+    // Switched to another encoder after the previous one failed.
+    void restarted(const QString &name);
     // One access unit. codecConfig = SPS/PPS split from the first keyframe.
     void encoded(const QByteArray &data, quint64 timestampUs, bool codecConfig);
     void error(const QString &message);
@@ -37,6 +41,8 @@ private slots:
 
 private:
     static int onNewSample(GstElement *sink, void *self);
+    bool tryFrom(int index, QString *error);
+    bool launch(const QString &enc, const QString &name, QString *error);
     void pollBus();
 
     GstElement *m_pipeline = nullptr;
@@ -44,5 +50,9 @@ private:
     QString m_encoderName;
     int m_pending = 0;
     bool m_sentConfig = false;
+    bool m_gotSample = false;
+    int m_candidate = 0;
+    int m_width = 0, m_height = 0, m_fps = 30, m_kbps = 2000;
+    QStringList m_errors;
     QTimer m_busTimer;
 };

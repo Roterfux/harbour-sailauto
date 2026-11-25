@@ -24,6 +24,11 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_encoder, &H264Encoder::error, this, [this](const QString &e) {
         appendLog(QStringLiteral("Encoder: ") + e);
     });
+    connect(&m_encoder, &H264Encoder::restarted, this, [this](const QString &name) {
+        appendLog(QStringLiteral("Encoder gewechselt: ") + name);
+        m_screen.setInfo(m_session ? m_session->headUnitName() : QString(), name);
+        m_queue.clear();
+    });
     connect(&m_screen, &CarScreen::tapped, this, [this](const QString &w) {
         appendLog(QStringLiteral("Auto-Display: ") + w);
     });
