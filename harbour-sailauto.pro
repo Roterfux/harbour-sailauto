@@ -25,10 +25,15 @@ desktop {
     icon172.path = /usr/share/icons/hicolor/172x172/apps
     INSTALLS += icon86 icon108 icon128 icon172
 
-    # Root helper for USB (Android Open Accessory), run via devel-su.
-    aoascript.files = tools/aoa-gadget.sh
+    # Root helper for USB (Android Open Accessory). The app triggers it
+    # through a systemd path unit; manual use: devel-su sh aoa-gadget.sh on
+    aoascript.files = tools/aoa-gadget.sh tools/aoa-request.sh
     aoascript.path = /usr/share/harbour-sailauto
-    INSTALLS += aoascript
+    aoaunits.files = system/harbour-sailauto-aoa.path system/harbour-sailauto-aoa.service
+    aoaunits.path = /usr/lib/systemd/system
+    aoatmp.files = system/harbour-sailauto.tmpfiles
+    aoatmp.path = /usr/lib/tmpfiles.d
+    INSTALLS += aoascript aoaunits aoatmp
 }
 
 HEADERS += \

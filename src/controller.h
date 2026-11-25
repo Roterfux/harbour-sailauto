@@ -69,6 +69,8 @@ private:
     void onNewConnection();
     void attachTransport(QIODevice *io, const QString &label);
     void tryOpenUsb();
+    bool requestAoa(const QString &cmd);
+    QString aoaState() const;
     void onSessionState(aap::Session::State s);
     void onVideoStart(const aap::VideoConfig &cfg);
     void onVideoStop();
@@ -85,6 +87,9 @@ private:
     QPointer<QIODevice> m_socket; // TCP socket or USB accessory device
     bool m_usbWanted = false;
     QTimer m_usbRetry;
+    bool m_aoaRequested = false;
+    bool m_aoaReported = false;
+    QElapsedTimer m_aoaWait;
     aap::Session *m_session = nullptr;
     CarScreen m_screen;
     H264Encoder m_encoder;

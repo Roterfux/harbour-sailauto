@@ -1,4 +1,5 @@
 #!/bin/sh
+# Normally started by the app through harbour-sailauto-aoa.path/.service.
 # Switch the phone's USB port to Android Open Accessory (AOA) mode, so a car
 # (or OpenAuto over USB) talks Android Auto to SailAuto through
 # /dev/usb_accessory. Needs root:  devel-su sh aoa-gadget.sh on|off|status
@@ -12,7 +13,9 @@
 set -e
 G=$(ls -d /sys/kernel/config/usb_gadget/*/ 2>/dev/null | head -1)
 G=${G%/}
-SAVE=/tmp/sailauto-aoa.saved
+# Root-only folder (no symlink games in /tmp).
+mkdir -p /run/harbour-sailauto
+SAVE=/run/harbour-sailauto/aoa.saved
 [ -n "$G" ] || { echo "Kein configfs-USB-Gadget gefunden"; exit 1; }
 CFG=$(ls -d "$G"/configs/*/ | head -1)
 CFG=${CFG%/}
@@ -54,6 +57,13 @@ on)
     status
     ;;
 off)
+    if [ ! -f "$SAVE" ]; then
+        # Nothing to restore: AOA was not switched on by us. Leave USB alone.
+        systemctl start usb-moded 2>/dev/null || true
+        echo "AOA war nicht an."
+        status
+        exit 0
+    fi
     echo "" > "$G/UDC" 2>/dev/null || true
     for f in "$CFG"/*; do [ -L "$f" ] && rm "$f"; done
     if [ -f "$SAVE" ]; then

@@ -1,5 +1,5 @@
 Name:       harbour-sailauto
-Version:    0.1.5
+Version:    0.1.6
 Release:    1
 Summary:    Android Auto projection to OpenAuto head units (MVP)
 License:    GPLv3 and BSD
@@ -35,9 +35,28 @@ touch, no audio yet. Not affiliated with Google.
 desktop-file-install --delete-original \
     --dir %{buildroot}%{_datadir}/applications \
     %{buildroot}%{_datadir}/applications/*.desktop
+mv %{buildroot}/usr/lib/tmpfiles.d/harbour-sailauto.tmpfiles %{buildroot}/usr/lib/tmpfiles.d/harbour-sailauto.conf
+
+%post
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/harbour-sailauto.conf || :
+systemctl daemon-reload || :
+systemctl enable harbour-sailauto-aoa.path || :
+systemctl restart harbour-sailauto-aoa.path || :
+
+%preun
+if [ $1 -eq 0 ]; then
+    sh /usr/share/harbour-sailauto/aoa-gadget.sh off > /dev/null 2>&1 || :
+    systemctl disable --now harbour-sailauto-aoa.path || :
+fi
+
+%postun
+systemctl daemon-reload || :
 
 %files
 %{_bindir}/%{name}
 %{_datadir}/%{name}/
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/*/apps/%{name}.png
+/usr/lib/systemd/system/harbour-sailauto-aoa.path
+/usr/lib/systemd/system/harbour-sailauto-aoa.service
+/usr/lib/tmpfiles.d/harbour-sailauto.conf

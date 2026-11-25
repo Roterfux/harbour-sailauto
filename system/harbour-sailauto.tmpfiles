@@ -1,0 +1,3 @@
+# Request drop box (anyone may write) and root-only state/result folder.
+d /run/harbour-sailauto-req 1777 root root -
+d /run/harbour-sailauto 0755 root root -

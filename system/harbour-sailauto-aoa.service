@@ -1,0 +1,6 @@
+[Unit]
+Description=SailAuto USB accessory mode switch
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /usr/share/harbour-sailauto/aoa-request.sh

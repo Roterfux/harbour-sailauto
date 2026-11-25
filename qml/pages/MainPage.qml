@@ -45,8 +45,8 @@ Page {
 
             TextSwitch {
                 text: qsTr("USB (Auto per Kabel)")
-                description: qsTr("Android Open Accessory über /dev/usb_accessory. Vorher als root: "
-                                  + "devel-su sh /usr/share/harbour-sailauto/aoa-gadget.sh on")
+                description: qsTr("Schaltet USB in den Android-Accessory-Modus (wie ein Android-Telefon im Auto). "
+                                  + "Dateiübertragung per USB ist solange aus.")
                 checked: controller.usbActive
                 automaticCheck: false
                 onClicked: controller.usbActive ? controller.stopUsb() : controller.startUsb()

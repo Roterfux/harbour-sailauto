@@ -41,6 +41,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
 
 Controller::~Controller()
 {
+    if (m_usbWanted && m_aoaRequested) requestAoa(QStringLiteral("off"));
     m_encoder.stop();
 }
 
@@ -107,22 +108,57 @@ void Controller::onNewConnection()
     }
 }
 
+namespace {
+const char kAoaRequest[] = "/run/harbour-sailauto-req/request";
+const char kAoaState[] = "/run/harbour-sailauto/state";
+const char kAoaLog[] = "/run/harbour-sailauto/last.log";
+}
+
+bool Controller::requestAoa(const QString &cmd)
+{
+    QFile f(QString::fromLatin1(kAoaRequest));
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        appendLog(QStringLiteral("USB: Root-Dienst nicht erreichbar (%1). Manuell: devel-su sh "
+                                 "/usr/share/harbour-sailauto/aoa-gadget.sh %2")
+                      .arg(f.errorString(), cmd));
+        return false;
+    }
+    f.write(cmd.toLatin1() + '\n');
+    return true;
+}
+
+QString Controller::aoaState() const
+{
+    QFile f(QString::fromLatin1(kAoaState));
+    if (!f.open(QIODevice::ReadOnly)) return QString();
+    return QString::fromLatin1(f.readAll()).trimmed();
+}
+
 bool Controller::startUsb()
 {
     m_usbWanted = true;
     emit listeningChanged();
-    appendLog(QStringLiteral("USB: warte auf Auto / OpenAuto an /dev/usb_accessory"));
-    setStatus(QStringLiteral("Warte auf USB"));
-    tryOpenUsb();
+    setStatus(QStringLiteral("USB wird umgeschaltet"));
+    m_aoaRequested = requestAoa(QStringLiteral("on"));
+    m_aoaWait.start();
+    m_aoaReported = false;
+    appendLog(QStringLiteral("USB: schalte auf Android-Accessory-Modus"));
+    m_usbRetry.start(500);
     return true;
 }
 
 void Controller::stopUsb()
 {
+    const bool was = m_usbWanted;
     m_usbWanted = false;
     m_usbRetry.stop();
     if (m_session && qobject_cast<UsbAccessoryDevice *>(m_socket.data()))
         disconnectHeadUnit();
+    if (was && m_aoaRequested) {
+        requestAoa(QStringLiteral("off"));
+        appendLog(QStringLiteral("USB: zurück auf normalen Modus"));
+    }
+    m_aoaRequested = false;
     emit listeningChanged();
     setStatus(listening() ? QStringLiteral("Warte auf Head Unit") : QStringLiteral("Bereit"));
 }
@@ -130,6 +166,27 @@ void Controller::stopUsb()
 void Controller::tryOpenUsb()
 {
     if (!m_usbWanted || m_session) return;
+    if (m_aoaRequested && !m_aoaReported) {
+        const QString st = aoaState();
+        if (st == QLatin1String("error")) {
+            QFile f(QString::fromLatin1(kAoaLog));
+            f.open(QIODevice::ReadOnly);
+            appendLog(QStringLiteral("USB-Umschaltung fehlgeschlagen: ") + QString::fromUtf8(f.readAll()).trimmed());
+            m_aoaReported = true;
+            stopUsb();
+            return;
+        }
+        if (st != QLatin1String("on")) {
+            if (m_aoaWait.elapsed() < 6000) return; // keep waiting for the root service
+            appendLog(QStringLiteral("USB: Root-Dienst meldet nichts (Status \"%1\"). Versuche trotzdem. "
+                                     "Manuell: devel-su sh /usr/share/harbour-sailauto/aoa-gadget.sh on").arg(st));
+        } else {
+            appendLog(QStringLiteral("USB: Accessory-Modus an (18d1:2d00). Kabel ans Auto / an den PC."));
+        }
+        m_aoaReported = true;
+        m_usbRetry.setInterval(2000);
+        setStatus(QStringLiteral("Warte auf USB"));
+    }
     QString path = QString::fromLocal8Bit(qgetenv("SAILAUTO_USB_DEVICE"));
     if (path.isEmpty()) path = QStringLiteral("/dev/usb_accessory");
     auto *dev = new UsbAccessoryDevice(path, this);

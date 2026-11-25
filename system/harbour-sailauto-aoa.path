@@ -1,0 +1,10 @@
+# Lets the (non-root) SailAuto app switch USB to Android Open Accessory
+# mode: it writes "on" or "off" to the request file, this starts the service.
+[Unit]
+Description=SailAuto USB accessory mode request
+
+[Path]
+PathChanged=/run/harbour-sailauto-req/request
+
+[Install]
+WantedBy=multi-user.target
