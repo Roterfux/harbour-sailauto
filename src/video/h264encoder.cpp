@@ -75,6 +75,8 @@ bool H264Encoder::tryFrom(int index, QString *error)
     const QByteArray custom = qgetenv("SAILAUTO_ENCODER");
     if (custom == "builtin")
         return index == 0 && startBuiltin();
+    if (custom == "openh264")
+        return index == 0 && startOpenH264();
     if (!custom.isEmpty()) {
         // Full override of "videoconvert ! <this>", e.g. "video/x-raw,format=NV12 ! droidvenc"
         if (index > 0) return false;
@@ -103,6 +105,9 @@ bool H264Encoder::tryFrom(int index, QString *error)
         m_errors << QStringLiteral("%1: %2").arg(name, err);
         qWarning("[enc] %s failed: %s", qPrintable(name), qPrintable(err));
     }
+    // Compiled-in openh264 (software, compresses well).
+    if (startOpenH264())
+        return true;
     // Last resort, always works: built-in lossless encoder.
     if (!m_errors.isEmpty())
         qWarning("[enc] GStreamer encoders failed: %s", qPrintable(m_errors.join(QStringLiteral(" | "))));
@@ -110,6 +115,23 @@ bool H264Encoder::tryFrom(int index, QString *error)
         return true;
     if (error) *error = QStringLiteral("Kein Encoder lief: ") + m_errors.join(QStringLiteral(" | "));
     return false;
+}
+
+bool H264Encoder::startOpenH264()
+{
+    stop();
+    QString err;
+    if (!m_oh.start(m_width, m_height, m_fps, m_kbps, &err)) {
+        m_errors << QStringLiteral("openh264 (intern): ") + err;
+        return false;
+    }
+    m_ohFrames = 0;
+    m_pending = 0;
+    m_sentConfig = false;
+    m_gotSample = true;
+    m_encoderName = QStringLiteral("openh264 (intern)");
+    qInfo("[enc] built-in openh264 %dx%d @%d fps, %d kbit/s", m_width, m_height, m_fps, m_kbps);
+    return true;
 }
 
 bool H264Encoder::startBuiltin()
@@ -167,6 +189,7 @@ bool H264Encoder::launch(const QString &enc, const QString &name, QString *error
 void H264Encoder::stop()
 {
     m_builtin = false;
+    m_oh.stop();
     m_busTimer.stop();
     if (!m_pipeline) return;
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
@@ -179,6 +202,14 @@ void H264Encoder::stop()
 
 void H264Encoder::push(const QImage &frame, quint64 timestampUs)
 {
+    if (m_oh.running()) {
+        const QByteArray au = m_oh.encode(frame, timestampUs, m_ohFrames++ == 0);
+        if (!au.isEmpty()) {
+            ++m_pending;          // onSample() counts it down again
+            onSample(au, timestampUs);
+        }
+        return;
+    }
     if (m_builtin) {
         if (!m_sentConfig) {
             m_sentConfig = true;
@@ -220,7 +251,7 @@ int H264Encoder::onNewSample(GstElement *sink, void *self)
 
 void H264Encoder::onSample(const QByteArray &data, quint64 timestampUs)
 {
-    if (!m_pipeline) return;
+    if (!m_pipeline && !m_oh.running()) return;
     m_pending = qMax(0, m_pending - 1);
     m_gotSample = true;
 

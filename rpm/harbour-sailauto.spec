@@ -1,8 +1,8 @@
 Name:       harbour-sailauto
-Version:    0.1.2
+Version:    0.1.3
 Release:    1
 Summary:    Android Auto projection to OpenAuto head units (MVP)
-License:    GPLv3
+License:    GPLv3 and BSD
 URL:        https://github.com/Roterfux/harbour-sailauto
 Source0:    %{name}-%{version}.tar.bz2
 Requires:   sailfishsilica-qt5 >= 0.10.9

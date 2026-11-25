@@ -1,6 +1,8 @@
 TARGET = harbour-sailauto
 QT += network quick qml
 CONFIG += c++14 link_pkgconfig
+
+include(third_party/openh264/openh264.pri)
 PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0
 
 desktop {
@@ -32,6 +34,7 @@ HEADERS += \
     src/video/carscreen.h \
     src/video/h264encoder.h \
     src/video/pcmh264.h \
+    src/video/openh264enc.h \
     src/controller.h
 
 SOURCES += \
@@ -41,6 +44,7 @@ SOURCES += \
     src/video/carscreen.cpp \
     src/video/h264encoder.cpp \
     src/video/pcmh264.cpp \
+    src/video/openh264enc.cpp \
     src/controller.cpp
 
 DISTFILES += \
