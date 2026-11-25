@@ -109,6 +109,7 @@ private:
     int m_inputChannel = -1;
     int m_sensorChannel = -1;
     int m_pendingOpens = 0;
+    bool m_touchInVideoSpace = false;
 
     int m_videoSession = 1;
     int m_maxUnacked = 1;

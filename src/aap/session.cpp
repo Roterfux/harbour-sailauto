@@ -300,8 +300,25 @@ void Session::handleControl(quint16 id, const QByteArray &payload)
 void Session::handleServiceDiscovery(const QByteArray &payload)
 {
     pb::Reader r(payload);
-    m_huName = r.string(2);
-    emit log(QStringLiteral("Head Unit: %1 / %2 %3").arg(m_huName, r.string(7), r.string(8)));
+    // Old head units fill the flat fields, newer ones (aasdk >= 1.6) put the
+    // same data into headunit_info (17) and display_name (14).
+    QString make = r.string(2), huMake = r.string(7), huModel = r.string(8);
+    if (r.has(17)) {
+        pb::Reader info(r.bytes(17));
+        if (make.isEmpty()) make = info.string(1);
+        if (huMake.isEmpty()) huMake = info.string(5);
+        if (huModel.isEmpty()) huModel = info.string(6);
+    }
+    m_huName = !r.string(14).isEmpty() ? r.string(14) : (!huModel.isEmpty() ? huModel : make);
+    emit log(QStringLiteral("Head Unit: %1 / %2 %3").arg(make, huMake, huModel));
+
+    // OpenAuto/Crankshaft (make "f1x") announce the screen size as touch area
+    // but send coordinates already scaled to the video size.
+    m_touchInVideoSpace = huMake.compare(QLatin1String("f1x"), Qt::CaseInsensitive) == 0;
+    const QByteArray forced = qgetenv("SAILAUTO_TOUCH_SCALE");
+    if (forced == "0") m_touchInVideoSpace = true;
+    else if (forced == "1") m_touchInVideoSpace = false;
+    if (m_touchInVideoSpace) emit log(QStringLiteral("Touch-Koordinaten kommen bereits in Videogröße (OpenAuto)"));
 
     for (const pb::Value &cv : r.all(1)) {
         pb::Reader ch(cv.bytes);
@@ -441,8 +458,12 @@ void Session::handleInput(quint16 id, const QByteArray &payload)
     const int idx = qBound(0, static_cast<int>(te.number(2)), locs.size() - 1);
     pb::Reader loc(locs.at(idx).bytes);
     // Touch coordinates come in touch-screen space; scale to video space.
-    const int x = static_cast<int>(loc.number(1)) * m_video.width / qMax(1, m_video.touchWidth);
-    const int y = static_cast<int>(loc.number(2)) * m_video.height / qMax(1, m_video.touchHeight);
+    int x = static_cast<int>(loc.number(1));
+    int y = static_cast<int>(loc.number(2));
+    if (!m_touchInVideoSpace) {
+        x = x * m_video.width / qMax(1, m_video.touchWidth);
+        y = y * m_video.height / qMax(1, m_video.touchHeight);
+    }
     emit touch(action, x, y);
 }
 
