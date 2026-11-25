@@ -24,6 +24,11 @@ desktop {
     icon172.files = icons/172x172/harbour-sailauto.png
     icon172.path = /usr/share/icons/hicolor/172x172/apps
     INSTALLS += icon86 icon108 icon128 icon172
+
+    # Root helper for USB (Android Open Accessory), run via devel-su.
+    aoascript.files = tools/aoa-gadget.sh
+    aoascript.path = /usr/share/harbour-sailauto
+    INSTALLS += aoascript
 }
 
 HEADERS += \
@@ -31,6 +36,7 @@ HEADERS += \
     src/aap/protocol.h \
     src/aap/cryptor.h \
     src/aap/session.h \
+    src/aap/usbaccessory.h \
     src/video/carscreen.h \
     src/video/h264encoder.h \
     src/video/pcmh264.h \
@@ -41,6 +47,7 @@ SOURCES += \
     src/main.cpp \
     src/aap/cryptor.cpp \
     src/aap/session.cpp \
+    src/aap/usbaccessory.cpp \
     src/video/carscreen.cpp \
     src/video/h264encoder.cpp \
     src/video/pcmh264.cpp \
@@ -54,4 +61,5 @@ DISTFILES += \
     qml/pages/LogPage.qml \
     qml/cover/CoverPage.qml \
     rpm/harbour-sailauto.spec \
-    tools/hu_sim.py
+    tools/hu_sim.py \
+    tools/aoa-gadget.sh

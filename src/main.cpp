@@ -10,7 +10,8 @@ int main(int argc, char *argv[])
     app.setOrganizationName(QStringLiteral("harbour-sailauto"));
     app.setApplicationName(QStringLiteral("harbour-sailauto"));
     Controller c;
-    if (!c.startListening()) return 1;
+    if (qEnvironmentVariableIsSet("SAILAUTO_USB_DEVICE")) c.startUsb();
+    else if (!c.startListening()) return 1;
     return app.exec();
 }
 

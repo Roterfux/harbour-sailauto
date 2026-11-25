@@ -144,6 +144,33 @@ testen: IP `127.0.0.1`.
 4. In OpenAuto „Wireless“ / „Connect to device“ → IP aus der App eingeben.
 5. Im SailAuto-Protokoll sieht man jeden Schritt; Fehler bitte von dort kopieren.
 
+## USB (Auto per Kabel) – experimentell
+
+Ab 0.1.5. Wie ein Android-Telefon meldet sich das Telefon am USB-Host (Auto
+oder OpenAuto am PC) als „Android Open Accessory“ (18d1:2d00); danach läuft
+dasselbe Protokoll wie über WLAN, nur über `/dev/usb_accessory`.
+Voraussetzung: Kernel mit `CONFIG_USB_CONFIGFS_F_ACC` (Xperia 10 III: ja).
+
+Auf dem Telefon (root):
+
+```bash
+devel-su sh /usr/share/harbour-sailauto/aoa-gadget.sh on
+```
+
+Dann in SailAuto „USB (Auto per Kabel)“ einschalten und Kabel einstecken.
+Zurück zu normalem USB (MTP/Entwicklermodus):
+
+```bash
+devel-su sh /usr/share/harbour-sailauto/aoa-gadget.sh off
+```
+
+Notfalls: Kabel ab/an oder Neustart. Die App läuft dafür ohne Sailjail-Sandbox.
+
+Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
+[usbipd-win](https://github.com/dorssel/usbipd-win) durchreichen
+(`usbipd attach --wsl --auto-attach --busid <id>`) und `autoapp` mit
+`sudo -E` starten (libusb braucht Rechte).
+
 ## Zertifikat
 
 - Ohne Dateien: selbstsigniertes Dev-Zertifikat (OpenAuto prüft das Telefon nicht).

@@ -8,6 +8,8 @@ X-Nemo-Application-Type=silica-qt5
 X-Nemo-Single-Instance=yes
 
 [X-Sailjail]
+# /dev/usb_accessory is not reachable from inside the sandbox.
+Sandboxing=Disabled
 Permissions=Internet
 OrganizationName=org.roterfux
 ApplicationName=harbour-sailauto

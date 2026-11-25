@@ -31,6 +31,7 @@ class Controller : public QObject
     Q_PROPERTY(QStringList logLines READ logLines NOTIFY logChanged)
     Q_PROPERTY(double fps READ fps NOTIFY statsChanged)
     Q_PROPERTY(double kbps READ kbps NOTIFY statsChanged)
+    Q_PROPERTY(bool usbActive READ usbActive NOTIFY listeningChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -40,8 +41,12 @@ public:
     Q_INVOKABLE void stopListening();
     Q_INVOKABLE void disconnectHeadUnit();
     Q_INVOKABLE void clearLog();
+    // USB: Android Open Accessory via /dev/usb_accessory (needs tools/aoa-gadget.sh on).
+    Q_INVOKABLE bool startUsb();
+    Q_INVOKABLE void stopUsb();
 
     bool listening() const { return m_server.isListening(); }
+    bool usbActive() const { return m_usbWanted; }
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
     QString status() const { return m_status; }
@@ -62,6 +67,8 @@ signals:
 
 private:
     void onNewConnection();
+    void attachTransport(QIODevice *io, const QString &label);
+    void tryOpenUsb();
     void onSessionState(aap::Session::State s);
     void onVideoStart(const aap::VideoConfig &cfg);
     void onVideoStop();
@@ -75,7 +82,9 @@ private:
     struct Packet { QByteArray data; quint64 ts; bool config; };
 
     QTcpServer m_server;
-    QPointer<QTcpSocket> m_socket;
+    QPointer<QIODevice> m_socket; // TCP socket or USB accessory device
+    bool m_usbWanted = false;
+    QTimer m_usbRetry;
     aap::Session *m_session = nullptr;
     CarScreen m_screen;
     H264Encoder m_encoder;

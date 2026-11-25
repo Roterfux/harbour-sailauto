@@ -7,6 +7,8 @@
 #include <QStandardPaths>
 #include <QTcpSocket>
 
+#include "aap/usbaccessory.h"
+
 Controller::Controller(QObject *parent) : QObject(parent)
 {
     bool ok = false;
@@ -32,6 +34,8 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_screen, &CarScreen::tapped, this, [this](const QString &w) {
         appendLog(QStringLiteral("Auto-Display: ") + w);
     });
+    m_usbRetry.setInterval(2000);
+    connect(&m_usbRetry, &QTimer::timeout, this, &Controller::tryOpenUsb);
     setStatus(QStringLiteral("Bereit"));
 }
 
@@ -96,33 +100,81 @@ void Controller::onNewConnection()
             continue;
         }
         s->setSocketOption(QAbstractSocket::LowDelayOption, 1);
-        m_socket = s;
-        appendLog(QStringLiteral("Head Unit verbunden: %1").arg(s->peerAddress().toString()));
-
-        m_session = new aap::Session(s, m_certDir + QStringLiteral("/cert.pem"),
-                                     m_certDir + QStringLiteral("/key.pem"), this);
-        connect(m_session, &aap::Session::log, this, &Controller::appendLog);
-        connect(m_session, &aap::Session::stateChanged, this, &Controller::onSessionState);
-        connect(m_session, &aap::Session::videoStart, this, &Controller::onVideoStart);
-        connect(m_session, &aap::Session::videoStop, this, &Controller::onVideoStop);
-        connect(m_session, &aap::Session::videoCanSend, this, &Controller::flush);
-        connect(m_session, &aap::Session::touch, &m_screen, &CarScreen::touch);
-        connect(m_session, &aap::Session::nightModeChanged, this, [this](bool n) {
-            m_screen.setNight(n);
-            appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
-        });
-        connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
         connect(s, &QTcpSocket::disconnected, this, [this]() {
             if (m_session) onSessionClosed(QStringLiteral("Verbindung getrennt"));
         });
-
-        QString err;
-        if (!m_session->start(&err)) {
-            appendLog(err);
-            onSessionClosed(err);
-        }
-        emit statusChanged();
+        attachTransport(s, QStringLiteral("Head Unit verbunden: %1").arg(s->peerAddress().toString()));
     }
+}
+
+bool Controller::startUsb()
+{
+    m_usbWanted = true;
+    emit listeningChanged();
+    appendLog(QStringLiteral("USB: warte auf Auto / OpenAuto an /dev/usb_accessory"));
+    setStatus(QStringLiteral("Warte auf USB"));
+    tryOpenUsb();
+    return true;
+}
+
+void Controller::stopUsb()
+{
+    m_usbWanted = false;
+    m_usbRetry.stop();
+    if (m_session && qobject_cast<UsbAccessoryDevice *>(m_socket.data()))
+        disconnectHeadUnit();
+    emit listeningChanged();
+    setStatus(listening() ? QStringLiteral("Warte auf Head Unit") : QStringLiteral("Bereit"));
+}
+
+void Controller::tryOpenUsb()
+{
+    if (!m_usbWanted || m_session) return;
+    QString path = QString::fromLocal8Bit(qgetenv("SAILAUTO_USB_DEVICE"));
+    if (path.isEmpty()) path = QStringLiteral("/dev/usb_accessory");
+    auto *dev = new UsbAccessoryDevice(path, this);
+    if (!dev->open(QIODevice::ReadWrite)) {
+        static QString lastError;
+        if (dev->errorString() != lastError) {
+            lastError = dev->errorString();
+            appendLog(QStringLiteral("USB: /dev/usb_accessory nicht offen (%1). Ist aoa-gadget.sh on gelaufen?").arg(lastError));
+        }
+        delete dev;
+        m_usbRetry.start();
+        return;
+    }
+    m_usbRetry.stop();
+    connect(dev, &UsbAccessoryDevice::disconnected, this, [this]() {
+        if (m_session) onSessionClosed(QStringLiteral("USB getrennt"));
+    });
+    attachTransport(dev, QStringLiteral("USB-Accessory geöffnet, warte auf Head Unit"));
+}
+
+void Controller::attachTransport(QIODevice *io, const QString &label)
+{
+    m_socket = io;
+    appendLog(label);
+
+    m_session = new aap::Session(io, m_certDir + QStringLiteral("/cert.pem"),
+                                 m_certDir + QStringLiteral("/key.pem"), this);
+    connect(m_session, &aap::Session::log, this, &Controller::appendLog);
+    connect(m_session, &aap::Session::stateChanged, this, &Controller::onSessionState);
+    connect(m_session, &aap::Session::videoStart, this, &Controller::onVideoStart);
+    connect(m_session, &aap::Session::videoStop, this, &Controller::onVideoStop);
+    connect(m_session, &aap::Session::videoCanSend, this, &Controller::flush);
+    connect(m_session, &aap::Session::touch, &m_screen, &CarScreen::touch);
+    connect(m_session, &aap::Session::nightModeChanged, this, [this](bool n) {
+        m_screen.setNight(n);
+        appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
+    });
+    connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
+
+    QString err;
+    if (!m_session->start(&err)) {
+        appendLog(err);
+        onSessionClosed(err);
+    }
+    emit statusChanged();
 }
 
 void Controller::onSessionState(aap::Session::State s)
@@ -220,7 +272,9 @@ void Controller::onSessionClosed(const QString &reason)
     }
     m_fps = m_kbps = 0;
     emit statsChanged();
-    setStatus(m_server.isListening() ? QStringLiteral("Warte auf Head Unit") : QStringLiteral("Bereit"));
+    setStatus(m_server.isListening() ? QStringLiteral("Warte auf Head Unit")
+              : m_usbWanted ? QStringLiteral("Warte auf USB") : QStringLiteral("Bereit"));
+    if (m_usbWanted) m_usbRetry.start(); // car may come back (ignition, replug)
 }
 
 void Controller::appendLog(const QString &line)

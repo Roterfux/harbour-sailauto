@@ -43,6 +43,15 @@ Page {
                 onClicked: controller.listening ? controller.stopListening() : controller.startListening()
             }
 
+            TextSwitch {
+                text: qsTr("USB (Auto per Kabel)")
+                description: qsTr("Android Open Accessory über /dev/usb_accessory. Vorher als root: "
+                                  + "devel-su sh /usr/share/harbour-sailauto/aoa-gadget.sh on")
+                checked: controller.usbActive
+                automaticCheck: false
+                onClicked: controller.usbActive ? controller.stopUsb() : controller.startUsb()
+            }
+
             DetailItem { label: qsTr("Status"); value: controller.status }
             DetailItem {
                 label: qsTr("Head Unit")
