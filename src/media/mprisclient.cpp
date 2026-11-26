@@ -70,10 +70,28 @@ void MprisClient::poll()
     for (const QString &n : names)
         if (n.startsWith(QLatin1String("org.mpris.MediaPlayer2."))) players << n;
 
-    // Prefer the one that is playing; else keep the current one; else the first.
-    QString chosen;
-    for (const QString &p : players)
-        if (getProperty(p, kPlayerIface, "PlaybackStatus").toString() == QLatin1String("Playing")) { chosen = p; break; }
+    // Prefer the app just started from the car (for 30 s, or while it plays
+    // or nothing else does); else the one that is playing; else keep the
+    // current one; else the first.
+    QString chosen, playingOne, preferredOne;
+    for (const QString &p : players) {
+        if (!m_desktopOf.contains(p))
+            m_desktopOf.insert(p, getProperty(p, kRootIface, "DesktopEntry").toString());
+        const bool playing = getProperty(p, kPlayerIface, "PlaybackStatus").toString() == QLatin1String("Playing");
+        if (playing && playingOne.isEmpty()) playingOne = p;
+        if (!m_preferred.isEmpty()
+            && (m_desktopOf.value(p) == m_preferred
+                || p.contains(QString(m_preferred).remove(QStringLiteral("harbour-")), Qt::CaseInsensitive)))
+            preferredOne = p;
+        if (playing && p == preferredOne) playingOne = p;
+    }
+    if (!preferredOne.isEmpty()
+        && (m_preferredSince.elapsed() < 30000 || playingOne.isEmpty() || playingOne == preferredOne)) {
+        chosen = preferredOne;
+    } else {
+        if (!preferredOne.isEmpty()) m_preferred.clear(); // user went back to another player
+        chosen = playingOne;
+    }
     if (chosen.isEmpty() && players.contains(m_service)) chosen = m_service;
     if (chosen.isEmpty() && !players.isEmpty()) chosen = players.first();
 
@@ -182,4 +200,11 @@ void MprisClient::seekToFraction(double fraction)
     const qint64 now = getProperty(m_service, kPlayerIface, "Position").toLongLong() / 1000;
     m_positionMs = now;
     seek(target - now);
+}
+
+void MprisClient::setPreferred(const QString &desktopId)
+{
+    m_preferred = desktopId;
+    m_preferredSince.start();
+    QTimer::singleShot(1500, this, &MprisClient::poll);
 }

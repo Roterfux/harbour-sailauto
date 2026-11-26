@@ -176,6 +176,24 @@ Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
 (`usbipd attach --wsl --auto-attach --busid <id>`) und `autoapp` mit
 `sudo -E` starten (libusb braucht Rechte).
 
+## Statusleiste, Apps, Benachrichtigungen
+
+Ab 0.6.0.
+
+- **Statusleiste** im Auto (oben rechts): Akku in % (grün = lädt, rot < 20 %),
+  Mobilnetz (Balken, 2G–5G, R = Roaming), WLAN, Bluetooth (blau = Gerät
+  verbunden), Uhr. Quellen: sysfs, oFono, ConnMan, BlueZ; alle 10 s.
+- **Apps**: neue Kachel „Apps“ im Auto. Welche Apps dort stehen, legst du am
+  Telefon fest: Pull-down „Apps fürs Auto“ (Musik-/Radio-Apps sind
+  vorausgewählt). Antippen im Auto startet die App am Telefon; bei Musik-/Radio-
+  Apps springt das Auto auf „Musik“ und steuert den Player dieser App (MPRIS).
+  Die App selbst im Auto anzeigen geht unter Sailfish nicht.
+- **Benachrichtigungen** (Schalter „Benachrichtigungen im Auto“, Standard an):
+  neue Benachrichtigungen als Banner, 8 s, Antippen schließt. Der Text
+  erscheint nur, wenn das Auto „steht“ meldet (Fahrstatus-Sensor), sonst nur
+  App und Titel. Die App liest sie als D-Bus-Monitor mit. Im Log stehen nur
+  App und Länge, nicht der Inhalt.
+
 ## Autostart im Auto
 
 Ab 0.5.0, Schalter „Autostart im Auto“ (Standard: aus). Schaltet den

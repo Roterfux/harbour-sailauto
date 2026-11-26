@@ -16,6 +16,10 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("Apps fürs Auto")
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("AppsPage.qml"))
+            }
+            MenuItem {
                 text: qsTr("Protokoll")
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("LogPage.qml"))
             }
@@ -82,6 +86,13 @@ Page {
                                   + "Ist das Auto 60 s weg, wird USB wieder normal.")
                 checked: controller.autostart
                 onCheckedChanged: controller.autostart = checked
+            }
+
+            TextSwitch {
+                text: qsTr("Benachrichtigungen im Auto")
+                description: qsTr("Zeigt neue Benachrichtigungen als Banner im Auto. Der Text erscheint nur im Stand.")
+                checked: controller.notifyToCar
+                onCheckedChanged: controller.notifyToCar = checked
             }
 
             TextSwitch {

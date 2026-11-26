@@ -50,13 +50,14 @@ void CarScreen::layout()
     const QRect area = m_safe.adjusted(m_safe.width() / 40, bar + m_safe.height() / 30,
                                        -m_safe.width() / 40, -m_safe.height() / 30);
     const int gap = area.width() / 40;
-    const int w = (area.width() - 3 * gap) / 4;
+    const int n = 5;
+    const int w = (area.width() - (n - 1) * gap) / n;
     const int h = area.height();
     const struct { Page p; const char *t; const char *g; } defs[] = {
-        {Navigation, "Navigation", "⮝"}, {Music, "Musik", "♫"},
+        {Navigation, "Navigation", "⮝"}, {Music, "Musik", "♫"}, {Apps, "Apps", ""},
         {Phone, "Telefon", "☎"}, {Info, "Info", "i"},
     };
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < n; ++i)
         m_tiles.append({QRect(area.left() + i * (w + gap), area.top(), w, h), defs[i].p,
                         QString::fromUtf8(defs[i].t), QString::fromUtf8(defs[i].g)});
     m_backButton = QRect(m_safe.left() + m_safe.width() / 40, m_safe.top() + bar / 8, bar * 3, bar * 3 / 4);
@@ -66,6 +67,91 @@ void CarScreen::layout()
     m_playButton = QRect(m_safe.center().x() - pb / 2, cy, pb, pb);
     m_prevButton = m_playButton.translated(-pb * 2, 0);
     m_nextButton = m_playButton.translated(pb * 2, 0);
+    layoutApps();
+}
+
+void CarScreen::showNotification(const QString &app, const QString &title, const QString &body)
+{
+    if (m_banners.size() >= 5) m_banners.removeFirst(); // flood: keep the newest
+    m_banners.append({app, title, body});
+    if (m_banners.size() == 1) m_bannerClock.start();
+}
+
+void CarScreen::drawBanner(QPainter &p)
+{
+    if (m_banners.isEmpty()) return;
+    if (m_bannerClock.elapsed() > 8000) {
+        m_banners.removeFirst();
+        m_bannerClock.start();
+        if (m_banners.isEmpty()) {
+            m_bannerRect = QRect();
+            return;
+        }
+    }
+    const Palette c = palette(m_night);
+    const Banner &b = m_banners.first();
+    const int bar = m_safe.height() / 8;
+    m_bannerRect = QRect(m_safe.left() + m_safe.width() / 20, m_safe.top() + bar / 6,
+                         m_safe.width() * 9 / 10, bar * 2 + bar / 2);
+    p.setPen(QPen(c.accent, 2));
+    p.setBrush(c.panelPressed);
+    p.drawRoundedRect(m_bannerRect, 16, 16);
+    const QRect in = m_bannerRect.adjusted(bar / 3, bar / 6, -bar / 3, -bar / 6);
+    QFont f = p.font();
+    f.setPixelSize(bar * 3 / 10);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(c.accent);
+    const QString head = b.app + (m_banners.size() > 1 ? QStringLiteral("  (+%1)").arg(m_banners.size() - 1) : QString());
+    p.drawText(QRect(in.left(), in.top(), in.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
+               QFontMetrics(f).elidedText(head, Qt::ElideRight, in.width()));
+    f.setPixelSize(bar * 9 / 20);
+    p.setFont(f);
+    p.setPen(c.text);
+    const QRect titleR(in.left(), in.top() + bar / 2, in.width(), bar * 2 / 3);
+    p.drawText(titleR, Qt::AlignLeft | Qt::AlignVCenter, QFontMetrics(f).elidedText(b.title, Qt::ElideRight, in.width()));
+    f.setBold(false);
+    f.setPixelSize(bar * 2 / 5);
+    p.setFont(f);
+    p.setPen(m_parked ? c.text : c.dim);
+    const QString body = m_parked ? b.body : (b.body.isEmpty() ? QString() : QStringLiteral("Text nur im Stand"));
+    const QRect bodyR(in.left(), titleR.bottom(), in.width(), in.bottom() - titleR.bottom());
+    p.drawText(bodyR, Qt::AlignLeft | Qt::AlignVCenter,
+               QFontMetrics(f).elidedText(QString(body).replace(QLatin1Char('\n'), QLatin1Char(' ')), Qt::ElideRight, in.width()));
+}
+
+void CarScreen::setApps(const QVector<CarApp> &apps)
+{
+    m_apps = apps;
+    m_appPage = 0;
+    layoutApps();
+}
+
+void CarScreen::layoutApps()
+{
+    const int bar = m_safe.height() / 8;
+    const QRect body = m_safe.adjusted(m_safe.width() / 30, bar + 10, -m_safe.width() / 30, -10);
+    const int perPage = 8;
+    const int pages = qMax(1, (m_apps.size() + perPage - 1) / perPage);
+    m_appPage = qBound(0, m_appPage, pages - 1);
+    // Paging arrows on the right if needed.
+    const int arrowW = pages > 1 ? bar + 10 : 0;
+    const QRect grid = body.adjusted(0, 0, -arrowW, 0);
+    const int gap = 12;
+    const int cw = (grid.width() - 3 * gap) / 4;
+    const int ch = (grid.height() - gap) / 2;
+    m_appRects.clear();
+    const int first = m_appPage * perPage;
+    for (int i = first; i < qMin(m_apps.size(), first + perPage); ++i) {
+        const int k = i - first;
+        m_appRects.append(QRect(grid.left() + (k % 4) * (cw + gap), grid.top() + (k / 4) * (ch + gap), cw, ch));
+    }
+    if (pages > 1) {
+        m_appPrev = QRect(body.right() - bar, body.top(), bar, body.height() / 2 - 6);
+        m_appNext = QRect(body.right() - bar, body.center().y() + 6, bar, body.height() / 2 - 6);
+    } else {
+        m_appPrev = m_appNext = QRect();
+    }
 }
 
 void CarScreen::setNowPlaying(bool hasPlayer, const QString &player, const QString &title, const QString &artist,
@@ -90,11 +176,22 @@ void CarScreen::touch(int action, int x, int y)
         m_pressed = true;
         m_trail.clear();
         m_pressedTile = -1;
+        m_pressedApp = -1;
         if (m_page == Home)
             for (int i = 0; i < m_tiles.size(); ++i)
                 if (m_tiles[i].rect.contains(m_touch)) m_pressedTile = i;
+        if (m_page == Apps)
+            for (int i = 0; i < m_appRects.size(); ++i)
+                if (m_appRects[i].contains(m_touch)) m_pressedApp = i;
     } else if (action == 1) { // release
         m_pressed = false;
+        if (!m_banners.isEmpty() && m_bannerRect.contains(m_touch)) {
+            m_banners.removeFirst();
+            m_bannerClock.start();
+            m_pressedTile = -1;
+            m_pressedApp = -1;
+            return;
+        }
         if (m_page == Home) {
             if (m_pressedTile >= 0 && m_tiles[m_pressedTile].rect.contains(m_touch)) {
                 m_page = m_tiles[m_pressedTile].page;
@@ -103,6 +200,19 @@ void CarScreen::touch(int action, int x, int y)
         } else if (m_backButton.contains(m_touch)) {
             m_page = Home;
             emit tapped(QStringLiteral("Zurück"));
+        } else if (m_page == Apps) {
+            if (m_appPrev.contains(m_touch) && m_appPage > 0) {
+                --m_appPage;
+                layoutApps();
+            } else if (m_appNext.contains(m_touch) && (m_appPage + 1) * 8 < m_apps.size()) {
+                ++m_appPage;
+                layoutApps();
+            } else if (m_pressedApp >= 0 && m_pressedApp < m_appRects.size() && m_appRects[m_pressedApp].contains(m_touch)) {
+                const CarApp &a = m_apps[m_appPage * 8 + m_pressedApp];
+                emit launchApp(a.id);
+                if (a.media) m_page = Music; // its player shows up there
+            }
+            m_pressedApp = -1;
         } else if (m_page == Music && m_hasPlayer) {
             if (m_playButton.contains(m_touch)) emit mediaCommand(QStringLiteral("playpause"));
             else if (m_prevButton.contains(m_touch)) emit mediaCommand(QStringLiteral("previous"));
@@ -132,10 +242,115 @@ void CarScreen::drawTopBar(QPainter &p)
     p.setFont(f);
     p.setPen(c.text);
     const QRect r(m_safe.left(), m_safe.top(), m_safe.width() - m_safe.width() / 40, bar);
-    p.drawText(r, Qt::AlignRight | Qt::AlignVCenter, QTime::currentTime().toString(QStringLiteral("HH:mm")));
+    const QString clock = QTime::currentTime().toString(QStringLiteral("HH:mm"));
+    p.drawText(r, Qt::AlignRight | Qt::AlignVCenter, clock);
+    const int clockW = QFontMetrics(f).width(clock);
+    drawStatusIcons(p, r.right() - clockW - bar / 3, r.top(), bar);
     p.setPen(c.accent);
+    p.setFont(f);
     if (m_page == Home)
         p.drawText(r.adjusted(m_safe.width() / 40, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("SailAuto"));
+}
+
+int CarScreen::drawStatusIcons(QPainter &p, int right, int top, int height)
+{
+    const Palette c = palette(m_night);
+    const int h = height * 2 / 5;          // icon height
+    const int cy = top + height / 2;
+    const int gap = height / 3;
+    int x = right;
+    QFont small = p.font();
+    small.setPixelSize(height * 3 / 10);
+    small.setBold(true);
+    const QFontMetrics fm(small);
+    p.setFont(small);
+
+    // Battery: outline, fill by level (red < 20 %, green while charging), percent left of it.
+    if (m_phone.battery >= 0) {
+        const int w = h * 2;
+        const QRect body(x - w - 3, cy - h / 2, w, h);
+        p.setPen(QPen(c.text, 2));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(body, 3, 3);
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.text);
+        p.drawRect(QRect(body.right() + 1, cy - h / 5, 3, h * 2 / 5));
+        const QColor fill = m_phone.charging ? QColor(60, 200, 90)
+                            : m_phone.battery < 20 ? QColor(230, 60, 50) : c.text;
+        p.setBrush(fill);
+        const QRect inner = body.adjusted(3, 3, -3, -3);
+        p.drawRect(QRect(inner.left(), inner.top(), inner.width() * m_phone.battery / 100, inner.height()));
+        if (m_phone.charging) { // lightning bolt
+            p.setBrush(c.bg);
+            const QPoint o = body.center();
+            QPolygon bolt;
+            bolt << QPoint(o.x() + 2, o.y() - h / 2 + 2) << QPoint(o.x() - 5, o.y() + 1) << QPoint(o.x(), o.y() + 1)
+                 << QPoint(o.x() - 2, o.y() + h / 2 - 2) << QPoint(o.x() + 5, o.y() - 1) << QPoint(o.x(), o.y() - 1);
+            p.drawPolygon(bolt);
+        }
+        const QString pct = QString::number(m_phone.battery) + QLatin1Char('%');
+        const int tw = fm.width(pct);
+        x = body.left() - 4 - tw;
+        p.setPen(c.text);
+        p.drawText(QRect(x, top, tw, height), Qt::AlignVCenter | Qt::AlignLeft, pct);
+        x -= gap;
+    }
+
+    // Mobile: 4 bars + technology, dimmed bars when no signal.
+    if (m_phone.signal >= 0) {
+        const int bw = qMax(3, h / 5);
+        const int bars = m_phone.signal >= 80 ? 4 : m_phone.signal >= 55 ? 3 : m_phone.signal >= 30 ? 2 : m_phone.signal > 5 ? 1 : 0;
+        const int w = 4 * bw + 3 * 2;
+        int bx = x - w;
+        p.setPen(Qt::NoPen);
+        for (int i = 0; i < 4; ++i) {
+            const int bh = h * (i + 1) / 4;
+            p.setBrush(i < bars ? c.text : c.panel);
+            p.drawRect(QRect(bx + i * (bw + 2), cy + h / 2 - bh, bw, bh));
+        }
+        x = bx - 4;
+        const QString t = m_phone.tech + (m_phone.roaming ? QStringLiteral(" R") : QString());
+        if (!t.isEmpty()) {
+            const int tw = fm.width(t);
+            x -= tw;
+            p.setPen(c.text);
+            p.drawText(QRect(x, top, tw, height), Qt::AlignVCenter | Qt::AlignLeft, t);
+        }
+        x -= gap;
+    }
+
+    // Wi-Fi: three arcs above a dot, lit by strength.
+    if (m_phone.wifi) {
+        const int w = h + 4;
+        const QPoint o(x - w / 2, cy + h / 2);
+        const int lit = m_phone.wifiStrength >= 60 ? 3 : m_phone.wifiStrength >= 30 ? 2 : 1;
+        p.setBrush(Qt::NoBrush);
+        for (int i = 1; i <= 3; ++i) {
+            const int rad = h * i / 3;
+            p.setPen(QPen(i <= lit ? c.text : c.panel, qMax(2, h / 8), Qt::SolidLine, Qt::RoundCap));
+            p.drawArc(QRect(o.x() - rad, o.y() - rad, 2 * rad, 2 * rad), 45 * 16, 90 * 16);
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.text);
+        p.drawEllipse(o, 2, 2);
+        x -= w + gap;
+    }
+
+    // Bluetooth rune, accent when a device is connected (e.g. the car).
+    if (m_phone.btOn) {
+        const int w = h / 2 + 2;
+        const int l = x - w;
+        const QColor col = m_phone.btConnected ? c.accent : c.dim;
+        p.setPen(QPen(col, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.setBrush(Qt::NoBrush);
+        const int t = cy - h / 2, b = cy + h / 2, mx = l + w / 2;
+        QPolygon rune;
+        rune << QPoint(l, cy - h / 4) << QPoint(l + w, cy + h / 4) << QPoint(mx, b) << QPoint(mx, t)
+             << QPoint(l + w, cy - h / 4) << QPoint(l, cy + h / 4);
+        p.drawPolyline(rune);
+        x = l - gap;
+    }
+    return x;
 }
 
 void CarScreen::drawHome(QPainter &p)
@@ -150,7 +365,17 @@ void CarScreen::drawHome(QPainter &p)
         f.setPixelSize(t.rect.width() / 3);
         p.setFont(f);
         p.setPen(c.accent);
-        p.drawText(t.rect.adjusted(0, 0, 0, -t.rect.height() / 4), Qt::AlignCenter, t.glyph);
+        if (t.page == Apps) { // 3x3 grid of dots
+            const QRect g = t.rect.adjusted(0, 0, 0, -t.rect.height() / 4);
+            const int d = t.rect.width() / 12, step = d * 2;
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.accent);
+            for (int yy = -1; yy <= 1; ++yy)
+                for (int xx = -1; xx <= 1; ++xx)
+                    p.drawRoundedRect(QRect(g.center().x() + xx * step - d / 2, g.center().y() + yy * step - d / 2, d, d), 3, 3);
+        } else {
+            p.drawText(t.rect.adjusted(0, 0, 0, -t.rect.height() / 4), Qt::AlignCenter, t.glyph);
+        }
         f.setPixelSize(qMax(12, t.rect.width() / 9));
         f.setBold(true);
         p.setFont(f);
@@ -284,6 +509,60 @@ void CarScreen::drawPage(QPainter &p)
         drawPlayPause(m_playButton, m_mediaPlaying);
         break;
     }
+    case Apps: {
+        if (m_apps.isEmpty()) {
+            p.setPen(c.text);
+            p.drawText(body, Qt::AlignCenter | Qt::TextWordWrap,
+                       QStringLiteral("Keine Apps gewählt.\nAm Telefon: SailAuto → Apps fürs Auto"));
+            break;
+        }
+        QFont nf = p.font();
+        nf.setPixelSize(bar * 2 / 5);
+        nf.setBold(true);
+        const QFontMetrics nfm(nf);
+        for (int i = 0; i < m_appRects.size(); ++i) {
+            const QRect r = m_appRects[i];
+            const CarApp &a = m_apps[m_appPage * 8 + i];
+            p.setPen(Qt::NoPen);
+            p.setBrush(i == m_pressedApp ? c.panelPressed : c.panel);
+            p.drawRoundedRect(r, 14, 14);
+            const int is = qMin(r.width(), r.height()) * 11 / 20;
+            const QRect ir(r.center().x() - is / 2, r.top() + r.height() / 10, is, is);
+            if (!a.icon.isNull()) {
+                p.drawImage(ir, a.icon);
+            } else {
+                p.setBrush(c.accent);
+                p.drawEllipse(ir);
+                p.setPen(c.bg);
+                QFont lf = nf;
+                lf.setPixelSize(is / 2);
+                p.setFont(lf);
+                p.drawText(ir, Qt::AlignCenter, a.name.left(1).toUpper());
+            }
+            p.setFont(nf);
+            p.setPen(c.text);
+            const QRect tr(r.left() + 6, ir.bottom() + 4, r.width() - 12, r.bottom() - ir.bottom() - 6);
+            p.drawText(tr, Qt::AlignCenter, nfm.elidedText(a.name, Qt::ElideRight, tr.width()));
+        }
+        if (!m_appPrev.isNull()) {
+            const int pages = (m_apps.size() + 7) / 8;
+            for (const QRect &ar : {m_appPrev, m_appNext}) {
+                const bool up = ar == m_appPrev;
+                const bool enabled = up ? m_appPage > 0 : m_appPage + 1 < pages;
+                p.setPen(Qt::NoPen);
+                p.setBrush(c.panel);
+                p.drawRoundedRect(ar, 12, 12);
+                p.setBrush(enabled ? c.text : c.dim);
+                const QPoint o = ar.center();
+                const int k = ar.width() / 4;
+                QPolygon tri;
+                if (up) tri << QPoint(o.x() - k, o.y() + k / 2) << QPoint(o.x() + k, o.y() + k / 2) << QPoint(o.x(), o.y() - k / 2);
+                else tri << QPoint(o.x() - k, o.y() - k / 2) << QPoint(o.x() + k, o.y() - k / 2) << QPoint(o.x(), o.y() + k / 2);
+                p.drawPolygon(tri);
+            }
+        }
+        break;
+    }
     case Phone:
         p.setPen(c.text);
         p.drawText(body, Qt::AlignCenter, QStringLiteral("Telefon (Platzhalter)"));
@@ -316,10 +595,13 @@ const QImage &CarScreen::render()
     m_image.fill(Qt::black);
     QPainter p(&m_image);
     p.setRenderHint(QPainter::Antialiasing);
+    p.setRenderHint(QPainter::SmoothPixmapTransform);
     p.fillRect(m_safe, c.bg);
     drawTopBar(p);
     if (m_page == Home) drawHome(p);
     else drawPage(p);
+
+    drawBanner(p);
 
     // Touch feedback: proves the input path end to end.
     if (!m_trail.isEmpty()) {

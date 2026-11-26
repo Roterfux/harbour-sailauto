@@ -4,6 +4,8 @@
 // Polls once a second: simple and good enough for a car display.
 #pragma once
 
+#include <QElapsedTimer>
+#include <QHash>
 #include <QImage>
 #include <QObject>
 #include <QString>
@@ -37,6 +39,8 @@ public slots:
     // Spulen: relative (ms, may be negative) or absolute (fraction 0..1 of the track).
     void seek(qint64 offsetMs);
     void seekToFraction(double fraction);
+    // An app was started from the car: show its player once it appears.
+    void setPreferred(const QString &desktopId);
 
 signals:
     void changed();
@@ -47,6 +51,9 @@ private:
     void call(const QString &method);
 
     QTimer m_timer;
+    QString m_preferred;
+    QElapsedTimer m_preferredSince;
+    QHash<QString, QString> m_desktopOf; // service -> DesktopEntry
     QString m_service, m_identity;
     QString m_title, m_artist, m_album, m_artUrl, m_trackId;
     QImage m_art;

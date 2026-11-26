@@ -8,7 +8,7 @@ include(third_party/openh264/openh264.pri)
 APP_VERSION = $$system(sed -n \'s/^Version:[[:space:]]*//p\' $$PWD/rpm/harbour-sailauto.spec)
 isEmpty(APP_VERSION): APP_VERSION = dev
 DEFINES += APP_VERSION=\\\"$$APP_VERSION\\\"
-PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 libpulse
+PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 libpulse dbus-1
 
 desktop {
     # Headless test build:  qmake CONFIG+=desktop && make
@@ -59,6 +59,9 @@ HEADERS += \
     src/audio/audiotest.h \
     src/audio/audiorouter.h \
     src/media/mprisclient.h \
+    src/phone/phonestatus.h \
+    src/phone/notificationwatcher.h \
+    src/apps/appcatalog.h \
     src/controller.h
 
 SOURCES += \
@@ -74,6 +77,9 @@ SOURCES += \
     src/audio/audiotest.cpp \
     src/audio/audiorouter.cpp \
     src/media/mprisclient.cpp \
+    src/phone/phonestatus.cpp \
+    src/phone/notificationwatcher.cpp \
+    src/apps/appcatalog.cpp \
     src/controller.cpp
 
 DISTFILES += \
@@ -81,6 +87,7 @@ DISTFILES += \
     qml/harbour-sailauto.qml \
     qml/pages/MainPage.qml \
     qml/pages/LogPage.qml \
+    qml/pages/AppsPage.qml \
     qml/cover/CoverPage.qml \
     rpm/harbour-sailauto.spec \
     tools/hu_sim.py \

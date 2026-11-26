@@ -46,6 +46,20 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_audioTest, &AudioTest::log, this, &Controller::appendLog);
     connect(&m_router, &AudioRouter::log, this, &Controller::appendLog);
     connect(&m_mpris, &MprisClient::log, this, &Controller::appendLog);
+    pushAppsToScreen();
+    connect(&m_apps, &AppCatalog::selectionChanged, this, &Controller::pushAppsToScreen);
+    connect(&m_screen, &CarScreen::launchApp, this, [this](const QString &id) {
+        QString err;
+        const AppEntry *a = m_apps.find(id);
+        if (!m_apps.launch(id, &err)) {
+            appendLog(QStringLiteral("App: ") + err);
+            return;
+        }
+        appendLog(QStringLiteral("App: starte \"%1\" vom Auto aus").arg(a ? a->name : id));
+        if (a && a->media) m_mpris.setPreferred(id);
+    });
+    connect(&m_phoneStatus, &PhoneStatus::changed, this, [this]() { m_screen.setPhoneState(m_phoneStatus.state()); });
+    connect(&m_phoneStatus, &PhoneStatus::log, this, &Controller::appendLog);
     connect(&m_mpris, &MprisClient::changed, this, [this]() {
         m_screen.setNowPlaying(m_mpris.hasPlayer(), m_mpris.playerName(), m_mpris.title(), m_mpris.artist(),
                                m_mpris.album(), m_mpris.art(), m_mpris.playing(), m_mpris.positionMs(), m_mpris.lengthMs());
@@ -55,6 +69,17 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_router, &AudioRouter::chunk, this, &Controller::onPhoneAudio);
     m_soundToCar = QSettings().value(QStringLiteral("soundToCar"), true).toBool();
     m_autostart = QSettings().value(QStringLiteral("autostart"), false).toBool();
+    m_notifyToCar = QSettings().value(QStringLiteral("notifyToCar"), true).toBool();
+    connect(&m_notify, &NotificationWatcher::log, this, &Controller::appendLog);
+    connect(&m_notify, &NotificationWatcher::notification, this,
+            [this](const QString &app, const QString &title, const QString &body, const QString &category) {
+        if (app.contains(QStringLiteral("sailauto"), Qt::CaseInsensitive)) return;
+        // Log only who and how long: the log may be shared for diagnosis.
+        appendLog(QStringLiteral("Benachrichtigung: %1%2 (Titel %3 Zeichen, Text %4 Zeichen)")
+                      .arg(app, category.isEmpty() ? QString() : QStringLiteral(" [") + category + QLatin1Char(']'))
+                      .arg(title.size()).arg(body.size()));
+        m_screen.showNotification(app, title, body);
+    });
     // A running app follows the autostart watcher too (car came back while open).
     m_lastCarSeen = QFileInfo(QStringLiteral("/run/harbour-sailauto/car")).lastModified();
     m_carPoll.setInterval(2000);
@@ -418,6 +443,39 @@ void Controller::setAutostart(bool on)
     });
 }
 
+QVariantList Controller::installedApps()
+{
+    m_apps.reload();
+    return m_apps.model();
+}
+
+void Controller::setCarApp(const QString &id, bool on)
+{
+    m_apps.setSelected(id, on);
+}
+
+void Controller::pushAppsToScreen()
+{
+    QVector<CarScreen::CarApp> list;
+    for (const AppEntry &a : m_apps.selected()) {
+        QImage icon;
+        if (!a.iconPath.isEmpty() && icon.load(a.iconPath))
+            icon = icon.scaled(96, 96, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        list.append({a.id, a.name, icon, a.media});
+    }
+    m_screen.setApps(list);
+}
+
+void Controller::setNotifyToCar(bool on)
+{
+    if (on == m_notifyToCar) return;
+    m_notifyToCar = on;
+    QSettings().setValue(QStringLiteral("notifyToCar"), on);
+    emit notifyToCarChanged();
+    if (!on) m_notify.stop();
+    else if (m_encoder.running()) m_notify.start();
+}
+
 void Controller::startedByCar()
 {
     appendLog(QStringLiteral("Autostart: vom Auto gestartet"));
@@ -640,6 +698,14 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
+    connect(m_session, &aap::Session::drivingStatusChanged, this, [this](int st) {
+        // 0 = UNRESTRICTED (parked); any bit set = driving restrictions.
+        if (st == m_drivingStatus) return;
+        m_drivingStatus = st;
+        m_screen.setParked(st == 0);
+        appendLog(st == 0 ? QStringLiteral("Fahrstatus: steht (keine Einschränkungen)")
+                          : QStringLiteral("Fahrstatus: fährt (Einschränkungen %1)").arg(st));
+    });
     connect(m_session, &aap::Session::audioFocusChanged, &m_audioTest, &AudioTest::onFocus);
     connect(m_session, &aap::Session::audioFocusChanged, this, [this](int st) {
         if (m_carAudioOn && (st == 3 || st == 5)) stopCarAudio(QStringLiteral("Auto nimmt Audio-Fokus weg"));
@@ -708,6 +774,8 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     appendLog(QStringLiteral("Video läuft (%1)").arg(m_encoder.encoderName()));
     startRouter();
     m_mpris.start();
+    m_phoneStatus.start();
+    if (m_notifyToCar) m_notify.start();
     setStatus(QStringLiteral("Projiziert auf %1").arg(m_session ? m_session->headUnitName() : QStringLiteral("Head Unit")));
 }
 
@@ -764,6 +832,10 @@ void Controller::onSessionClosed(const QString &reason)
     m_audioTest.stop();
     stopRouter();
     m_mpris.stop();
+    m_phoneStatus.stop();
+    m_notify.stop();
+    m_drivingStatus = -1;
+    m_screen.setParked(false);
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
     if (m_session->receivedBytes() > 0) m_autoReplugs = 0;
     m_usbKick.stop();

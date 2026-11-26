@@ -7,6 +7,9 @@
 #include "audio/audiotest.h"
 #include "audio/audiorouter.h"
 #include "media/mprisclient.h"
+#include "phone/phonestatus.h"
+#include "phone/notificationwatcher.h"
+#include "apps/appcatalog.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -41,6 +44,7 @@ class Controller : public QObject
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool soundToCar READ soundToCar WRITE setSoundToCar NOTIFY soundToCarChanged)
     Q_PROPERTY(bool autostart READ autostart WRITE setAutostart NOTIFY autostartChanged)
+    Q_PROPERTY(bool notifyToCar READ notifyToCar WRITE setNotifyToCar NOTIFY notifyToCarChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -60,6 +64,9 @@ public:
     Q_INVOKABLE void replugUsb();
     // App was launched by the autostart watcher (argument --autostart).
     void startedByCar();
+    // Apps for the car screen (phone page "Apps fürs Auto")
+    Q_INVOKABLE QVariantList installedApps();
+    Q_INVOKABLE void setCarApp(const QString &id, bool on);
 
     bool listening() const { return m_server.isListening(); }
     bool usbActive() const { return m_usbWanted; }
@@ -69,6 +76,8 @@ public:
     void setSoundToCar(bool on);
     bool autostart() const { return m_autostart; }
     void setAutostart(bool on);
+    bool notifyToCar() const { return m_notifyToCar; }
+    void setNotifyToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
     QString status() const { return m_status; }
@@ -88,6 +97,7 @@ signals:
     void statsChanged();
     void soundToCarChanged();
     void autostartChanged();
+    void notifyToCarChanged();
 
 private:
     void onNewConnection();
@@ -135,6 +145,12 @@ private:
     // Phone sound -> car media channel
     AudioRouter m_router;
     MprisClient m_mpris;
+    PhoneStatus m_phoneStatus;
+    AppCatalog m_apps;
+    NotificationWatcher m_notify;
+    bool m_notifyToCar = true;
+    int m_drivingStatus = -1;
+    void pushAppsToScreen();
     void onCarKey(int code, bool pressed, bool longPress);
     void onMediaCommand(const QString &cmd);
     // Spulen: hold NEXT/PREVIOUS (or REWIND/FAST_FORWARD) -> seek in steps.
