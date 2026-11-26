@@ -74,7 +74,7 @@ private:
     void tryOpenUsb();
     bool requestAoa(const QString &cmd);
     QString aoaState() const;
-    QString phoneBluetoothAddress() const;
+    QString phoneBluetoothAddress(QString *why = nullptr) const;
     void onSessionState(aap::Session::State s);
     void onVideoStart(const aap::VideoConfig &cfg);
     void onVideoStop();

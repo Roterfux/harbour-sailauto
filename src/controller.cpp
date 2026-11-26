@@ -217,19 +217,83 @@ void Controller::tryOpenUsb()
     attachTransport(dev, QStringLiteral("USB-Accessory geöffnet, warte auf Head Unit"));
 }
 
-QString Controller::phoneBluetoothAddress() const
+QString Controller::phoneBluetoothAddress(QString *why) const
 {
     const QByteArray forced = qgetenv("SAILAUTO_BT_ADDRESS");
     if (!forced.isEmpty()) return QString::fromLatin1(forced);
-    // BlueZ 5: first adapter's Address property.
-    QDBusInterface adapter(QStringLiteral("org.bluez"), QStringLiteral("/org/bluez/hci0"),
-                           QStringLiteral("org.bluez.Adapter1"), QDBusConnection::systemBus());
-    if (adapter.isValid()) {
-        const QString a = adapter.property("Address").toString();
-        if (!a.isEmpty()) return a;
+    QStringList reasons;
+    const QString cacheFile = m_certDir + QStringLiteral("/bt-address");
+
+    // BlueZ 5: ask the object manager for every adapter (hci0 is not always the name).
+    QDBusConnection bus = QDBusConnection::systemBus();
+    if (!bus.isConnected()) {
+        reasons << QStringLiteral("kein System-D-Bus: ") + bus.lastError().message();
+    } else {
+        QDBusMessage call = QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), QStringLiteral("/"),
+                                                           QStringLiteral("org.freedesktop.DBus.ObjectManager"),
+                                                           QStringLiteral("GetManagedObjects"));
+        QDBusMessage reply = bus.call(call, QDBus::Block, 3000);
+        if (reply.type() == QDBusMessage::ErrorMessage) {
+            reasons << QStringLiteral("BlueZ antwortet nicht (%1)").arg(reply.errorMessage());
+        } else {
+            QStringList paths;
+            const QDBusArgument arg = reply.arguments().value(0).value<QDBusArgument>();
+            arg.beginMap();
+            while (!arg.atEnd()) {
+                QDBusObjectPath path;
+                QVariantMap dummy;
+                arg.beginMapEntry();
+                arg >> path;
+                // interfaces -> properties; only the keys matter here
+                arg.beginMap();
+                bool isAdapter = false;
+                while (!arg.atEnd()) {
+                    QString iface;
+                    QVariantMap props;
+                    arg.beginMapEntry();
+                    arg >> iface >> props;
+                    arg.endMapEntry();
+                    if (iface == QLatin1String("org.bluez.Adapter1")) isAdapter = true;
+                }
+                arg.endMap();
+                arg.endMapEntry();
+                if (isAdapter) paths << path.path();
+            }
+            arg.endMap();
+            if (paths.isEmpty()) reasons << QStringLiteral("BlueZ hat keinen Adapter (Bluetooth aus?)");
+            for (const QString &p : paths) {
+                QDBusMessage get = QDBusMessage::createMethodCall(QStringLiteral("org.bluez"), p,
+                                                                  QStringLiteral("org.freedesktop.DBus.Properties"),
+                                                                  QStringLiteral("Get"));
+                get << QStringLiteral("org.bluez.Adapter1") << QStringLiteral("Address");
+                QDBusMessage r = bus.call(get, QDBus::Block, 3000);
+                const QString addr = r.type() == QDBusMessage::ReplyMessage
+                                         ? r.arguments().value(0).value<QDBusVariant>().variant().toString() : QString();
+                if (!addr.isEmpty()) {
+                    QFile c(cacheFile);
+                    if (c.open(QIODevice::WriteOnly)) c.write(addr.toLatin1());
+                    return addr;
+                }
+                reasons << QStringLiteral("%1: %2").arg(p, r.errorMessage());
+            }
+        }
     }
     QFile f(QStringLiteral("/sys/class/bluetooth/hci0/address"));
-    if (f.open(QIODevice::ReadOnly)) return QString::fromLatin1(f.readAll()).trimmed().toUpper();
+    if (f.open(QIODevice::ReadOnly)) {
+        const QString a = QString::fromLatin1(f.readAll()).trimmed().toUpper();
+        if (!a.isEmpty()) return a;
+    }
+    // Bluetooth off: use the address seen last time.
+    QFile c(cacheFile);
+    if (c.open(QIODevice::ReadOnly)) {
+        const QString a = QString::fromLatin1(c.readAll()).trimmed();
+        if (!a.isEmpty()) {
+            reasons << QStringLiteral("nehme gespeicherte Adresse");
+            if (why) *why = reasons.join(QStringLiteral("; "));
+            return a;
+        }
+    }
+    if (why) *why = reasons.join(QStringLiteral("; "));
     return QString();
 }
 
@@ -272,9 +336,12 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         }
     });
     m_session->setTrace(m_trace);
-    const QString bt = phoneBluetoothAddress();
+    QString btWhy;
+    const QString bt = phoneBluetoothAddress(&btWhy);
     m_session->setPhoneBluetoothAddress(bt);
-    appendLog(QStringLiteral("Bluetooth-Adresse Telefon: %1").arg(bt.isEmpty() ? QStringLiteral("unbekannt") : bt));
+    appendLog(QStringLiteral("Bluetooth-Adresse Telefon: %1%2")
+                  .arg(bt.isEmpty() ? QStringLiteral("unbekannt") : bt)
+                  .arg(btWhy.isEmpty() ? QString() : QStringLiteral(" (") + btWhy + QLatin1Char(')')));
     appendLog(QStringLiteral("Zertifikat: %1").arg(customCert() ? QStringLiteral("eigenes") : QStringLiteral("Entwickler (selbstsigniert)")));
 
     QString err;
