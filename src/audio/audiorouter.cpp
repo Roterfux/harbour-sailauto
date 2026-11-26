@@ -2,24 +2,12 @@
 
 #include <QMetaObject>
 #include <QVariant>
-#include <QThread>
 #include <pulse/pulseaudio.h>
-#include <pulse/simple.h>
 #include <pulse/error.h>
 
 namespace {
 
 const char kSinkName[] = "sailauto_car";
-
-class CaptureThread : public QThread
-{
-public:
-    explicit CaptureThread(AudioRouter *r) : m_r(r) {}
-protected:
-    void run() override { m_r->runCapture(); }
-private:
-    AudioRouter *m_r;
-};
 
 struct Ctx { AudioRouter *self; pa_threaded_mainloop *loop; };
 
@@ -125,11 +113,15 @@ bool AudioRouter::start(QString *error)
 
     struct SinkCb { static void cb(pa_context *, const pa_sink_info *i, int eol, void *u) {
         auto *s = static_cast<QPair<AudioRouter *, pa_threaded_mainloop *> *>(u);
-        if (!eol && i) s->first->setProperty("_carSink", i->index);
+        if (!eol && i) {
+            s->first->setProperty("_carSink", i->index);
+            s->first->setProperty("_carMonitor", i->monitor_source);
+        }
         signalLoop(s->second);
     } };
     waitOperation(pa_context_get_sink_info_by_name(m_ctx, kSinkName, SinkCb::cb, &pair));
     m_carSink = property("_carSink").toUInt();
+    m_carMonitor = property("_carMonitor").toUInt();
 
     // 3. new streams go to the car by default
     waitOperation(pa_context_set_default_sink(m_ctx, kSinkName, [](pa_context *, int, void *u) {
@@ -160,10 +152,13 @@ bool AudioRouter::start(QString *error)
     m_running = true;
     emit log(QStringLiteral("Ton: virtueller Ausgang \"SailAuto-Auto\" aktiv (vorher Standard: %1)").arg(m_oldDefault));
 
-    // 5. record its monitor
-    m_stopCapture = false;
-    m_capture = new CaptureThread(this);
-    m_capture->start();
+    // 5. record its monitor -- and make sure it really is the monitor.
+    // On Sailfish the audio policy may route recordings to the microphone,
+    // which would feed the car's speakers back into the car (howling).
+    if (!startCapture(error)) {
+        stop();
+        return false;
+    }
     return true;
 }
 
@@ -228,36 +223,92 @@ void AudioRouter::onSubscription(int facility, int type, uint32_t index)
     if (op) pa_operation_unref(op);
 }
 
-void AudioRouter::runCapture()
+bool AudioRouter::startCapture(QString *error)
 {
+    pa_threaded_mainloop_lock(m_loop);
     pa_sample_spec ss;
     ss.format = PA_SAMPLE_S16LE;
     ss.rate = Rate;
     ss.channels = Channels;
+    pa_proplist *pl = pa_proplist_new();
+    pa_proplist_sets(pl, PA_PROP_APPLICATION_NAME, "SailAuto");
+    pa_proplist_sets(pl, PA_PROP_MEDIA_NAME, "Auto-Ton (Monitor)");
+    m_stream = pa_stream_new_with_proplist(m_ctx, "Auto-Ton", &ss, nullptr, pl);
+    pa_proplist_free(pl);
+    pa_stream_set_state_callback(m_stream, [](pa_stream *, void *u) {
+        signalLoop(static_cast<pa_threaded_mainloop *>(u)); }, m_loop);
+    pa_stream_set_read_callback(m_stream, [](pa_stream *st, size_t, void *u) {
+        static_cast<AudioRouter *>(u)->onReadable(st); }, this);
+    // If the policy moves us anyway: stop at once, never forward.
+    pa_stream_set_moved_callback(m_stream, [](pa_stream *st, void *u) {
+        auto *self = static_cast<AudioRouter *>(u);
+        self->checkSource(pa_stream_get_device_index(st), QStringLiteral("verschoben"));
+    }, this);
+
     pa_buffer_attr attr;
     attr.maxlength = static_cast<uint32_t>(-1);
     attr.tlength = static_cast<uint32_t>(-1);
     attr.prebuf = static_cast<uint32_t>(-1);
     attr.minreq = static_cast<uint32_t>(-1);
     attr.fragsize = Rate / 50 * Channels * 2; // 20 ms
-    int err = 0;
     const QByteArray monitor = QByteArray(kSinkName) + ".monitor";
-    pa_simple *s = pa_simple_new(nullptr, "SailAuto", PA_STREAM_RECORD, monitor.constData(), "Auto-Ton",
-                                 &ss, nullptr, &attr, &err);
-    if (!s) {
-        paLog(QStringLiteral("Ton: Aufnahme von %1 nicht möglich: %2").arg(QString::fromLatin1(monitor),
-                                                                          QString::fromUtf8(pa_strerror(err))));
-        return;
+    const int flags = PA_STREAM_DONT_MOVE | PA_STREAM_ADJUST_LATENCY;
+    if (pa_stream_connect_record(m_stream, monitor.constData(), &attr, static_cast<pa_stream_flags_t>(flags)) < 0) {
+        if (error) *error = QStringLiteral("Aufnahme nicht startbar: %1").arg(QString::fromUtf8(pa_strerror(pa_context_errno(m_ctx))));
+        pa_threaded_mainloop_unlock(m_loop);
+        return false;
     }
-    QByteArray buf(static_cast<int>(attr.fragsize), Qt::Uninitialized);
-    while (!m_stopCapture) {
-        if (pa_simple_read(s, buf.data(), static_cast<size_t>(buf.size()), &err) < 0) {
-            paLog(QStringLiteral("Ton: Aufnahmefehler: %1").arg(QString::fromUtf8(pa_strerror(err))));
-            break;
+    for (;;) {
+        const pa_stream_state_t st = pa_stream_get_state(m_stream);
+        if (st == PA_STREAM_READY) break;
+        if (!PA_STREAM_IS_GOOD(st)) {
+            if (error) *error = QStringLiteral("Aufnahme abgelehnt: %1").arg(QString::fromUtf8(pa_strerror(pa_context_errno(m_ctx))));
+            pa_threaded_mainloop_unlock(m_loop);
+            return false;
         }
-        QMetaObject::invokeMethod(this, "chunk", Qt::QueuedConnection, Q_ARG(QByteArray, buf));
+        pa_threaded_mainloop_wait(m_loop);
     }
-    pa_simple_free(s);
+    const uint32_t src = pa_stream_get_device_index(m_stream);
+    const QString name = QString::fromUtf8(pa_stream_get_device_name(m_stream));
+    pa_threaded_mainloop_unlock(m_loop);
+    if (src != m_carMonitor) {
+        if (error) *error = QStringLiteral("FEHLER: Aufnahme kommt nicht vom SailAuto-Ausgang, sondern von \"%1\" "
+                                           "(Quelle #%2, erwartet #%3) - vermutlich Mikrofon. Abgebrochen, sonst "
+                                           "Rückkopplung.").arg(name).arg(src).arg(m_carMonitor);
+        return false;
+    }
+    m_captureOk = true;
+    emit log(QStringLiteral("Ton: Aufnahme geprüft: kommt von \"%1\" (Quelle #%2)").arg(name).arg(src));
+    return true;
+}
+
+void AudioRouter::checkSource(uint32_t source, const QString &why)
+{
+    // PA thread.
+    if (source == m_carMonitor) return;
+    m_captureOk = false;
+    paLog(QStringLiteral("FEHLER: Aufnahme wurde %1 auf Quelle #%2 (nicht SailAuto-Ausgang #%3). Ton ans Auto "
+                         "gesperrt, sonst Rückkopplung.").arg(why).arg(source).arg(m_carMonitor));
+}
+
+void AudioRouter::onReadable(pa_stream *st)
+{
+    // PA thread.
+    const void *data = nullptr;
+    size_t n = 0;
+    while (pa_stream_readable_size(st) > 0) {
+        if (pa_stream_peek(st, &data, &n) < 0) return;
+        if (n == 0) break;
+        if (data && m_captureOk) m_pending.append(static_cast<const char *>(data), static_cast<int>(n));
+        else if (!data && m_captureOk) m_pending.append(QByteArray(static_cast<int>(n), 0)); // hole = silence
+        pa_stream_drop(st);
+    }
+    const int chunkBytes = Rate / 50 * Channels * 2;
+    while (m_pending.size() >= chunkBytes) {
+        const QByteArray c = m_pending.left(chunkBytes);
+        m_pending.remove(0, chunkBytes);
+        QMetaObject::invokeMethod(this, "chunk", Qt::QueuedConnection, Q_ARG(QByteArray, c));
+    }
 }
 
 void AudioRouter::restoreAll()
@@ -338,15 +389,18 @@ void AudioRouter::dumpNow(const QString &when)
 
 void AudioRouter::stop()
 {
-    if (m_capture) {
-        m_stopCapture = true;
-        m_capture->wait(1000);
-        if (m_capture->isRunning()) { m_capture->terminate(); m_capture->wait(500); }
-        delete m_capture;
-        m_capture = nullptr;
-    }
+    m_captureOk = false;
     if (m_loop) {
         pa_threaded_mainloop_lock(m_loop);
+        if (m_stream) {
+            pa_stream_set_read_callback(m_stream, nullptr, nullptr);
+            pa_stream_set_moved_callback(m_stream, nullptr, nullptr);
+            pa_stream_set_state_callback(m_stream, nullptr, nullptr);
+            pa_stream_disconnect(m_stream);
+            pa_stream_unref(m_stream);
+            m_stream = nullptr;
+        }
+        m_pending.clear();
         if (m_ctx && pa_context_get_state(m_ctx) == PA_CONTEXT_READY) {
             pa_context_set_subscribe_callback(m_ctx, nullptr, nullptr);
             restoreAll();

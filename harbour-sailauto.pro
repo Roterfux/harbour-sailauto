@@ -3,7 +3,7 @@ QT += network quick qml dbus
 CONFIG += c++14 link_pkgconfig
 
 include(third_party/openh264/openh264.pri)
-PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 libpulse libpulse-simple
+PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 libpulse
 
 desktop {
     # Headless test build:  qmake CONFIG+=desktop && make
