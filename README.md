@@ -186,6 +186,18 @@ Sailfish-Audiorichtlinie die Umleitung verhindert.
 
 Noch nicht: Telefonate, Mikrofon, Steuerung der Player vom Auto aus.
 
+## Musiksteuerung
+
+Ab 0.4.0. Die App findet den Musik-Player am Telefon über MPRIS (Sailfish-
+Mediaplayer und andere Player mit MPRIS-Unterstützung). Die Seite „Musik“ im
+Auto zeigt Cover, Titel, Interpret, Album, Fortschritt und ⏮ ⏯ ⏭.
+Lenkradtasten: die App bindet genau die Tasten, die das Auto anbietet
+(Log: `Dienst …: Touch/Tasten Tasten: …`), und gibt PLAY_PAUSE/PLAY/PAUSE/
+NEXT/PREVIOUS an den Player weiter. Ohne Player bleibt der Knopf der Tontest.
+
+Kombiinstrument: Titel dort nur, wenn das Auto einen Musikstatus-Dienst
+anbietet – der Touran (MIB2) tut das nicht.
+
 ## Tontest
 
 Im Auto auf dem SailAuto-Bildschirm „Musik“ → Play: eine Test-Melodie über den

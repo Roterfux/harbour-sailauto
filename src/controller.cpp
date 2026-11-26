@@ -43,6 +43,12 @@ Controller::Controller(QObject *parent) : QObject(parent)
     });
     connect(&m_audioTest, &AudioTest::log, this, &Controller::appendLog);
     connect(&m_router, &AudioRouter::log, this, &Controller::appendLog);
+    connect(&m_mpris, &MprisClient::log, this, &Controller::appendLog);
+    connect(&m_mpris, &MprisClient::changed, this, [this]() {
+        m_screen.setNowPlaying(m_mpris.hasPlayer(), m_mpris.playerName(), m_mpris.title(), m_mpris.artist(),
+                               m_mpris.album(), m_mpris.art(), m_mpris.playing(), m_mpris.positionMs(), m_mpris.lengthMs());
+    });
+    connect(&m_screen, &CarScreen::mediaCommand, this, &Controller::onMediaCommand);
     connect(&m_router, &AudioRouter::chunk, this, &Controller::onPhoneAudio);
     m_soundToCar = QSettings().value(QStringLiteral("soundToCar"), true).toBool();
     connect(&m_screen, &CarScreen::tapped, this, [this](const QString &w) {
@@ -180,6 +186,27 @@ void Controller::onPhoneAudio(const QByteArray &pcm)
         appendLog(QStringLiteral("Ton: läuft seit %1 s, Spitze gerade %2").arg(m_carFrames / AudioRouter::Rate).arg(peak));
     // 3 s silence: give the speakers back to the car (radio etc.).
     if (m_silentMs >= 3000) stopCarAudio(QStringLiteral("3 s Stille"));
+}
+
+void Controller::onMediaCommand(const QString &cmd)
+{
+    if (cmd == QLatin1String("playpause")) m_mpris.playPause();
+    else if (cmd == QLatin1String("next")) m_mpris.next();
+    else if (cmd == QLatin1String("previous")) m_mpris.previous();
+}
+
+void Controller::onCarKey(int code, bool pressed, bool longPress)
+{
+    Q_UNUSED(longPress)
+    if (!pressed) return; // act on press, ignore release
+    switch (code) {
+    case 85: case 79: m_mpris.playPause(); break; // PLAY_PAUSE, HEADSETHOOK
+    case 126: m_mpris.play(); break;
+    case 127: m_mpris.pause(); break;
+    case 87: m_mpris.next(); break;
+    case 88: m_mpris.previous(); break;
+    default: break;
+    }
 }
 
 void Controller::soundTest(const QString &kind)
@@ -420,6 +447,7 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     connect(m_session, &aap::Session::videoStop, this, &Controller::onVideoStop);
     connect(m_session, &aap::Session::videoCanSend, this, &Controller::flush);
     connect(m_session, &aap::Session::touch, &m_screen, &CarScreen::touch);
+    connect(m_session, &aap::Session::key, this, &Controller::onCarKey);
     connect(m_session, &aap::Session::nightModeChanged, this, [this](bool n) {
         m_screen.setNight(n);
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
@@ -487,6 +515,7 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     m_frameTimer.start(1000 / qMax(1, cfg.fps));
     appendLog(QStringLiteral("Video läuft (%1)").arg(m_encoder.encoderName()));
     startRouter();
+    m_mpris.start();
     setStatus(QStringLiteral("Projiziert auf %1").arg(m_session ? m_session->headUnitName() : QStringLiteral("Head Unit")));
 }
 
@@ -542,6 +571,7 @@ void Controller::onSessionClosed(const QString &reason)
     if (!m_session) return;
     m_audioTest.stop();
     stopRouter();
+    m_mpris.stop();
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
     if (m_session->state() != aap::Session::Closed) appendLog(m_session->summary());
     onVideoStop();

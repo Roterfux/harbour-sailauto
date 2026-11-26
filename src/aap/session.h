@@ -84,6 +84,8 @@ signals:
     void videoStop();
     void videoCanSend();
     void touch(int action, int x, int y);
+    // Hardware key from the car (Android keycodes, e.g. 85 play/pause, 87 next, 88 previous).
+    void key(int code, bool pressed, bool longPress);
     void nightModeChanged(bool night);
     void drivingStatusChanged(int status);
     // AudioFocusStateType from the car: 1 GAIN, 2 GAIN_TRANSIENT, 3 LOSS, 4 LOSS_CAN_DUCK, 5 LOSS_TRANSIENT, ...
@@ -147,6 +149,7 @@ private:
     int m_framesSent = 0;
     QElapsedTimer m_age;
     bool m_touchInVideoSpace = false;
+    QList<int> m_keycodes;
 
     int m_videoSession = 1;
     int m_maxUnacked = 1;

@@ -31,6 +31,46 @@ QByteArray u64(quint64 v)
     return b;
 }
 
+QList<int> varints(const QList<pb::Value> &vals)
+{
+    // repeated int32, packed or not
+    QList<int> out;
+    for (const pb::Value &v : vals) {
+        if (v.type == pb::Varint) { out << static_cast<int>(static_cast<qint64>(v.number)); continue; }
+        int pos = 0;
+        while (pos < v.bytes.size()) {
+            quint64 x = 0;
+            int shift = 0;
+            while (pos < v.bytes.size()) {
+                const quint8 b = static_cast<quint8>(v.bytes[pos++]);
+                x |= static_cast<quint64>(b & 0x7f) << shift;
+                shift += 7;
+                if (!(b & 0x80)) break;
+            }
+            out << static_cast<int>(static_cast<qint64>(x));
+        }
+    }
+    return out;
+}
+
+QString keyName(int code)
+{
+    switch (code) {
+    case 3: return QStringLiteral("HOME"); case 4: return QStringLiteral("BACK");
+    case 5: return QStringLiteral("CALL"); case 6: return QStringLiteral("ENDCALL");
+    case 19: return QStringLiteral("UP"); case 20: return QStringLiteral("DOWN");
+    case 21: return QStringLiteral("LEFT"); case 22: return QStringLiteral("RIGHT");
+    case 23: return QStringLiteral("ENTER"); case 65536: return QStringLiteral("ROTARY");
+    case 84: return QStringLiteral("SEARCH/SPRACHE"); case 85: return QStringLiteral("PLAY_PAUSE");
+    case 87: return QStringLiteral("NEXT"); case 88: return QStringLiteral("PREVIOUS");
+    case 126: return QStringLiteral("PLAY"); case 127: return QStringLiteral("PAUSE");
+    case 79: return QStringLiteral("HEADSETHOOK"); case 231: return QStringLiteral("VOICE_ASSIST");
+    case 65537: return QStringLiteral("MEDIA"); case 65538: return QStringLiteral("NAVIGATION");
+    case 65539: return QStringLiteral("RADIO"); case 65540: return QStringLiteral("TEL");
+    }
+    return QString::number(code);
+}
+
 } // namespace
 
 Session::Session(QIODevice *transport, const QString &certPath, const QString &keyPath, QObject *parent)
@@ -434,7 +474,10 @@ void Session::handleServiceDiscovery(const QByteArray &payload)
                     m_video.touchWidth = static_cast<int>(tc.number(1, 800));
                     m_video.touchHeight = static_cast<int>(tc.number(2, 480));
                 }
-                detail = QStringLiteral("%1 Tasten").arg(in.all(1).size());
+                m_keycodes = varints(in.all(1));
+                QStringList names;
+                for (int k : m_keycodes) names << keyName(k);
+                detail = QStringLiteral("Tasten: %1").arg(names.isEmpty() ? QStringLiteral("keine") : names.join(QLatin1Char(' ')));
             }
         } else if (ch.has(2)) {
             kind = Trace::Sensor;
@@ -557,7 +600,11 @@ void Session::onChannelOpened(quint8 channel, bool ok)
         w.varint(1, 3); // MEDIA_CODEC_VIDEO_H264_BP
         send(channel, av::SetupRequest, w.data(), true);
     } else if (channel == m_inputChannel) {
-        send(channel, input::BindingRequest, QByteArray(), true); // no hardware keys
+        // Ask for exactly the keys the car offers (asking for unsupported
+        // ones makes some head units reject the whole binding).
+        pb::Writer w;
+        for (int k : m_keycodes) w.sint(1, k);
+        send(channel, input::BindingRequest, w.data(), true);
     } else if (channel == m_sensorChannel) {
         for (int type : {sensor::DrivingStatus, sensor::NightData}) {
             pb::Writer w;
@@ -619,12 +666,33 @@ void Session::handleVideo(quint16 id, const QByteArray &payload)
 void Session::handleInput(quint16 id, const QByteArray &payload)
 {
     if (id == input::BindingResponse) {
-        emit log(QStringLiteral("Touch-Eingabe aktiv"));
+        const bool ok = pb::Reader(payload).number(1) == 0;
+        emit log(ok ? QStringLiteral("Touch-Eingabe aktiv, %1 Tasten gebunden").arg(m_keycodes.size())
+                    : QStringLiteral("Tastenbindung ABGELEHNT"));
         return;
     }
     if (id != input::EventIndication) return;
     pb::Reader r(payload);
-    if (!r.has(3)) return; // buttons / rotary not handled in the MVP
+    if (r.has(4)) { // ButtonEvents { repeated ButtonEvent {scan_code, is_pressed, meta, long_press} }
+        for (const pb::Value &bv : pb::Reader(r.bytes(4)).all(1)) {
+            pb::Reader b(bv.bytes);
+            const int code = static_cast<int>(b.number(1));
+            const bool pressed = b.boolean(2);
+            const bool longPress = b.boolean(4);
+            emit log(QStringLiteral("Taste %1 %2%3").arg(keyName(code))
+                         .arg(pressed ? QStringLiteral("gedrückt") : QStringLiteral("los"))
+                         .arg(longPress ? QStringLiteral(" (lang)") : QString()));
+            emit key(code, pressed, longPress);
+        }
+    }
+    if (r.has(6)) { // RelativeInputEvents (rotary knob)
+        for (const pb::Value &rv : pb::Reader(r.bytes(6)).all(1)) {
+            pb::Reader e(rv.bytes);
+            emit log(QStringLiteral("Drehregler %1: %2").arg(keyName(static_cast<int>(e.number(1))))
+                         .arg(static_cast<qint64>(static_cast<qint32>(e.number(2)))));
+        }
+    }
+    if (!r.has(3)) return;
     pb::Reader te(r.bytes(3));
     const int action = static_cast<int>(te.number(3));
     QList<pb::Value> locs = te.all(1);

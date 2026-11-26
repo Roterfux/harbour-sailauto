@@ -3,6 +3,7 @@
 // later this becomes an offscreen QML scene (QQuickRenderControl).
 #pragma once
 
+#include <QElapsedTimer>
 #include <QImage>
 #include <QObject>
 #include <QPoint>
@@ -24,11 +25,17 @@ public:
     // Draws the next frame and returns it (RGB32).
     const QImage &render();
 
+    // What the phone's music player is doing (MPRIS).
+    void setNowPlaying(bool hasPlayer, const QString &player, const QString &title, const QString &artist,
+                       const QString &album, const QImage &art, bool playing, qint64 posMs, qint64 lenMs);
+
     // action: 0 press, 1 release, 2 drag (AAP TouchAction)
     void touch(int action, int x, int y);
 
 signals:
     void tapped(const QString &what);
+    // "playpause", "next", "previous" from the music page buttons
+    void mediaCommand(const QString &cmd);
 
 private:
     enum Page { Home, Navigation, Music, Phone, Info };
@@ -45,7 +52,12 @@ private:
     Page m_page = Home;
     QVector<Tile> m_tiles;
     QRect m_backButton;
-    QRect m_playButton;
+    QRect m_playButton, m_prevButton, m_nextButton;
+    bool m_hasPlayer = false, m_mediaPlaying = false;
+    QString m_player, m_title, m_artist, m_album;
+    QImage m_art;
+    qint64 m_posMs = 0, m_lenMs = 0;
+    QElapsedTimer m_posClock;
     bool m_playing = false;
     int m_pressedTile = -1;
     bool m_pressed = false;

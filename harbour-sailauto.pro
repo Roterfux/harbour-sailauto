@@ -49,6 +49,7 @@ HEADERS += \
     src/video/openh264enc.h \
     src/audio/audiotest.h \
     src/audio/audiorouter.h \
+    src/media/mprisclient.h \
     src/controller.h
 
 SOURCES += \
@@ -63,6 +64,7 @@ SOURCES += \
     src/video/openh264enc.cpp \
     src/audio/audiotest.cpp \
     src/audio/audiorouter.cpp \
+    src/media/mprisclient.cpp \
     src/controller.cpp
 
 DISTFILES += \

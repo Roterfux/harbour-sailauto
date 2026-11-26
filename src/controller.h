@@ -6,6 +6,7 @@
 #include "aap/trace.h"
 #include "audio/audiotest.h"
 #include "audio/audiorouter.h"
+#include "media/mprisclient.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -112,6 +113,9 @@ private:
     AudioTest m_audioTest;
     // Phone sound -> car media channel
     AudioRouter m_router;
+    MprisClient m_mpris;
+    void onCarKey(int code, bool pressed, bool longPress);
+    void onMediaCommand(const QString &cmd);
     bool m_soundToCar = true;
     bool m_carAudioOn = false;
     int m_carAudioChannel = -1;

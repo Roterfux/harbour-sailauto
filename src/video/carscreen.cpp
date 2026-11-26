@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QFont>
+#include <QFontMetrics>
 #include <QPainter>
 #include <QtMath>
 
@@ -59,8 +60,27 @@ void CarScreen::layout()
         m_tiles.append({QRect(area.left() + i * (w + gap), area.top(), w, h), defs[i].p,
                         QString::fromUtf8(defs[i].t), QString::fromUtf8(defs[i].g)});
     m_backButton = QRect(m_safe.left() + m_safe.width() / 40, m_safe.top() + bar / 8, bar * 3, bar * 3 / 4);
-    const int pb = m_safe.height() / 4;
-    m_playButton = QRect(m_safe.center().x() - pb / 2, m_safe.center().y(), pb, pb);
+    // Music page: transport buttons in a row at the bottom.
+    const int pb = m_safe.height() / 5;
+    const int cy = m_safe.bottom() - m_safe.height() / 30 - pb;
+    m_playButton = QRect(m_safe.center().x() - pb / 2, cy, pb, pb);
+    m_prevButton = m_playButton.translated(-pb * 2, 0);
+    m_nextButton = m_playButton.translated(pb * 2, 0);
+}
+
+void CarScreen::setNowPlaying(bool hasPlayer, const QString &player, const QString &title, const QString &artist,
+                              const QString &album, const QImage &art, bool playing, qint64 posMs, qint64 lenMs)
+{
+    m_hasPlayer = hasPlayer;
+    m_player = player;
+    m_title = title;
+    m_artist = artist;
+    m_album = album;
+    m_art = art;
+    m_mediaPlaying = playing;
+    m_posMs = posMs;
+    m_lenMs = lenMs;
+    m_posClock.start();
 }
 
 void CarScreen::touch(int action, int x, int y)
@@ -83,7 +103,12 @@ void CarScreen::touch(int action, int x, int y)
         } else if (m_backButton.contains(m_touch)) {
             m_page = Home;
             emit tapped(QStringLiteral("Zurück"));
+        } else if (m_page == Music && m_hasPlayer) {
+            if (m_playButton.contains(m_touch)) emit mediaCommand(QStringLiteral("playpause"));
+            else if (m_prevButton.contains(m_touch)) emit mediaCommand(QStringLiteral("previous"));
+            else if (m_nextButton.contains(m_touch)) emit mediaCommand(QStringLiteral("next"));
         } else if (m_page == Music && m_playButton.contains(m_touch)) {
+            // No player on the phone: the button runs the sound test.
             m_playing = !m_playing;
             emit tapped(m_playing ? QStringLiteral("Play") : QStringLiteral("Pause"));
         }
@@ -165,22 +190,95 @@ void CarScreen::drawPage(QPainter &p)
         break;
     }
     case Music: {
-        p.setPen(c.text);
-        p.drawText(body, Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("Musik (Demo, noch kein Ton)"));
-        p.setPen(Qt::NoPen);
-        p.setBrush(c.accent);
-        p.drawEllipse(m_playButton);
-        p.setBrush(c.bg);
-        const QRect r = m_playButton.adjusted(m_playButton.width() / 3, m_playButton.height() / 4,
-                                              -m_playButton.width() / 4, -m_playButton.height() / 4);
-        if (m_playing) {
-            p.drawRect(QRect(r.left(), r.top(), r.width() / 3, r.height()));
-            p.drawRect(QRect(r.right() - r.width() / 3, r.top(), r.width() / 3, r.height()));
-        } else {
-            QPolygon tri;
-            tri << r.topLeft() << QPoint(r.right(), r.center().y()) << r.bottomLeft();
-            p.drawPolygon(tri);
+        auto drawRound = [&](const QRect &r, bool accent) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(accent ? c.accent : c.panel);
+            p.drawEllipse(r);
+        };
+        auto drawPlayPause = [&](const QRect &btn, bool showPause) {
+            p.setBrush(c.bg);
+            const QRect r = btn.adjusted(btn.width() / 3, btn.height() / 4, -btn.width() / 4, -btn.height() / 4);
+            if (showPause) {
+                p.drawRect(QRect(r.left(), r.top(), r.width() / 3, r.height()));
+                p.drawRect(QRect(r.right() - r.width() / 3, r.top(), r.width() / 3, r.height()));
+            } else {
+                QPolygon tri;
+                tri << r.topLeft() << QPoint(r.right(), r.center().y()) << r.bottomLeft();
+                p.drawPolygon(tri);
+            }
+        };
+        auto drawSkip = [&](const QRect &btn, bool forward) {
+            p.setBrush(c.text);
+            const QRect r = btn.adjusted(btn.width() / 4, btn.height() / 3, -btn.width() / 4, -btn.height() / 3);
+            const int half = r.width() / 2;
+            for (int k = 0; k < 2; ++k) {
+                QPolygon tri;
+                const int x0 = r.left() + k * half;
+                if (forward) tri << QPoint(x0, r.top()) << QPoint(x0 + half, r.center().y()) << QPoint(x0, r.bottom());
+                else tri << QPoint(x0 + half, r.top()) << QPoint(x0, r.center().y()) << QPoint(x0 + half, r.bottom());
+                p.drawPolygon(tri);
+            }
+        };
+
+        if (!m_hasPlayer) {
+            p.setPen(c.text);
+            p.drawText(body.adjusted(0, 0, 0, -m_playButton.height()), Qt::AlignCenter | Qt::TextWordWrap,
+                       QStringLiteral("Kein Musik-Player aktiv.\nMusik am Telefon starten.\n(Knopf: Tontest)"));
+            drawRound(m_playButton, true);
+            drawPlayPause(m_playButton, m_playing);
+            break;
         }
+        // Cover left, text right, progress, buttons.
+        const int artSize = qMin(body.height() - m_playButton.height() - 30, body.width() / 3);
+        const QRect artRect(body.left(), body.top() + 5, artSize, artSize);
+        if (!m_art.isNull()) {
+            p.drawImage(artRect, m_art);
+        } else {
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.panel);
+            p.drawRoundedRect(artRect, 12, 12);
+            QFont g = p.font();
+            g.setPixelSize(artSize / 2);
+            p.setFont(g);
+            p.setPen(c.accent);
+            p.drawText(artRect, Qt::AlignCenter, QString::fromUtf8("\u266B"));
+        }
+        const QRect textRect(artRect.right() + 20, artRect.top(), body.right() - artRect.right() - 20, artSize);
+        QFont t = p.font();
+        t.setPixelSize(bar * 2 / 3);
+        t.setBold(true);
+        p.setFont(t);
+        p.setPen(c.text);
+        const QFontMetrics fmTitle(t);
+        p.drawText(textRect.adjusted(0, 0, 0, -artSize * 2 / 3), Qt::AlignLeft | Qt::AlignVCenter,
+                   fmTitle.elidedText(m_title.isEmpty() ? QStringLiteral("(ohne Titel)") : m_title, Qt::ElideRight, textRect.width()));
+        t.setBold(false);
+        t.setPixelSize(bar / 2);
+        p.setFont(t);
+        const QFontMetrics fm(t);
+        p.drawText(textRect.adjusted(0, artSize / 3, 0, -artSize / 3), Qt::AlignLeft | Qt::AlignVCenter,
+                   fm.elidedText(m_artist, Qt::ElideRight, textRect.width()));
+        p.setPen(c.dim);
+        p.drawText(textRect.adjusted(0, artSize * 2 / 3, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                   fm.elidedText(m_album.isEmpty() ? m_player : m_album + QStringLiteral(" · ") + m_player,
+                                 Qt::ElideRight, textRect.width()));
+        // Progress bar (position extrapolated between polls while playing).
+        if (m_lenMs > 0) {
+            qint64 pos = m_posMs + (m_mediaPlaying && m_posClock.isValid() ? m_posClock.elapsed() : 0);
+            pos = qMin(pos, m_lenMs);
+            const QRect bar2(body.left(), artRect.bottom() + 12, body.width(), 6);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.panel);
+            p.drawRoundedRect(bar2, 3, 3);
+            p.setBrush(c.accent);
+            p.drawRoundedRect(QRect(bar2.left(), bar2.top(), int(bar2.width() * pos / m_lenMs), bar2.height()), 3, 3);
+        }
+        drawRound(m_prevButton, false);
+        drawSkip(m_prevButton, false);
+        drawRound(m_nextButton, false);
+        drawSkip(m_nextButton, true);
+        drawRound(m_playButton, true);
+        drawPlayPause(m_playButton, m_mediaPlaying);
         break;
     }
     case Phone:

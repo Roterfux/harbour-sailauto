@@ -349,7 +349,8 @@ class HeadUnit:
         vcfg = f_varint(1, 1) + f_varint(2, 1) + f_varint(3, 0) + f_varint(4, 0) + f_varint(5, 140)
         video = f_varint(1, CH_VIDEO) + f_bytes(3, f_varint(1, 3) + f_bytes(4, vcfg) + f_varint(5, 1))
         touch = f_varint(1, w) + f_varint(2, h)
-        inp = f_varint(1, CH_INPUT) + f_bytes(4, f_varint(1, 3) + f_bytes(2, touch))
+        keys = b"".join(varint(k) for k in (3, 4, 84, 85, 87, 88))
+        inp = f_varint(1, CH_INPUT) + f_bytes(4, f_bytes(1, keys) + f_bytes(2, touch))
         sensor = f_varint(1, CH_SENSOR) + f_bytes(2, f_bytes(1, f_varint(1, 13)) + f_bytes(1, f_varint(1, 10)))
         acfg = f_varint(1, 48000) + f_varint(2, 16) + f_varint(3, 2)
         audio = f_varint(1, CH_MEDIA_AUDIO) + f_bytes(3, f_varint(1, 1) + f_varint(2, 3) + f_bytes(3, acfg))
@@ -367,6 +368,12 @@ class HeadUnit:
         loc = f_varint(1, x) + f_varint(2, y) + f_varint(3, 0)
         ev = f_bytes(1, loc) + f_varint(2, 0) + f_varint(3, action)
         self.send(self.ch_input, INPUT_EVENT, f_varint(1, int(time.time() * 1e6)) + f_bytes(3, ev))
+
+    def key(self, code):
+        for pressed in (1, 0):
+            ev = f_bytes(1, f_varint(1, code) + f_varint(2, pressed) + f_varint(3, 0) + f_varint(4, 0))
+            self.send(self.ch_input, INPUT_EVENT, f_varint(1, int(time.time() * 1e6)) + f_bytes(4, ev))
+            time.sleep(0.05)
 
     def tap(self, x, y, drag_to=None):
         self.touch(0, x, y)
@@ -387,6 +394,8 @@ def main():
     ap.add_argument("--out", help="write the received H.264 stream here")
     ap.add_argument("--ping", type=float, default=2.0, help="ping interval (OpenAuto: 5 s)")
     ap.add_argument("--night", action="store_true")
+    ap.add_argument("--key", action="append", default=[],
+                    help="steering wheel key code[@seconds], e.g. 87@4 (next), 85@5 (play/pause)")
     ap.add_argument("--audio-out", help="write received audio as <prefix>-ch<N>.wav")
     ap.add_argument("--sound-test", action="store_true",
                     help="tap Play on the SailAuto music page (media sound test), 2 s after video starts")
@@ -405,14 +414,21 @@ def main():
         taps.append((float(at or 3), x, y))
     if args.sound_test:
         taps += [(2.0, 300, 250), (3.0, 400, 330)]   # open Musik, press Play
-    taps.sort()
+    for k in args.key:
+        code, _, at = k.partition("@")
+        taps.append((float(at or 3), "key", int(code)))
+    taps.sort(key=lambda t: t[0])
 
     end = time.time() + args.seconds
     while time.time() < end and not hu.done:
         if taps and hu.touch_ready and hu.focus_at and time.time() - hu.focus_at >= taps[0][0]:
             _, x, y = taps.pop(0)
-            hu.log("tap", x, y)
-            hu.tap(x, y)
+            if x == "key":
+                hu.log("key", y)
+                hu.key(y)
+            else:
+                hu.log("tap", x, y)
+                hu.tap(x, y)
         time.sleep(0.02)
 
     elapsed = time.time() - (hu.focus_at or time.time())
