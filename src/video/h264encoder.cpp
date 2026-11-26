@@ -1,6 +1,7 @@
 #include "h264encoder.h"
 
 #include <QMetaObject>
+#include <QSet>
 #include <gst/app/gstappsink.h>
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
@@ -27,6 +28,10 @@ const Candidate kCandidates[] = {
     {"avenc_h264_omx", "", "avenc_h264_omx bitrate={BPS}"},
 };
 const int kCandidateCount = sizeof(kCandidates) / sizeof(kCandidates[0]);
+
+// Candidates that failed once stay skipped while the app runs, so a video
+// restart (car menu and back) does not waste a second on droidvenc again.
+QSet<int> s_failed;
 
 int nalType(const QByteArray &d, int pos) { return static_cast<quint8>(d[pos]) & 0x1f; }
 
@@ -87,6 +92,7 @@ bool H264Encoder::tryFrom(int index, QString *error)
     }
 
     for (int i = index; i < kCandidateCount; ++i) {
+        if (s_failed.contains(i)) continue;
         const Candidate &c = kCandidates[i];
         GstElementFactory *f = gst_element_factory_find(c.element);
         if (!f) continue;
@@ -103,6 +109,7 @@ bool H264Encoder::tryFrom(int index, QString *error)
         if (launch(enc, name, &err))
             return true;
         m_errors << QStringLiteral("%1: %2").arg(name, err);
+        s_failed.insert(i);
         qWarning("[enc] %s failed: %s", qPrintable(name), qPrintable(err));
     }
     // Compiled-in openh264 (software, compresses well).
@@ -297,6 +304,7 @@ void H264Encoder::pollBus()
         if (!m_gotSample) {
             // Failed while negotiating: try the next encoder/format.
             m_errors << QStringLiteral("%1: %2").arg(m_encoderName, text);
+            s_failed.insert(m_candidate);
             emit error(QStringLiteral("%1 geht nicht, versuche nächsten Encoder").arg(m_encoderName));
             gst_object_unref(bus);
             QString e;
