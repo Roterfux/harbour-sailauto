@@ -1,0 +1,14 @@
+# Autostart: watches for the car (USB Android Auto request or Bluetooth
+# connection to a known car), switches USB to accessory mode and starts the
+# app. Enabled/disabled from the app (switch "Autostart im Auto").
+[Unit]
+Description=SailAuto autostart (Android Auto when the car asks)
+After=bluetooth.service
+
+[Service]
+ExecStart=/bin/sh /usr/share/harbour-sailauto/aoa-gadget.sh autowatch
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

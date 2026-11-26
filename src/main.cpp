@@ -33,6 +33,7 @@ int main(int argc, char *argv[])
 #include <QQmlContext>
 #include <QQuickView>
 #include <QScopedPointer>
+#include <QTimer>
 #include <sailfishapp.h>
 
 int main(int argc, char *argv[])
@@ -48,6 +49,9 @@ int main(int argc, char *argv[])
     view->rootContext()->setContextProperty(QStringLiteral("controller"), &controller);
     view->setSource(SailfishApp::pathToMainQml());
     view->show();
+    // Launched by the autostart watcher (car asked for Android Auto).
+    if (app->arguments().contains(QStringLiteral("--autostart")))
+        QTimer::singleShot(0, &controller, &Controller::startedByCar);
     return app->exec();
 }
 #endif

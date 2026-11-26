@@ -1,5 +1,5 @@
 Name:       harbour-sailauto
-Version:    0.4.2
+Version:    0.5.0
 Release:    1
 Summary:    Android Auto projection to OpenAuto head units (MVP)
 License:    GPLv3 and BSD
@@ -44,11 +44,14 @@ systemd-tmpfiles --create /usr/lib/tmpfiles.d/harbour-sailauto.conf || :
 systemctl daemon-reload || :
 systemctl enable harbour-sailauto-aoa.path || :
 systemctl restart harbour-sailauto-aoa.path || :
+# Autostart stays as the user set it; pick up a new script version.
+systemctl try-restart harbour-sailauto-autostart.service || :
 
 %preun
 if [ $1 -eq 0 ]; then
     sh /usr/share/harbour-sailauto/aoa-gadget.sh off > /dev/null 2>&1 || :
     systemctl disable --now harbour-sailauto-aoa.path || :
+    systemctl disable --now harbour-sailauto-autostart.service || :
 fi
 
 %postun
@@ -61,4 +64,6 @@ systemctl daemon-reload || :
 %{_datadir}/icons/hicolor/*/apps/%{name}.png
 /usr/lib/systemd/system/harbour-sailauto-aoa.path
 /usr/lib/systemd/system/harbour-sailauto-aoa.service
+/usr/lib/systemd/system/harbour-sailauto-autostart.service
+/usr/lib/systemd/user/harbour-sailauto-auto.service
 /usr/lib/tmpfiles.d/harbour-sailauto.conf

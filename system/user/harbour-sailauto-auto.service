@@ -1,0 +1,8 @@
+# User session unit, started by the root autostart watcher when the car
+# shows up. invoker --single-instance: an already open SailAuto is reused.
+[Unit]
+Description=SailAuto (started by the car)
+
+[Service]
+Type=simple
+ExecStart=/bin/sh -c 'if command -v invoker >/dev/null; then exec invoker --type=silica-qt5 --single-instance /usr/bin/harbour-sailauto --autostart; else exec /usr/bin/harbour-sailauto --autostart; fi'

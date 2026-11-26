@@ -76,6 +76,15 @@ Page {
             }
 
             TextSwitch {
+                text: qsTr("Autostart im Auto")
+                description: qsTr("Startet SailAuto und den USB-Modus von selbst, wenn das Auto Android Auto "
+                                  + "anfragt oder sich das Telefon per Bluetooth mit einem bekannten Auto verbindet. "
+                                  + "Ist das Auto 60 s weg, wird USB wieder normal.")
+                checked: controller.autostart
+                onCheckedChanged: controller.autostart = checked
+            }
+
+            TextSwitch {
                 text: qsTr("Telefon-Ton ins Auto")
                 description: qsTr("Musik, Navigationsansagen usw. laufen über die Autolautsprecher, solange verbunden")
                 checked: controller.soundToCar

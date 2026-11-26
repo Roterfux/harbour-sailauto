@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QFile>
 #include <QSettings>
+#include <QRegularExpression>
+#include <QFileInfo>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusArgument>
@@ -52,6 +54,12 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_screen, &CarScreen::mediaSeek, &m_mpris, &MprisClient::seekToFraction);
     connect(&m_router, &AudioRouter::chunk, this, &Controller::onPhoneAudio);
     m_soundToCar = QSettings().value(QStringLiteral("soundToCar"), true).toBool();
+    m_autostart = QSettings().value(QStringLiteral("autostart"), false).toBool();
+    // A running app follows the autostart watcher too (car came back while open).
+    m_lastCarSeen = QFileInfo(QStringLiteral("/run/harbour-sailauto/car")).lastModified();
+    m_carPoll.setInterval(2000);
+    connect(&m_carPoll, &QTimer::timeout, this, &Controller::checkCarSignal);
+    if (m_autostart) m_carPoll.start();
     connect(&m_screen, &CarScreen::tapped, this, [this](const QString &w) {
         appendLog(QStringLiteral("Auto-Display: ") + w);
         // Music page play button = media sound test.
@@ -359,6 +367,7 @@ bool Controller::startUsb()
     m_aoaWait.start();
     m_aoaReported = false;
     m_autoReplugs = 0;
+    m_usbStartedAt = QDateTime::currentDateTime();
     appendLog(QStringLiteral("USB: schalte auf Android-Accessory-Modus"));
     m_usbRetry.start(500);
     return true;
@@ -381,6 +390,71 @@ void Controller::stopUsb()
     setStatus(listening() ? QStringLiteral("Warte auf Head Unit") : QStringLiteral("Bereit"));
 }
 
+void Controller::setAutostart(bool on)
+{
+    if (on == m_autostart) return;
+    m_autostart = on;
+    QSettings().setValue(QStringLiteral("autostart"), on);
+    emit autostartChanged();
+    if (on) m_carPoll.start(); else m_carPoll.stop();
+    appendLog(on ? QStringLiteral("Autostart: an (Root-Dienst wird eingeschaltet)")
+                 : QStringLiteral("Autostart: aus"));
+    if (!requestAoa(on ? QStringLiteral("autoon") : QStringLiteral("autooff"))) return;
+    QTimer::singleShot(4000, this, [this, on]() {
+        QFile f(QStringLiteral("/run/harbour-sailauto/autostart"));
+        const QString st = f.open(QIODevice::ReadOnly) ? QString::fromLatin1(f.readAll()).trimmed() : QString();
+        if (st == (on ? QLatin1String("on") : QLatin1String("off"))) {
+            QFile c(m_certDir + QStringLiteral("/cars"));
+            const QString cars = c.open(QIODevice::ReadOnly)
+                ? QString::fromLatin1(c.readAll()).trimmed().replace(QLatin1Char('\n'), QLatin1Char(' ')) : QString();
+            appendLog(!on ? QStringLiteral("Autostart: Root-Dienst aus")
+                          : QStringLiteral("Autostart: Root-Dienst läuft. Bekannte Autos (Bluetooth): %1")
+                                .arg(cars.isEmpty() ? QStringLiteral("noch keins – einmal per USB verbinden") : cars));
+        } else {
+            QFile l(QStringLiteral("/run/harbour-sailauto/last.log"));
+            l.open(QIODevice::ReadOnly);
+            appendLog(QStringLiteral("Autostart: Root-Dienst meldet \"%1\" %2").arg(st, QString::fromUtf8(l.readAll()).trimmed()));
+        }
+    });
+}
+
+void Controller::startedByCar()
+{
+    appendLog(QStringLiteral("Autostart: vom Auto gestartet"));
+    if (!m_usbWanted) startUsb();
+}
+
+void Controller::checkCarSignal()
+{
+    const QDateTime t = QFileInfo(QStringLiteral("/run/harbour-sailauto/car")).lastModified();
+    if (!t.isValid() || t == m_lastCarSeen) return;
+    m_lastCarSeen = t;
+    if (m_usbWanted) return;
+    appendLog(QStringLiteral("Autostart: Auto erkannt, schalte USB ein"));
+    startUsb();
+}
+
+void Controller::rememberCar(const QString &mac)
+{
+    const QString m = mac.trimmed().toUpper();
+    if (!QRegularExpression(QStringLiteral("^([0-9A-F]{2}:){5}[0-9A-F]{2}$")).match(m).hasMatch()) return;
+    const QString path = m_certDir + QStringLiteral("/cars");
+    QFile f(path);
+    QStringList cars;
+    if (f.open(QIODevice::ReadOnly)) {
+        cars = QString::fromLatin1(f.readAll()).split(QLatin1Char('\n'), QString::SkipEmptyParts);
+        f.close();
+    }
+    if (cars.contains(m)) return;
+    cars << m;
+    QDir().mkpath(m_certDir);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(cars.join(QLatin1Char('\n')).toLatin1() + '\n');
+        appendLog(QStringLiteral("Autostart: Auto-Bluetooth %1 gemerkt (startet SailAuto, wenn sich das Telefon "
+                                 "damit verbindet)").arg(m));
+    }
+}
+
 void Controller::replugUsb()
 {
     if (!m_usbWanted || !m_aoaRequested) {
@@ -398,6 +472,18 @@ void Controller::replugUsb()
 void Controller::tryOpenUsb()
 {
     if (!m_usbWanted || m_session) return;
+    // Autostart watcher switched USB back to normal (car gone for 60 s).
+    if (m_aoaRequested && m_aoaReported && aoaState() == QLatin1String("off")
+        && QFileInfo(QString::fromLatin1(kAoaState)).lastModified() > m_usbStartedAt) {
+        appendLog(QStringLiteral("USB: Auto weg, Root-Dienst hat USB auf normal gestellt"));
+        m_usbWanted = false;
+        m_aoaRequested = false;
+        m_usbRetry.stop();
+        m_usbKick.stop();
+        emit listeningChanged();
+        setStatus(QStringLiteral("Bereit"));
+        return;
+    }
     if (m_aoaRequested && !m_aoaReported) {
         const QString st = aoaState();
         if (st == QLatin1String("error")) {
@@ -592,7 +678,11 @@ void Controller::onSessionState(aap::Session::State s)
     case aap::Session::Handshaking: setStatus(QStringLiteral("TLS-Handshake")); break;
     case aap::Session::Discovering: setStatus(QStringLiteral("Dienste abfragen")); break;
     case aap::Session::OpeningChannels: setStatus(QStringLiteral("Kanäle öffnen")); break;
-    case aap::Session::Streaming: setStatus(QStringLiteral("Verbunden")); break;
+    case aap::Session::Streaming:
+        setStatus(QStringLiteral("Verbunden"));
+        if (m_session && qobject_cast<UsbAccessoryDevice *>(m_socket.data()))
+            rememberCar(m_session->carBluetoothAddress());
+        break;
     default: break;
     }
 }

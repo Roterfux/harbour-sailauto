@@ -176,6 +176,23 @@ Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
 (`usbipd attach --wsl --auto-attach --busid <id>`) und `autoapp` mit
 `sudo -E` starten (libusb braucht Rechte).
 
+## Autostart im Auto
+
+Ab 0.5.0, Schalter „Autostart im Auto“ (Standard: aus). Schaltet den
+Root-Dienst `harbour-sailauto-autostart` ein. Der startet SailAuto (USB-Modus
+gleich an), wenn
+
+- das Auto per USB Android Auto anfragt (Kernel-Meldung `ACCESSORY=START`, auch
+  im normalen USB-Modus – ob der Sailfish-Kernel das im MTP-/Entwicklermodus
+  meldet, zeigt der erste Test), oder
+- sich das Telefon per Bluetooth mit einem bekannten Auto verbindet. Bekannt =
+  einmal per USB verbunden; die App merkt sich die Bluetooth-Adresse des Autos
+  (`~/.local/share/org.roterfux/harbour-sailauto/cars`).
+
+Ist das Auto 60 s weg (USB nicht verbunden und kein Bluetooth), stellt der
+Dienst USB wieder auf normal. Log: `/run/harbour-sailauto/autostart.log`,
+Status: `devel-su sh /usr/share/harbour-sailauto/aoa-gadget.sh status`.
+
 ## Telefon-Ton im Auto
 
 Ab 0.3.0, Schalter „Telefon-Ton ins Auto“ (Standard: an). Sobald das Auto-Bild

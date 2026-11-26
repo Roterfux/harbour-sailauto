@@ -34,11 +34,15 @@ desktop {
     # through a systemd path unit; manual use: devel-su sh aoa-gadget.sh on
     aoascript.files = tools/aoa-gadget.sh tools/aoa-request.sh
     aoascript.path = /usr/share/harbour-sailauto
-    aoaunits.files = system/harbour-sailauto-aoa.path system/harbour-sailauto-aoa.service
+    aoaunits.files = system/harbour-sailauto-aoa.path system/harbour-sailauto-aoa.service \
+        system/harbour-sailauto-autostart.service
     aoaunits.path = /usr/lib/systemd/system
+    # Started by the autostart watcher inside the user's session.
+    userunit.files = system/user/harbour-sailauto-auto.service
+    userunit.path = /usr/lib/systemd/user
     aoatmp.files = system/harbour-sailauto.tmpfiles
     aoatmp.path = /usr/lib/tmpfiles.d
-    INSTALLS += aoascript aoaunits aoatmp
+    INSTALLS += aoascript aoaunits aoatmp userunit
 }
 
 HEADERS += \

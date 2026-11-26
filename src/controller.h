@@ -10,6 +10,7 @@
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QObject>
 #include <QPointer>
@@ -39,6 +40,7 @@ class Controller : public QObject
     Q_PROPERTY(QString traceDir READ traceDir NOTIFY statusChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool soundToCar READ soundToCar WRITE setSoundToCar NOTIFY soundToCarChanged)
+    Q_PROPERTY(bool autostart READ autostart WRITE setAutostart NOTIFY autostartChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -56,6 +58,8 @@ public:
     Q_INVOKABLE void stopUsb();
     // Like re-plugging the cable (car stays silent on a reused connection).
     Q_INVOKABLE void replugUsb();
+    // App was launched by the autostart watcher (argument --autostart).
+    void startedByCar();
 
     bool listening() const { return m_server.isListening(); }
     bool usbActive() const { return m_usbWanted; }
@@ -63,6 +67,8 @@ public:
     bool soundToCar() const { return m_soundToCar; }
     QString version() const { return QStringLiteral(APP_VERSION); }
     void setSoundToCar(bool on);
+    bool autostart() const { return m_autostart; }
+    void setAutostart(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
     QString status() const { return m_status; }
@@ -81,6 +87,7 @@ signals:
     void logChanged();
     void statsChanged();
     void soundToCarChanged();
+    void autostartChanged();
 
 private:
     void onNewConnection();
@@ -111,6 +118,13 @@ private:
     QTimer m_usbKick;          // car silent after USB open -> replug
     QElapsedTimer m_lastReplug;
     int m_autoReplugs = 0;
+    QDateTime m_usbStartedAt;  // root state older than this is stale
+    // Autostart
+    bool m_autostart = false;
+    QTimer m_carPoll;          // /run/harbour-sailauto/car written by the watcher
+    QDateTime m_lastCarSeen;
+    void checkCarSignal();
+    void rememberCar(const QString &mac);
     aap::Session *m_session = nullptr;
     aap::Trace *m_trace = nullptr;
     QString m_traceBase, m_lastTraceDir;

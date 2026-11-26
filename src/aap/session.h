@@ -57,6 +57,7 @@ public:
     void setPhoneBluetoothAddress(const QString &a) { m_phoneBt = a; }
     QString summary() const;
     qint64 receivedBytes() const { return m_rxTotal; }
+    QString carBluetoothAddress() const { return m_carBt; }
     State state() const { return m_state; }
     QString headUnitName() const { return m_huName; }
     VideoConfig videoConfig() const { return m_video; }
