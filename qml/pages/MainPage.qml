@@ -67,6 +67,13 @@ Page {
                 onClicked: controller.usbActive ? controller.stopUsb() : controller.startUsb()
             }
 
+            TextSwitch {
+                text: qsTr("Telefon-Ton ins Auto")
+                description: qsTr("Musik, Navigationsansagen usw. laufen über die Autolautsprecher, solange verbunden")
+                checked: controller.soundToCar
+                onCheckedChanged: controller.soundToCar = checked
+            }
+
             DetailItem { label: qsTr("Status"); value: controller.status }
             DetailItem {
                 label: qsTr("Head Unit")

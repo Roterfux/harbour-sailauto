@@ -1,5 +1,5 @@
 Name:       harbour-sailauto
-Version:    0.2.1
+Version:    0.3.0
 Release:    1
 Summary:    Android Auto projection to OpenAuto head units (MVP)
 License:    GPLv3 and BSD
@@ -17,6 +17,8 @@ BuildRequires: pkgconfig(Qt5DBus)
 BuildRequires: pkgconfig(openssl)
 BuildRequires: pkgconfig(gstreamer-1.0)
 BuildRequires: pkgconfig(gstreamer-app-1.0)
+BuildRequires: pkgconfig(libpulse)
+BuildRequires: pkgconfig(libpulse-simple)
 BuildRequires: desktop-file-utils
 
 %description

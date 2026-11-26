@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QSettings>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusArgument>
@@ -41,6 +42,9 @@ Controller::Controller(QObject *parent) : QObject(parent)
         m_queue.clear();
     });
     connect(&m_audioTest, &AudioTest::log, this, &Controller::appendLog);
+    connect(&m_router, &AudioRouter::log, this, &Controller::appendLog);
+    connect(&m_router, &AudioRouter::chunk, this, &Controller::onPhoneAudio);
+    m_soundToCar = QSettings().value(QStringLiteral("soundToCar"), true).toBool();
     connect(&m_screen, &CarScreen::tapped, this, [this](const QString &w) {
         appendLog(QStringLiteral("Auto-Display: ") + w);
         // Music page play button = media sound test.
@@ -54,6 +58,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
 
 Controller::~Controller()
 {
+    m_router.stop();
     delete m_trace;
     if (m_usbWanted && m_aoaRequested) requestAoa(QStringLiteral("off"));
     m_encoder.stop();
@@ -99,8 +104,82 @@ void Controller::disconnectHeadUnit()
     if (m_session) m_session->requestShutdown();
 }
 
+void Controller::setSoundToCar(bool on)
+{
+    if (on == m_soundToCar) return;
+    m_soundToCar = on;
+    QSettings().setValue(QStringLiteral("soundToCar"), on);
+    emit soundToCarChanged();
+    if (on && m_session && m_encoder.running()) startRouter();
+    else if (!on) stopRouter();
+}
+
+void Controller::startRouter()
+{
+    if (!m_soundToCar || m_router.running() || !m_session) return;
+    if (m_session->audioChannel(3) < 0) {
+        appendLog(QStringLiteral("Ton: Auto hat keinen Medien-Audiokanal"));
+        return;
+    }
+    QString err;
+    if (!m_router.start(&err)) appendLog(QStringLiteral("Ton ins Auto nicht möglich: ") + err);
+}
+
+void Controller::stopRouter()
+{
+    stopCarAudio(QStringLiteral("Ton-Umleitung aus"));
+    m_router.stop();
+}
+
+void Controller::stopCarAudio(const QString &why)
+{
+    if (!m_carAudioOn) return;
+    m_carAudioOn = false;
+    if (m_session) {
+        m_session->stopAudio(m_carAudioChannel);
+        m_session->requestAudioFocus(4 /*RELEASE*/);
+    }
+    appendLog(QStringLiteral("Ton: Stream ans Auto beendet (%1), %2 s gesendet%3")
+                  .arg(why).arg(double(m_carFrames) / AudioRouter::Rate, 0, 'f', 1)
+                  .arg(m_droppedChunks ? QStringLiteral(", %1 Pakete verworfen").arg(m_droppedChunks) : QString()));
+}
+
+void Controller::onPhoneAudio(const QByteArray &pcm)
+{
+    if (!m_session || m_audioTest.running()) return;
+    const qint16 *s = reinterpret_cast<const qint16 *>(pcm.constData());
+    const int samples = pcm.size() / 2;
+    int peak = 0;
+    for (int i = 0; i < samples; ++i) peak = qMax(peak, qAbs(static_cast<int>(s[i])));
+    const bool loud = peak > 64;
+
+    if (!m_carAudioOn) {
+        if (!loud) return;
+        m_carAudioChannel = m_session->audioChannel(3);
+        if (m_carAudioChannel < 0) return;
+        m_session->requestAudioFocus(1 /*GAIN*/);
+        if (!m_session->startAudio(m_carAudioChannel)) return;
+        m_carAudioOn = true;
+        m_carFrames = 0;
+        m_silentMs = 0;
+        m_droppedChunks = 0;
+        appendLog(QStringLiteral("Ton: Telefon spielt etwas ab -> Stream ans Auto (Kanal %1)").arg(m_carAudioChannel));
+    }
+    const int frames = samples / AudioRouter::Channels;
+    if (m_session->canSendAudio(m_carAudioChannel)) {
+        m_session->sendAudio(m_carAudioChannel, pcm, static_cast<quint64>(m_carFrames * 1000000 / AudioRouter::Rate));
+    } else if (++m_droppedChunks == 50) {
+        appendLog(QStringLiteral("Ton: Auto bestätigt Audiopakete zu langsam, verwerfe welche"));
+    }
+    m_carFrames += frames;
+    m_silentMs = loud ? 0 : m_silentMs + frames * 1000 / AudioRouter::Rate;
+    // 3 s silence: give the speakers back to the car (radio etc.).
+    if (m_silentMs >= 3000) stopCarAudio(QStringLiteral("3 s Stille"));
+}
+
 void Controller::soundTest(const QString &kind)
 {
+    stopCarAudio(QStringLiteral("Tontest"));
     QString err;
     if (!m_audioTest.start(m_session, kind == QLatin1String("guidance") ? AudioTest::Guidance : AudioTest::Media, &err))
         appendLog(QStringLiteral("Tontest nicht möglich: ") + err);
@@ -342,6 +421,9 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
     connect(m_session, &aap::Session::audioFocusChanged, &m_audioTest, &AudioTest::onFocus);
+    connect(m_session, &aap::Session::audioFocusChanged, this, [this](int st) {
+        if (m_carAudioOn && (st == 3 || st == 5)) stopCarAudio(QStringLiteral("Auto nimmt Audio-Fokus weg"));
+    });
     connect(m_session, &aap::Session::silent, this, [this]() {
         if (auto *usb = qobject_cast<UsbAccessoryDevice *>(m_socket.data())) {
             appendLog(QStringLiteral("USB-Handshake vom Auto (Kernel): ") + usb->handshakeInfo());
@@ -399,6 +481,7 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     m_statBytes = 0;
     m_frameTimer.start(1000 / qMax(1, cfg.fps));
     appendLog(QStringLiteral("Video läuft (%1)").arg(m_encoder.encoderName()));
+    startRouter();
     setStatus(QStringLiteral("Projiziert auf %1").arg(m_session ? m_session->headUnitName() : QStringLiteral("Head Unit")));
 }
 
@@ -453,6 +536,7 @@ void Controller::onSessionClosed(const QString &reason)
 {
     if (!m_session) return;
     m_audioTest.stop();
+    stopRouter();
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
     if (m_session->state() != aap::Session::Closed) appendLog(m_session->summary());
     onVideoStop();

@@ -5,6 +5,7 @@
 #include "aap/session.h"
 #include "aap/trace.h"
 #include "audio/audiotest.h"
+#include "audio/audiorouter.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -35,6 +36,7 @@ class Controller : public QObject
     Q_PROPERTY(double kbps READ kbps NOTIFY statsChanged)
     Q_PROPERTY(bool usbActive READ usbActive NOTIFY listeningChanged)
     Q_PROPERTY(QString traceDir READ traceDir NOTIFY statusChanged)
+    Q_PROPERTY(bool soundToCar READ soundToCar WRITE setSoundToCar NOTIFY soundToCarChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -54,6 +56,8 @@ public:
     bool listening() const { return m_server.isListening(); }
     bool usbActive() const { return m_usbWanted; }
     QString traceDir() const { return m_lastTraceDir; }
+    bool soundToCar() const { return m_soundToCar; }
+    void setSoundToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
     QString status() const { return m_status; }
@@ -71,6 +75,7 @@ signals:
     void statusChanged();
     void logChanged();
     void statsChanged();
+    void soundToCarChanged();
 
 private:
     void onNewConnection();
@@ -105,6 +110,18 @@ private:
     H264Encoder m_encoder;
     QTimer m_frameTimer;
     AudioTest m_audioTest;
+    // Phone sound -> car media channel
+    AudioRouter m_router;
+    bool m_soundToCar = true;
+    bool m_carAudioOn = false;
+    int m_carAudioChannel = -1;
+    qint64 m_carFrames = 0;
+    int m_silentMs = 0;
+    int m_droppedChunks = 0;
+    void startRouter();
+    void stopRouter();
+    void onPhoneAudio(const QByteArray &pcm);
+    void stopCarAudio(const QString &why);
     QElapsedTimer m_clock;
     QQueue<Packet> m_queue;
 

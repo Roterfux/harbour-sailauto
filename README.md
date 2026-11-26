@@ -171,6 +171,21 @@ Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
 (`usbipd attach --wsl --auto-attach --busid <id>`) und `autoapp` mit
 `sudo -E` starten (libusb braucht Rechte).
 
+## Telefon-Ton im Auto
+
+Ab 0.3.0, Schalter „Telefon-Ton ins Auto“ (Standard: an). Sobald das Auto-Bild
+läuft, legt die App in PulseAudio einen virtuellen Ausgang „SailAuto-Auto“ an,
+macht ihn zum Standard und leitet alle laufenden Wiedergaben dorthin um
+(Musik-Apps, Pure Maps, …). Dessen Monitor wird aufgenommen (48 kHz Stereo)
+und über den Medienkanal ans Auto geschickt: sobald etwas spielt Audio-Fokus +
+START, nach 3 s Stille STOP + Fokus zurück (Radio kommt wieder). Beim Trennen,
+Beenden oder SIGTERM wird alles zurückgestellt; ein Überbleibsel nach einem
+Absturz wird beim nächsten Start entfernt. Im Log: `Ton: "<App>" … spielt im
+Auto`, oder `… wird vom System immer wieder zurückgeholt`, falls die
+Sailfish-Audiorichtlinie die Umleitung verhindert.
+
+Noch nicht: Telefonate, Mikrofon, Steuerung der Player vom Auto aus.
+
 ## Tontest
 
 Im Auto auf dem SailAuto-Bildschirm „Musik“ → Play: eine Test-Melodie über den
