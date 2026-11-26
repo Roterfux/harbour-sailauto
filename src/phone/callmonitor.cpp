@@ -9,6 +9,8 @@
 
 #ifdef HAVE_QTCONTACTS
 #include <QContactAvatar>
+#include <QContactDetailFilter>
+#include <QContactFilter>
 #include <QContactDisplayLabel>
 #include <QContactManager>
 #include <QContactName>
