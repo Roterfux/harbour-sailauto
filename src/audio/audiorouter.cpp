@@ -155,6 +155,8 @@ bool AudioRouter::start(QString *error)
     waitOperation(pa_context_get_sink_input_info_list(m_ctx, ListCb::cb, &pair));
     pa_threaded_mainloop_unlock(m_loop);
 
+    // Diagnosis: what the sound system looks like right now.
+    dumpState(QStringLiteral("nach Umleitung"));
     m_running = true;
     emit log(QStringLiteral("Ton: virtueller Ausgang \"SailAuto-Auto\" aktiv (vorher Standard: %1)").arg(m_oldDefault));
 
@@ -283,6 +285,55 @@ void AudioRouter::restoreAll()
             signalLoop(static_cast<pa_threaded_mainloop *>(u)); }, m_loop));
         m_module = PA_INVALID_INDEX;
     }
+}
+
+void AudioRouter::dumpState(const QString &when)
+{
+    // Mainloop must be locked by the caller.
+    struct SinkList { static void cb(pa_context *, const pa_sink_info *i, int eol, void *u) {
+        auto *s = static_cast<QPair<QStringList *, pa_threaded_mainloop *> *>(u);
+        if (eol) { signalLoop(s->second); return; }
+        static const char *st[] = {"läuft", "leer", "pausiert"};
+        const char *role = pa_proplist_gets(i->proplist, "device.class");
+        s->first->append(QStringLiteral("  Ausgang #%1 %2 (%3) %4 %5Hz/%6ch %7")
+                             .arg(i->index).arg(QString::fromUtf8(i->name), QString::fromUtf8(i->description))
+                             .arg(QString::fromUtf8(i->state >= 0 && i->state <= 2 ? st[i->state] : "?"))
+                             .arg(i->sample_spec.rate).arg(i->sample_spec.channels)
+                             .arg(QString::fromUtf8(role ? role : "")));
+    } };
+    struct InputList { static void cb(pa_context *, const pa_sink_input_info *i, int eol, void *u) {
+        auto *s = static_cast<QPair<QStringList *, pa_threaded_mainloop *> *>(u);
+        if (eol) { signalLoop(s->second); return; }
+        const char *app = pa_proplist_gets(i->proplist, PA_PROP_APPLICATION_NAME);
+        const char *bin = pa_proplist_gets(i->proplist, PA_PROP_APPLICATION_PROCESS_BINARY);
+        const char *role = pa_proplist_gets(i->proplist, PA_PROP_MEDIA_ROLE);
+        s->first->append(QStringLiteral("  Wiedergabe #%1 \"%2\" (%3) Rolle=%4 -> Ausgang #%5%6")
+                             .arg(i->index).arg(QString::fromUtf8(app ? app : "?"), QString::fromUtf8(bin ? bin : "?"),
+                                                QString::fromUtf8(role ? role : "-"))
+                             .arg(i->sink).arg(i->corked ? QStringLiteral(" (pausiert)") : QString()));
+    } };
+    struct OutputList { static void cb(pa_context *, const pa_source_output_info *i, int eol, void *u) {
+        auto *s = static_cast<QPair<QStringList *, pa_threaded_mainloop *> *>(u);
+        if (eol) { signalLoop(s->second); return; }
+        const char *app = pa_proplist_gets(i->proplist, PA_PROP_APPLICATION_NAME);
+        s->first->append(QStringLiteral("  Aufnahme #%1 \"%2\" <- Quelle #%3").arg(i->index)
+                             .arg(QString::fromUtf8(app ? app : "?")).arg(i->source));
+    } };
+    QStringList lines;
+    QPair<QStringList *, pa_threaded_mainloop *> pair(&lines, m_loop);
+    waitOperation(pa_context_get_sink_info_list(m_ctx, SinkList::cb, &pair));
+    waitOperation(pa_context_get_sink_input_info_list(m_ctx, InputList::cb, &pair));
+    waitOperation(pa_context_get_source_output_info_list(m_ctx, OutputList::cb, &pair));
+    if (lines.isEmpty()) lines << QStringLiteral("  (nichts)");
+    paLog(QStringLiteral("Ton-Diagnose %1 (Auto-Ausgang #%2):\n%3").arg(when).arg(m_carSink).arg(lines.join(QLatin1Char('\n'))));
+}
+
+void AudioRouter::dumpNow(const QString &when)
+{
+    if (!m_loop || !m_running) return;
+    pa_threaded_mainloop_lock(m_loop);
+    dumpState(when);
+    pa_threaded_mainloop_unlock(m_loop);
 }
 
 void AudioRouter::stop()

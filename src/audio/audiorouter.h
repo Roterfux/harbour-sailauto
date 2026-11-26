@@ -13,6 +13,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QSet>
+#include <QStringList>
 #include <QObject>
 #include <QString>
 #include <atomic>
@@ -31,6 +32,8 @@ public:
     bool start(QString *error);
     void stop();
     bool running() const { return m_running; }
+    // Logs all sinks, playing streams and recorders (diagnosis).
+    void dumpNow(const QString &when);
 
     static constexpr int Rate = 48000;
     static constexpr int Channels = 2;
@@ -49,6 +52,7 @@ private:
     bool waitOperation(struct pa_operation *op);
     void moveToCar(uint32_t index);
     void restoreAll();
+    void dumpState(const QString &when);
 
     pa_threaded_mainloop *m_loop = nullptr;
     pa_context *m_ctx = nullptr;

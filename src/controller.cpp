@@ -163,7 +163,9 @@ void Controller::onPhoneAudio(const QByteArray &pcm)
         m_carFrames = 0;
         m_silentMs = 0;
         m_droppedChunks = 0;
-        appendLog(QStringLiteral("Ton: Telefon spielt etwas ab -> Stream ans Auto (Kanal %1)").arg(m_carAudioChannel));
+        appendLog(QStringLiteral("Ton: Telefon spielt etwas ab (Spitze %1 von 32767) -> Stream ans Auto (Kanal %2)")
+                      .arg(peak).arg(m_carAudioChannel));
+        m_router.dumpNow(QStringLiteral("bei Tonbeginn"));
     }
     const int frames = samples / AudioRouter::Channels;
     if (m_session->canSendAudio(m_carAudioChannel)) {
@@ -173,6 +175,9 @@ void Controller::onPhoneAudio(const QByteArray &pcm)
     }
     m_carFrames += frames;
     m_silentMs = loud ? 0 : m_silentMs + frames * 1000 / AudioRouter::Rate;
+    // Every 10 s of streaming: level, to tell music from noise in the log.
+    if ((m_carFrames / AudioRouter::Rate) % 10 == 0 && (m_carFrames % AudioRouter::Rate) < frames && m_carFrames >= AudioRouter::Rate)
+        appendLog(QStringLiteral("Ton: läuft seit %1 s, Spitze gerade %2").arg(m_carFrames / AudioRouter::Rate).arg(peak));
     // 3 s silence: give the speakers back to the car (radio etc.).
     if (m_silentMs >= 3000) stopCarAudio(QStringLiteral("3 s Stille"));
 }
