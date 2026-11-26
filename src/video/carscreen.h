@@ -37,6 +37,8 @@ signals:
     void tapped(const QString &what);
     // "playpause", "next", "previous" from the music page buttons
     void mediaCommand(const QString &cmd);
+    // Tap on the progress bar: jump to that point (0..1).
+    void mediaSeek(double fraction);
 
 private:
     enum Page { Home, Navigation, Music, Phone, Info };
@@ -54,6 +56,7 @@ private:
     QVector<Tile> m_tiles;
     QRect m_backButton;
     QRect m_playButton, m_prevButton, m_nextButton;
+    QRect m_progressRect; // set while drawing the music page
     bool m_hasPlayer = false, m_mediaPlaying = false;
     QString m_player, m_title, m_artist, m_album;
     QImage m_art;

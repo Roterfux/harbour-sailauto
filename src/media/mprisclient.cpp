@@ -4,6 +4,7 @@
 #include <QDBusConnectionInterface>
 #include <QDBusInterface>
 #include <QDBusMessage>
+#include <QDBusObjectPath>
 #include <QDBusReply>
 #include <QDBusVariant>
 #include <QUrl>
@@ -97,6 +98,8 @@ void MprisClient::poll()
     const QString album = md.value(QStringLiteral("xesam:album")).toString();
     const QString artUrl = md.value(QStringLiteral("mpris:artUrl")).toString();
     const qint64 lenMs = md.value(QStringLiteral("mpris:length")).toLongLong() / 1000;
+    const QVariant tid = md.value(QStringLiteral("mpris:trackid"));
+    m_trackId = tid.canConvert<QDBusObjectPath>() ? tid.value<QDBusObjectPath>().path() : tid.toString();
     const bool playing = getProperty(m_service, kPlayerIface, "PlaybackStatus").toString() == QLatin1String("Playing");
     const qint64 posMs = getProperty(m_service, kPlayerIface, "Position").toLongLong() / 1000;
 
@@ -136,3 +139,47 @@ void MprisClient::play() { call(QStringLiteral("Play")); }
 void MprisClient::pause() { call(QStringLiteral("Pause")); }
 void MprisClient::next() { call(QStringLiteral("Next")); }
 void MprisClient::previous() { call(QStringLiteral("Previous")); }
+
+void MprisClient::seek(qint64 offsetMs)
+{
+    if (m_service.isEmpty()) {
+        emit log(QStringLiteral("Musik: kein Player zum Spulen"));
+        return;
+    }
+    QDBusMessage m = QDBusMessage::createMethodCall(m_service, QLatin1String(kPath),
+                                                    QLatin1String(kPlayerIface), QStringLiteral("Seek"));
+    m << static_cast<qlonglong>(offsetMs * 1000);
+    QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 1000);
+    if (r.type() == QDBusMessage::ErrorMessage)
+        emit log(QStringLiteral("Musik: Spulen %1 s -> %2 (Fehler: %3)")
+                     .arg(offsetMs / 1000).arg(playerName(), r.errorMessage()));
+    // Show the new position right away (the next poll corrects it).
+    m_positionMs = qBound<qint64>(0, m_positionMs + offsetMs, m_lengthMs > 0 ? m_lengthMs : m_positionMs + offsetMs);
+    emit changed();
+    QTimer::singleShot(150, this, &MprisClient::poll);
+}
+
+void MprisClient::seekToFraction(double fraction)
+{
+    if (m_service.isEmpty() || m_lengthMs <= 0) return;
+    const qint64 target = static_cast<qint64>(qBound(0.0, fraction, 1.0) * m_lengthMs);
+    emit log(QStringLiteral("Musik: Spulen auf %1:%2 -> %3")
+                 .arg(target / 60000).arg((target / 1000) % 60, 2, 10, QLatin1Char('0')).arg(playerName()));
+    if (m_trackId.startsWith(QLatin1Char('/'))) {
+        QDBusMessage m = QDBusMessage::createMethodCall(m_service, QLatin1String(kPath),
+                                                        QLatin1String(kPlayerIface), QStringLiteral("SetPosition"));
+        m << QVariant::fromValue(QDBusObjectPath(m_trackId)) << static_cast<qlonglong>(target * 1000);
+        QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 1000);
+        if (r.type() != QDBusMessage::ErrorMessage) {
+            m_positionMs = target;
+            emit changed();
+            QTimer::singleShot(150, this, &MprisClient::poll);
+            return;
+        }
+        emit log(QStringLiteral("Musik: SetPosition geht nicht (%1), versuche Seek").arg(r.errorMessage()));
+    }
+    // No track id (or refused): relative seek from the current position.
+    const qint64 now = getProperty(m_service, kPlayerIface, "Position").toLongLong() / 1000;
+    m_positionMs = now;
+    seek(target - now);
+}

@@ -2,7 +2,7 @@
 # Normally started by the app through harbour-sailauto-aoa.path/.service.
 # Switch the phone's USB port to Android Open Accessory (AOA) mode, so a car
 # (or OpenAuto over USB) talks Android Auto to SailAuto through
-# /dev/usb_accessory. Needs root:  devel-su sh aoa-gadget.sh on|off|status
+# /dev/usb_accessory. Needs root:  devel-su sh aoa-gadget.sh on|off|replug|status
 #
 # "on" stops usb-moded (it would undo the change on the next cable event),
 # remembers the current gadget setup and presents the phone as
@@ -142,6 +142,18 @@ off)
     echo "AOA aus, USB wie vorher."
     status
     ;;
+replug)
+    # Like pulling and re-inserting the cable: the car sees a fresh device and
+    # starts Android Auto again (it stays silent on a reused connection).
+    [ -f "$SAVE" ] || { echo "AOA ist nicht an"; exit 1; }
+    echo "" > "$G/UDC" 2>/dev/null || true
+    sleep 1
+    echo "$UDC" > "$G/UDC"
+    for i in 1 2 3 4 5; do [ -e /dev/usb_accessory ] && break; sleep 1; done
+    chmod 666 /dev/usb_accessory 2>/dev/null || true
+    echo "$(date +%T) App: USB neu verbunden" >> "$WATCHLOG"
+    echo "USB neu verbunden."
+    ;;
 status|"")
     status
     ;;
@@ -149,7 +161,7 @@ watchloop)
     watch_loop
     ;;
 *)
-    echo "Aufruf: $0 on|off|status"
+    echo "Aufruf: $0 on|off|replug|status"
     exit 1
     ;;
 esac

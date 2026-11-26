@@ -34,6 +34,9 @@ public slots:
     void pause();
     void next();
     void previous();
+    // Spulen: relative (ms, may be negative) or absolute (fraction 0..1 of the track).
+    void seek(qint64 offsetMs);
+    void seekToFraction(double fraction);
 
 signals:
     void changed();
@@ -45,7 +48,7 @@ private:
 
     QTimer m_timer;
     QString m_service, m_identity;
-    QString m_title, m_artist, m_album, m_artUrl;
+    QString m_title, m_artist, m_album, m_artUrl, m_trackId;
     QImage m_art;
     bool m_playing = false;
     qint64 m_positionMs = 0, m_lengthMs = 0;

@@ -49,6 +49,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
                                m_mpris.album(), m_mpris.art(), m_mpris.playing(), m_mpris.positionMs(), m_mpris.lengthMs());
     });
     connect(&m_screen, &CarScreen::mediaCommand, this, &Controller::onMediaCommand);
+    connect(&m_screen, &CarScreen::mediaSeek, &m_mpris, &MprisClient::seekToFraction);
     connect(&m_router, &AudioRouter::chunk, this, &Controller::onPhoneAudio);
     m_soundToCar = QSettings().value(QStringLiteral("soundToCar"), true).toBool();
     connect(&m_screen, &CarScreen::tapped, this, [this](const QString &w) {
@@ -59,6 +60,44 @@ Controller::Controller(QObject *parent) : QObject(parent)
     });
     m_usbRetry.setInterval(2000);
     connect(&m_usbRetry, &QTimer::timeout, this, &Controller::tryOpenUsb);
+    m_holdTimer.setSingleShot(true);
+    m_holdTimer.setInterval(600);
+    connect(&m_holdTimer, &QTimer::timeout, this, [this]() {
+        if (m_heldKey == 87 || m_heldKey == 88) startSeeking(m_heldKey == 87 ? 1 : -1);
+    });
+    m_seekTimer.setInterval(500);
+    connect(&m_seekTimer, &QTimer::timeout, this, [this]() {
+        // Safety net in case the release never arrives: stop after 60 s.
+        if (!m_seekDir || !m_session || ++m_seekSteps > 120) {
+            m_seekTimer.stop();
+            m_seekDir = 0;
+            m_heldKey = 0;
+            return;
+        }
+        m_mpris.seek(m_seekDir * 10000);
+    });
+    // The car only starts Android Auto on a freshly enumerated device. After
+    // a dropped session it stays silent on the old one, so "re-plug" the cable.
+    m_usbKick.setSingleShot(true);
+    m_usbKick.setInterval(15000);
+    connect(&m_usbKick, &QTimer::timeout, this, [this]() {
+        if (!m_session || !qobject_cast<UsbAccessoryDevice *>(m_socket.data())) return;
+        if (m_session->receivedBytes() > 0) return;
+        if (m_lastReplug.isValid() && m_lastReplug.elapsed() < 25000) {
+            m_usbKick.start();
+            return;
+        }
+        if (m_autoReplugs >= 3) {
+            if (m_autoReplugs++ == 3)
+                appendLog(QStringLiteral("USB: Auto antwortet auch nach 3x neu verbinden nicht. Kabel/Buchse prüfen, "
+                                         "Android Auto im Auto-Menü wählen, oder Kabel wirklich neu einstecken."));
+            return;
+        }
+        ++m_autoReplugs;
+        appendLog(QStringLiteral("USB: Auto sendet seit 15 s nichts -> USB neu verbinden (wie Kabel neu einstecken, %1/3)")
+                      .arg(m_autoReplugs));
+        replugUsb();
+    });
     setStatus(QStringLiteral("Bereit"));
     appendLog(QStringLiteral("SailAuto Version %1").arg(version()));
 }
@@ -193,16 +232,58 @@ void Controller::onMediaCommand(const QString &cmd)
     else if (cmd == QLatin1String("previous")) m_mpris.previous();
 }
 
+void Controller::startSeeking(int dir)
+{
+    m_seekDir = dir;
+    m_seekSteps = 0;
+    appendLog(dir > 0 ? QStringLiteral("Musik: spule vor") : QStringLiteral("Musik: spule zurück"));
+    m_mpris.seek(dir * 10000);
+    m_seekTimer.start();
+}
+
 void Controller::onCarKey(int code, bool pressed, bool longPress)
 {
-    Q_UNUSED(longPress)
+    // NEXT/PREVIOUS: short press = track, hold = spool (like a car radio).
+    if (code == 87 || code == 88) {
+        const int dir = code == 87 ? 1 : -1;
+        if (pressed) {
+            if (m_heldKey == code && (longPress || m_seekDir)) {
+                if (!m_seekDir) { m_holdTimer.stop(); startSeeking(dir); }
+                return; // car repeats the press while held
+            }
+            m_heldKey = code;
+            m_seekDir = 0;
+            if (longPress) startSeeking(dir);
+            else m_holdTimer.start();
+            return;
+        }
+        // release
+        const bool wasSeeking = m_seekDir != 0;
+        m_holdTimer.stop();
+        m_seekTimer.stop();
+        m_seekDir = 0;
+        if (m_heldKey == code && !wasSeeking) {
+            if (code == 87) m_mpris.next();
+            else m_mpris.previous();
+        }
+        m_heldKey = 0;
+        return;
+    }
+    // MEDIA_REWIND / MEDIA_FAST_FORWARD: spool while held.
+    if (code == 89 || code == 90) {
+        if (pressed) {
+            if (!m_seekDir) startSeeking(code == 90 ? 1 : -1);
+        } else {
+            m_seekTimer.stop();
+            m_seekDir = 0;
+        }
+        return;
+    }
     if (!pressed) return; // act on press, ignore release
     switch (code) {
     case 85: case 79: m_mpris.playPause(); break; // PLAY_PAUSE, HEADSETHOOK
     case 126: m_mpris.play(); break;
     case 127: m_mpris.pause(); break;
-    case 87: m_mpris.next(); break;
-    case 88: m_mpris.previous(); break;
     default: break;
     }
 }
@@ -277,6 +358,7 @@ bool Controller::startUsb()
     m_aoaRequested = requestAoa(QStringLiteral("on"));
     m_aoaWait.start();
     m_aoaReported = false;
+    m_autoReplugs = 0;
     appendLog(QStringLiteral("USB: schalte auf Android-Accessory-Modus"));
     m_usbRetry.start(500);
     return true;
@@ -287,6 +369,7 @@ void Controller::stopUsb()
     const bool was = m_usbWanted;
     m_usbWanted = false;
     m_usbRetry.stop();
+    m_usbKick.stop();
     if (m_session && qobject_cast<UsbAccessoryDevice *>(m_socket.data()))
         disconnectHeadUnit();
     if (was && m_aoaRequested) {
@@ -296,6 +379,20 @@ void Controller::stopUsb()
     m_aoaRequested = false;
     emit listeningChanged();
     setStatus(listening() ? QStringLiteral("Warte auf Head Unit") : QStringLiteral("Bereit"));
+}
+
+void Controller::replugUsb()
+{
+    if (!m_usbWanted || !m_aoaRequested) {
+        appendLog(QStringLiteral("USB: neu verbinden geht nur, wenn der USB-Schalter an ist"));
+        return;
+    }
+    m_lastReplug.start();
+    m_usbKick.stop();
+    appendLog(QStringLiteral("USB: verbinde neu (Gerät kurz ab- und wieder anmelden)"));
+    if (!requestAoa(QStringLiteral("replug"))) return;
+    // The open session gets a read error ("USB getrennt"), then tryOpenUsb reopens.
+    m_usbRetry.start(2000);
 }
 
 void Controller::tryOpenUsb()
@@ -340,6 +437,7 @@ void Controller::tryOpenUsb()
         if (m_session) onSessionClosed(QStringLiteral("USB getrennt"));
     });
     attachTransport(dev, QStringLiteral("USB-Accessory geöffnet, warte auf Head Unit"));
+    if (m_session) m_usbKick.start();
 }
 
 QString Controller::phoneBluetoothAddress(QString *why) const
@@ -577,6 +675,8 @@ void Controller::onSessionClosed(const QString &reason)
     stopRouter();
     m_mpris.stop();
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
+    if (m_session->receivedBytes() > 0) m_autoReplugs = 0;
+    m_usbKick.stop();
     if (m_session->state() != aap::Session::Closed) appendLog(m_session->summary());
     onVideoStop();
     m_session->disconnect(this);

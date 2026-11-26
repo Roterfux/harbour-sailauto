@@ -63,6 +63,7 @@ QString keyName(int code)
     case 23: return QStringLiteral("ENTER"); case 65536: return QStringLiteral("ROTARY");
     case 84: return QStringLiteral("SEARCH/SPRACHE"); case 85: return QStringLiteral("PLAY_PAUSE");
     case 87: return QStringLiteral("NEXT"); case 88: return QStringLiteral("PREVIOUS");
+    case 89: return QStringLiteral("REWIND"); case 90: return QStringLiteral("FAST_FORWARD");
     case 126: return QStringLiteral("PLAY"); case 127: return QStringLiteral("PAUSE");
     case 79: return QStringLiteral("HEADSETHOOK"); case 231: return QStringLiteral("VOICE_ASSIST");
     case 65537: return QStringLiteral("MEDIA"); case 65538: return QStringLiteral("NAVIGATION");
@@ -679,9 +680,13 @@ void Session::handleInput(quint16 id, const QByteArray &payload)
             const int code = static_cast<int>(b.number(1));
             const bool pressed = b.boolean(2);
             const bool longPress = b.boolean(4);
-            emit log(QStringLiteral("Taste %1 %2%3").arg(keyName(code))
-                         .arg(pressed ? QStringLiteral("gedrückt") : QStringLiteral("los"))
-                         .arg(longPress ? QStringLiteral(" (lang)") : QString()));
+            // A held key repeats "pressed (long)": log only the first one.
+            const bool repeat = pressed && longPress && m_heldLongKey == code;
+            m_heldLongKey = pressed && longPress ? code : (pressed ? m_heldLongKey : -1);
+            if (!repeat)
+                emit log(QStringLiteral("Taste %1 %2%3").arg(keyName(code))
+                             .arg(pressed ? QStringLiteral("gedrückt") : QStringLiteral("los"))
+                             .arg(longPress ? QStringLiteral(" (lang)") : QString()));
             emit key(code, pressed, longPress);
         }
     }

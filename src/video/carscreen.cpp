@@ -107,6 +107,8 @@ void CarScreen::touch(int action, int x, int y)
             if (m_playButton.contains(m_touch)) emit mediaCommand(QStringLiteral("playpause"));
             else if (m_prevButton.contains(m_touch)) emit mediaCommand(QStringLiteral("previous"));
             else if (m_nextButton.contains(m_touch)) emit mediaCommand(QStringLiteral("next"));
+            else if (m_lenMs > 0 && m_progressRect.adjusted(0, -24, 0, 24).contains(m_touch))
+                emit mediaSeek(double(m_touch.x() - m_progressRect.left()) / qMax(1, m_progressRect.width()));
         } else if (m_page == Music && m_playButton.contains(m_touch)) {
             // No player on the phone: the button runs the sound test.
             m_playing = !m_playing;
@@ -267,6 +269,7 @@ void CarScreen::drawPage(QPainter &p)
             qint64 pos = m_posMs + (m_mediaPlaying && m_posClock.isValid() ? m_posClock.elapsed() : 0);
             pos = qMin(pos, m_lenMs);
             const QRect bar2(body.left(), artRect.bottom() + 12, body.width(), 6);
+            m_progressRect = bar2;
             p.setPen(Qt::NoPen);
             p.setBrush(c.panel);
             p.drawRoundedRect(bar2, 3, 3);

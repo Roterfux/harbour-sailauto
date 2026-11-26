@@ -74,6 +74,7 @@ private:
     bool m_selfPaced = false;   // PulseAudio paces the pipe (use_system_clock_for_timing)
     QTimer m_readTimer;
     QElapsedTimer m_readClock;
-    qint64 m_bytesRead = 0;
+    qint64 m_bytesOut = 0;      // read + silence filled in
+    bool m_filling = false;
     QByteArray m_pending;
 };

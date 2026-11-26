@@ -166,6 +166,11 @@ devel-su sh /usr/share/harbour-sailauto/aoa-gadget.sh off
 
 Notfalls: Kabel ab/an oder Neustart. Die App läuft dafür ohne Sailjail-Sandbox.
 
+Ab 0.4.2: Sendet das Auto 15 s nach dem Öffnen nichts (z. B. nach einer
+abgebrochenen Sitzung), meldet die App das USB-Gerät kurz ab und wieder an –
+wie Kabel neu einstecken (höchstens 3× hintereinander). Von Hand: Pull-down
+„USB neu verbinden“.
+
 Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
 [usbipd-win](https://github.com/dorssel/usbipd-win) durchreichen
 (`usbipd attach --wsl --auto-attach --busid <id>`) und `autoapp` mit
@@ -176,8 +181,10 @@ Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
 Ab 0.3.0, Schalter „Telefon-Ton ins Auto“ (Standard: an). Sobald das Auto-Bild
 läuft, legt die App in PulseAudio einen virtuellen Ausgang „SailAuto-Auto“ an,
 macht ihn zum Standard und leitet alle laufenden Wiedergaben dorthin um
-(Musik-Apps, Pure Maps, …). Dessen Monitor wird aufgenommen (48 kHz Stereo)
-und über den Medienkanal ans Auto geschickt: sobald etwas spielt Audio-Fokus +
+(Musik-Apps, Pure Maps, …). Ab 0.4.1 schreibt PulseAudio den Ton in eine Pipe
+(module-pipe-sink, keine Aufnahme → kein Mikrofon, keine Rückkopplung); Lücken
+(Pause, Titelwechsel) füllt die App mit Stille. Der Ton geht (48 kHz Stereo)
+über den Medienkanal ans Auto: sobald etwas spielt Audio-Fokus +
 START, nach 3 s Stille STOP + Fokus zurück (Radio kommt wieder). Beim Trennen,
 Beenden oder SIGTERM wird alles zurückgestellt; ein Überbleibsel nach einem
 Absturz wird beim nächsten Start entfernt. Im Log: `Ton: "<App>" … spielt im
@@ -194,6 +201,9 @@ Auto zeigt Cover, Titel, Interpret, Album, Fortschritt und ⏮ ⏯ ⏭.
 Lenkradtasten: die App bindet genau die Tasten, die das Auto anbietet
 (Log: `Dienst …: Touch/Tasten Tasten: …`), und gibt PLAY_PAUSE/PLAY/PAUSE/
 NEXT/PREVIOUS an den Player weiter. Ohne Player bleibt der Knopf der Tontest.
+Spulen (ab 0.4.2): ⏭/⏮ am Lenkrad halten = 10 s-Schritte alle 0,5 s,
+REWIND/FAST_FORWARD (89/90) genauso, Tippen auf den Fortschrittsbalken springt
+an die Stelle (MPRIS Seek/SetPosition).
 
 Kombiinstrument: Titel dort nur, wenn das Auto einen Musikstatus-Dienst
 anbietet – der Touran (MIB2) tut das nicht.

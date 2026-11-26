@@ -253,7 +253,8 @@ bool AudioRouter::startCapture(QString *error)
         return false;
     }
     m_readClock.start();
-    m_bytesRead = 0;
+    m_bytesOut = 0;
+    m_filling = false;
     m_readTimer.start();
     emit log(QStringLiteral("Ton: lese Pipe %1 (%2)").arg(m_fifoPath)
                  .arg(m_selfPaced ? QStringLiteral("PulseAudio taktet") : QStringLiteral("App taktet")));
@@ -265,20 +266,42 @@ void AudioRouter::readPipe()
     if (m_fd < 0) return;
     const int frameBytes = Channels * 2;
     const int chunkBytes = Rate / 50 * frameBytes; // 20 ms
+    auto msToBytes = [frameBytes](qint64 ms) { return ms * Rate / 1000 * frameBytes; };
+    // Where the stream should be by now (wall clock).
+    const qint64 due = m_readClock.nsecsElapsed() / 1000 * Rate / 1000000 * frameBytes;
     qint64 budget = 1 << 20;
     if (!m_selfPaced) {
         // We are the clock: never read faster than real time (+40 ms slack).
-        const qint64 due = (m_readClock.nsecsElapsed() / 1000 + 40000) * Rate / 1000000 * frameBytes;
-        budget = due - m_bytesRead;
+        budget = due + msToBytes(40) - m_bytesOut;
         if (budget <= 0) return;
     }
     char buf[16384];
+    bool gotData = false;
     while (budget > 0) {
         const ssize_t n = ::read(m_fd, buf, static_cast<size_t>(qMin<qint64>(budget, sizeof(buf))));
         if (n <= 0) break;
-        m_pending.append(buf, static_cast<int>(n));
-        m_bytesRead += n;
+        gotData = true;
         budget -= n;
+        // PulseAudio catching up after a gap we already filled: drop what is
+        // too far ahead, else the delay to the car grows with every pause.
+        if (m_bytesOut + n > due + msToBytes(200)) continue;
+        m_pending.append(buf, static_cast<int>(n));
+        m_bytesOut += n;
+    }
+    // Nothing from PulseAudio (player paused, sink suspended): keep the car's
+    // stream running with silence, so it never starves and the 3 s silence
+    // rule can hand the speakers back.
+    const qint64 lag = due - m_bytesOut;
+    if (lag > msToBytes(100)) {
+        const qint64 fill = lag - lag % frameBytes;
+        m_pending.append(QByteArray(static_cast<int>(fill), '\0'));
+        m_bytesOut += fill;
+        if (!m_filling) {
+            m_filling = true;
+            emit log(QStringLiteral("Ton: Pipe liefert nichts, fülle mit Stille"));
+        }
+    } else if (m_filling && gotData) {
+        m_filling = false; // PulseAudio delivers again; log the next gap once more
     }
     while (m_pending.size() >= chunkBytes) {
         emit chunk(m_pending.left(chunkBytes));

@@ -35,6 +35,11 @@ Page {
                 onClicked: controller.stopSoundTest()
             }
             MenuItem {
+                visible: controller.usbActive
+                text: qsTr("USB neu verbinden")
+                onClicked: controller.replugUsb()
+            }
+            MenuItem {
                 visible: controller.connected
                 text: qsTr("Trennen")
                 onClicked: controller.disconnectHeadUnit()

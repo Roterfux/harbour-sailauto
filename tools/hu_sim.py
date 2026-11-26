@@ -349,7 +349,7 @@ class HeadUnit:
         vcfg = f_varint(1, 1) + f_varint(2, 1) + f_varint(3, 0) + f_varint(4, 0) + f_varint(5, 140)
         video = f_varint(1, CH_VIDEO) + f_bytes(3, f_varint(1, 3) + f_bytes(4, vcfg) + f_varint(5, 1))
         touch = f_varint(1, w) + f_varint(2, h)
-        keys = b"".join(varint(k) for k in (3, 4, 84, 85, 87, 88))
+        keys = b"".join(varint(k) for k in (3, 4, 84, 85, 87, 88, 89, 90))
         inp = f_varint(1, CH_INPUT) + f_bytes(4, f_bytes(1, keys) + f_bytes(2, touch))
         sensor = f_varint(1, CH_SENSOR) + f_bytes(2, f_bytes(1, f_varint(1, 13)) + f_bytes(1, f_varint(1, 10)))
         acfg = f_varint(1, 48000) + f_varint(2, 16) + f_varint(3, 2)
@@ -369,11 +369,19 @@ class HeadUnit:
         ev = f_bytes(1, loc) + f_varint(2, 0) + f_varint(3, action)
         self.send(self.ch_input, INPUT_EVENT, f_varint(1, int(time.time() * 1e6)) + f_bytes(3, ev))
 
-    def key(self, code):
-        for pressed in (1, 0):
-            ev = f_bytes(1, f_varint(1, code) + f_varint(2, pressed) + f_varint(3, 0) + f_varint(4, 0))
-            self.send(self.ch_input, INPUT_EVENT, f_varint(1, int(time.time() * 1e6)) + f_bytes(4, ev))
-            time.sleep(0.05)
+    def key(self, code, hold=0.0):
+        """Press and release; hold > 0 keeps it pressed (VW: long_press after ~0.8 s)."""
+        def ev(pressed, long_press):
+            e = f_bytes(1, f_varint(1, code) + f_varint(2, pressed) + f_varint(3, 0) + f_varint(4, long_press))
+            self.send(self.ch_input, INPUT_EVENT, f_varint(1, int(time.time() * 1e6)) + f_bytes(4, e))
+        ev(1, 0)
+        t0 = time.time()
+        while time.time() - t0 < hold:
+            time.sleep(0.2)
+            if time.time() - t0 > 0.8:
+                ev(1, 1)
+        time.sleep(0.05)
+        ev(0, 0)
 
     def tap(self, x, y, drag_to=None):
         self.touch(0, x, y)
@@ -395,7 +403,8 @@ def main():
     ap.add_argument("--ping", type=float, default=2.0, help="ping interval (OpenAuto: 5 s)")
     ap.add_argument("--night", action="store_true")
     ap.add_argument("--key", action="append", default=[],
-                    help="steering wheel key code[@seconds], e.g. 87@4 (next), 85@5 (play/pause)")
+                    help="steering wheel key code[@seconds[:hold]], e.g. 87@4 (next), 85@5 (play/pause), "
+                    "87@4:3 (hold next 3 s = spool)")
     ap.add_argument("--audio-out", help="write received audio as <prefix>-ch<N>.wav")
     ap.add_argument("--sound-test", action="store_true",
                     help="tap Play on the SailAuto music page (media sound test), 2 s after video starts")
@@ -416,7 +425,8 @@ def main():
         taps += [(2.0, 300, 250), (3.0, 400, 330)]   # open Musik, press Play
     for k in args.key:
         code, _, at = k.partition("@")
-        taps.append((float(at or 3), "key", int(code)))
+        at, _, hold = at.partition(":")
+        taps.append((float(at or 3), "key", (int(code), float(hold or 0))))
     taps.sort(key=lambda t: t[0])
 
     end = time.time() + args.seconds
@@ -424,8 +434,8 @@ def main():
         if taps and hu.touch_ready and hu.focus_at and time.time() - hu.focus_at >= taps[0][0]:
             _, x, y = taps.pop(0)
             if x == "key":
-                hu.log("key", y)
-                hu.key(y)
+                hu.log("key", *y)
+                hu.key(*y)
             else:
                 hu.log("tap", x, y)
                 hu.tap(x, y)

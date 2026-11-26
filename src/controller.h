@@ -54,6 +54,8 @@ public:
     // USB: Android Open Accessory via /dev/usb_accessory (needs tools/aoa-gadget.sh on).
     Q_INVOKABLE bool startUsb();
     Q_INVOKABLE void stopUsb();
+    // Like re-plugging the cable (car stays silent on a reused connection).
+    Q_INVOKABLE void replugUsb();
 
     bool listening() const { return m_server.isListening(); }
     bool usbActive() const { return m_usbWanted; }
@@ -106,6 +108,9 @@ private:
     bool m_aoaRequested = false;
     bool m_aoaReported = false;
     QElapsedTimer m_aoaWait;
+    QTimer m_usbKick;          // car silent after USB open -> replug
+    QElapsedTimer m_lastReplug;
+    int m_autoReplugs = 0;
     aap::Session *m_session = nullptr;
     aap::Trace *m_trace = nullptr;
     QString m_traceBase, m_lastTraceDir;
@@ -118,6 +123,13 @@ private:
     MprisClient m_mpris;
     void onCarKey(int code, bool pressed, bool longPress);
     void onMediaCommand(const QString &cmd);
+    // Spulen: hold NEXT/PREVIOUS (or REWIND/FAST_FORWARD) -> seek in steps.
+    QTimer m_holdTimer;   // short press vs. hold on NEXT/PREVIOUS
+    QTimer m_seekTimer;   // repeats the seek step while held
+    int m_heldKey = 0;
+    int m_seekDir = 0;
+    int m_seekSteps = 0;
+    void startSeeking(int dir);
     bool m_soundToCar = true;
     bool m_carAudioOn = false;
     int m_carAudioChannel = -1;

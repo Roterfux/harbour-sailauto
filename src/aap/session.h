@@ -56,6 +56,7 @@ public:
     // Phone Bluetooth address for the car's pairing (empty = skip).
     void setPhoneBluetoothAddress(const QString &a) { m_phoneBt = a; }
     QString summary() const;
+    qint64 receivedBytes() const { return m_rxTotal; }
     State state() const { return m_state; }
     QString headUnitName() const { return m_huName; }
     VideoConfig videoConfig() const { return m_video; }
@@ -160,6 +161,7 @@ private:
     QTimer m_focusFallback;
     QTimer m_silence;
     qint64 m_rxTotal = 0;
+    int m_heldLongKey = -1;
 };
 
 } // namespace aap
