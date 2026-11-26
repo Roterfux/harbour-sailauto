@@ -113,6 +113,9 @@ class HeadUnit:
         self.out = open(args.out, "wb") if args.out else None
         self.opened = []
         self.audio_setups = 0
+        self.audio_starts = self.audio_stops = 0
+        self.audio = {}
+        self.focus_log = []
         self.touch_ready = False
         self.focus_at = None
         self.errors = []
@@ -254,6 +257,12 @@ class HeadUnit:
                 self.send(CH_CONTROL, SD_RESPONSE, self.discovery or self.sd_response())
             elif msg_id == PING_RESPONSE:
                 self.pongs += 1
+            elif msg_id == 0x12:  # AUDIO_FOCUS_REQUEST -> grant like a car
+                req = pb_parse(p).get(1, [0])[0]
+                state = {1: 1, 2: 2, 3: 2, 4: 3}.get(req, 1)  # GAIN/TRANSIENT/LOSS
+                self.focus_log.append((req, state))
+                self.log("audio focus request %d -> %d" % (req, state))
+                self.send(CH_CONTROL, 0x13, f_varint(1, state) + f_varint(2, 0))
             elif msg_id == SHUTDOWN_REQUEST:
                 self.log("phone requests shutdown")
                 self.send(CH_CONTROL, SHUTDOWN_RESPONSE, b"")
@@ -273,11 +282,27 @@ class HeadUnit:
             return
         if ch == self.ch_video:
             self.handle_video(msg_id, p)
+        elif ch in (self.ch_input, self.ch_sensor, CH_BT):
+            self.handle_other(ch, msg_id, p)
+        elif msg_id == AV_START:
+            self.log("audio START on ch %d %s" % (ch, pb_parse(p)))
+            self.audio_starts += 1
+        elif msg_id == AV_STOP:
+            self.log("audio STOP on ch %d" % ch)
+            self.audio_stops += 1
+        elif msg_id in (AV_MEDIA_TS, AV_MEDIA):
+            data = p[8:] if msg_id == AV_MEDIA_TS else p
+            self.audio.setdefault(ch, bytearray()).extend(data)
+            self.send(ch, AV_ACK, f_varint(1, 1) + f_varint(2, 1))
         elif msg_id == AV_SETUP_REQ:
             # audio channel: accept PCM setup like a car does
             self.send(ch, AV_SETUP_RESP, f_varint(1, 2) + f_varint(2, 4) + f_varint(3, 0))
             self.audio_setups += 1
-        elif msg_id == 0x8001 and ch == CH_BT:
+        else:
+            self.log("ch %d msg 0x%04x" % (ch, msg_id))
+
+    def handle_other(self, ch, msg_id, p):
+        if msg_id == 0x8001 and ch == CH_BT:
             f = pb_parse(p)
             self.log("bluetooth pairing request from", f.get(1, [b"?"])[0].decode(), "method", f.get(2, [0])[0])
             self.send(ch, 0x8002, f_varint(1, 0) + f_varint(2, 1))
@@ -362,6 +387,9 @@ def main():
     ap.add_argument("--out", help="write the received H.264 stream here")
     ap.add_argument("--ping", type=float, default=2.0, help="ping interval (OpenAuto: 5 s)")
     ap.add_argument("--night", action="store_true")
+    ap.add_argument("--audio-out", help="write received audio as <prefix>-ch<N>.wav")
+    ap.add_argument("--sound-test", action="store_true",
+                    help="tap Play on the SailAuto music page (media sound test), 2 s after video starts")
     ap.add_argument("--discovery", help="replay a ServiceDiscoveryResponse recorded by SailAuto "
                     "(discovery.bin from ~/Documents/SailAuto/<session>/) instead of the built-in one")
     ap.add_argument("--tap", action="append", default=[],
@@ -375,6 +403,8 @@ def main():
         pos, _, at = t.partition("@")
         x, y = (int(v) for v in pos.split(","))
         taps.append((float(at or 3), x, y))
+    if args.sound_test:
+        taps += [(2.0, 300, 250), (3.0, 400, 330)]   # open Musik, press Play
     taps.sort()
 
     end = time.time() + args.seconds
@@ -386,12 +416,22 @@ def main():
         time.sleep(0.02)
 
     elapsed = time.time() - (hu.focus_at or time.time())
+    if args.audio_out:
+        import wave
+        fmt = {CH_MEDIA_AUDIO: (48000, 2), 5: (16000, 1)}
+        for ch, pcm in hu.audio.items():
+            rate, nch = fmt.get(ch, (48000, 2))
+            with wave.open("%s-ch%d.wav" % (args.audio_out, ch), "wb") as w:
+                w.setnchannels(nch); w.setsampwidth(2); w.setframerate(rate); w.writeframes(bytes(pcm))
     hu.done = True
     if hu.out:
         hu.out.close()
     print("---")
     print("channels opened : %s" % hu.opened)
     print("audio setups    : %d" % hu.audio_setups)
+    print("audio start/stop: %d/%d, focus %s" % (hu.audio_starts, hu.audio_stops, hu.focus_log))
+    for ch, pcm in hu.audio.items():
+        print("audio ch%d bytes : %d" % (ch, len(pcm)))
     print("codec config msgs: %d" % hu.config_msgs)
     print("video frames    : %d (%.1f fps)" % (hu.frames, hu.frames / elapsed if elapsed > 0 else 0))
     print("video bytes     : %d" % hu.video_bytes)

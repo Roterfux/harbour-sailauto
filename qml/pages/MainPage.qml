@@ -20,6 +20,21 @@ Page {
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("LogPage.qml"))
             }
             MenuItem {
+                visible: controller.streaming
+                text: qsTr("Tontest Ansage (3 Pieptöne)")
+                onClicked: controller.soundTest("guidance")
+            }
+            MenuItem {
+                visible: controller.streaming
+                text: qsTr("Tontest Musik (60 s)")
+                onClicked: controller.soundTest("media")
+            }
+            MenuItem {
+                visible: controller.streaming
+                text: qsTr("Tontest stoppen")
+                onClicked: controller.stopSoundTest()
+            }
+            MenuItem {
                 visible: controller.connected
                 text: qsTr("Trennen")
                 onClicked: controller.disconnectHeadUnit()

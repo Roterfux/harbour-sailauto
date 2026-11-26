@@ -171,6 +171,19 @@ Probe am PC vor dem Auto: OpenAuto im USB-Modus. Unter WSL das Telefon mit
 (`usbipd attach --wsl --auto-attach --busid <id>`) und `autoapp` mit
 `sudo -E` starten (libusb braucht Rechte).
 
+## Tontest
+
+Im Auto auf dem SailAuto-Bildschirm „Musik“ → Play: eine Test-Melodie über den
+Medienkanal (48 kHz Stereo); erster Ton nur links, zweiter nur rechts, dann
+beide. Pause stoppt. Am Telefon im Pull-down-Menü: „Tontest Musik“ und
+„Tontest Ansage“ (3 Pieptöne auf dem Navigationsansage-Kanal, das Auto sollte
+das Radio leiser machen). Ablauf wie bei Android: Audio-Fokus anfragen →
+START → PCM in Echtzeit im ACK-Fenster des Autos → STOP → Fokus freigeben.
+Im Log: `Audio-Fokus vom Auto: …`, `Tontest …`.
+
+Am PC: `python3 tools/hu_sim.py --sound-test --audio-out snd` schreibt den
+empfangenen Ton als `snd-ch<N>.wav`.
+
 ## Diagnose ohne Auto
 
 Jede Sitzung (WLAN oder USB) wird aufgezeichnet in

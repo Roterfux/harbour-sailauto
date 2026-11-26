@@ -47,6 +47,7 @@ HEADERS += \
     src/video/h264encoder.h \
     src/video/pcmh264.h \
     src/video/openh264enc.h \
+    src/audio/audiotest.h \
     src/controller.h
 
 SOURCES += \
@@ -59,6 +60,7 @@ SOURCES += \
     src/video/h264encoder.cpp \
     src/video/pcmh264.cpp \
     src/video/openh264enc.cpp \
+    src/audio/audiotest.cpp \
     src/controller.cpp
 
 DISTFILES += \

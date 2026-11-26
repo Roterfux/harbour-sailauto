@@ -40,8 +40,12 @@ Controller::Controller(QObject *parent) : QObject(parent)
         m_screen.setInfo(m_session ? m_session->headUnitName() : QString(), name);
         m_queue.clear();
     });
+    connect(&m_audioTest, &AudioTest::log, this, &Controller::appendLog);
     connect(&m_screen, &CarScreen::tapped, this, [this](const QString &w) {
         appendLog(QStringLiteral("Auto-Display: ") + w);
+        // Music page play button = media sound test.
+        if (w == QLatin1String("Play")) soundTest(QStringLiteral("media"));
+        else if (w == QLatin1String("Pause")) stopSoundTest();
     });
     m_usbRetry.setInterval(2000);
     connect(&m_usbRetry, &QTimer::timeout, this, &Controller::tryOpenUsb);
@@ -93,6 +97,18 @@ void Controller::stopListening()
 void Controller::disconnectHeadUnit()
 {
     if (m_session) m_session->requestShutdown();
+}
+
+void Controller::soundTest(const QString &kind)
+{
+    QString err;
+    if (!m_audioTest.start(m_session, kind == QLatin1String("guidance") ? AudioTest::Guidance : AudioTest::Media, &err))
+        appendLog(QStringLiteral("Tontest nicht möglich: ") + err);
+}
+
+void Controller::stopSoundTest()
+{
+    m_audioTest.stop();
 }
 
 void Controller::clearLog()
@@ -325,6 +341,7 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
+    connect(m_session, &aap::Session::audioFocusChanged, &m_audioTest, &AudioTest::onFocus);
     connect(m_session, &aap::Session::silent, this, [this]() {
         if (auto *usb = qobject_cast<UsbAccessoryDevice *>(m_socket.data())) {
             appendLog(QStringLiteral("USB-Handshake vom Auto (Kernel): ") + usb->handshakeInfo());
@@ -435,6 +452,7 @@ void Controller::flush()
 void Controller::onSessionClosed(const QString &reason)
 {
     if (!m_session) return;
+    m_audioTest.stop();
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
     if (m_session->state() != aap::Session::Closed) appendLog(m_session->summary());
     onVideoStop();

@@ -4,6 +4,7 @@
 
 #include "aap/session.h"
 #include "aap/trace.h"
+#include "audio/audiotest.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -43,6 +44,9 @@ public:
     Q_INVOKABLE void stopListening();
     Q_INVOKABLE void disconnectHeadUnit();
     Q_INVOKABLE void clearLog();
+    // Sound test: "media" (melody, 60 s or until stopped) or "guidance" (3 beeps).
+    Q_INVOKABLE void soundTest(const QString &kind);
+    Q_INVOKABLE void stopSoundTest();
     // USB: Android Open Accessory via /dev/usb_accessory (needs tools/aoa-gadget.sh on).
     Q_INVOKABLE bool startUsb();
     Q_INVOKABLE void stopUsb();
@@ -100,6 +104,7 @@ private:
     CarScreen m_screen;
     H264Encoder m_encoder;
     QTimer m_frameTimer;
+    AudioTest m_audioTest;
     QElapsedTimer m_clock;
     QQueue<Packet> m_queue;
 

@@ -67,6 +67,16 @@ public:
 
     void requestShutdown();
 
+    // ---- Audio out (phone -> car). streamType: 1 guidance, 2 system, 3 media.
+    // Returns the channel id, or -1 if the car has no such (set-up) channel.
+    int audioChannel(int streamType) const;
+    void requestAudioFocus(int request); // 1 GAIN, 2 TRANSIENT, 3 TRANSIENT_MAY_DUCK, 4 RELEASE
+    void audioFormat(int channel, int *rate, int *channels) const; // 16-bit PCM
+    bool startAudio(int channel);
+    void stopAudio(int channel);
+    bool canSendAudio(int channel) const;
+    void sendAudio(int channel, const QByteArray &pcm, quint64 timestampUs);
+
 signals:
     void stateChanged(aap::Session::State state);
     void log(const QString &line);
@@ -76,6 +86,8 @@ signals:
     void touch(int action, int x, int y);
     void nightModeChanged(bool night);
     void drivingStatusChanged(int status);
+    // AudioFocusStateType from the car: 1 GAIN, 2 GAIN_TRANSIENT, 3 LOSS, 4 LOSS_CAN_DUCK, 5 LOSS_TRANSIENT, ...
+    void audioFocusChanged(int state);
     void closed(const QString &reason);
     // No byte from the HU 5 s after the transport came up.
     void silent();
@@ -123,6 +135,9 @@ private:
     // Every channel the HU offered: id -> kind; audio channels -> stream type
     QHash<int, Trace::Kind> m_kinds;
     QHash<int, int> m_audioType;
+    struct AudioState { bool setupOk = false; int maxUnacked = 1; int unacked = 0; int session = 0; bool started = false;
+                       int rate = 48000; int channels = 2; };
+    QHash<int, AudioState> m_audio;
     QString m_carBt;
     QList<int> m_btMethods;
     QString m_phoneBt;

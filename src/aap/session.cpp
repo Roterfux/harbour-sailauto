@@ -327,7 +327,16 @@ void Session::handleControl(quint16 id, const QByteArray &payload)
     case ctrl::ShutdownResponse:
         fail(QStringLiteral("Sitzung beendet"));
         break;
-    case ctrl::AudioFocusResponse: // AUDIO_FOCUS_NOTIFICATION
+    case ctrl::AudioFocusResponse: { // AUDIO_FOCUS_NOTIFICATION
+        pb::Reader r(payload);
+        const int st = static_cast<int>(r.number(1));
+        static const char *names[] = {"ungültig", "GAIN", "GAIN_TRANSIENT", "LOSS", "LOSS_TRANSIENT_CAN_DUCK",
+                                      "LOSS_TRANSIENT", "GAIN_MEDIA_ONLY", "GAIN_TRANSIENT_GUIDANCE_ONLY"};
+        emit log(QStringLiteral("Audio-Fokus vom Auto: %1%2").arg(QLatin1String(st >= 0 && st <= 7 ? names[st] : "?"))
+                     .arg(r.boolean(2) ? QStringLiteral(" (unaufgefordert)") : QString()));
+        emit audioFocusChanged(st);
+        break;
+    }
     case ctrl::NavFocusResponse:   // NAV_FOCUS_NOTIFICATION
     case 9:  // CHANNEL_CLOSE_NOTIFICATION
     case 17: // VOICE_SESSION_NOTIFICATION
@@ -404,9 +413,15 @@ void Session::handleServiceDiscovery(const QByteArray &payload)
                 m_audioType[id] = type;
                 static const char *types[] = {"?", "Ansagen", "System", "Medien", "Telefon"};
                 detail = QLatin1String(type >= 0 && type <= 4 ? types[type] : "?");
+                bool first = true;
                 for (const pb::Value &ac : av.all(3)) {
                     pb::Reader a(ac.bytes);
                     detail += QStringLiteral(" %1Hz/%2bit/%3ch").arg(a.number(1)).arg(a.number(2)).arg(a.number(3));
+                    if (first) {
+                        m_audio[id].rate = static_cast<int>(a.number(1, 48000));
+                        m_audio[id].channels = static_cast<int>(a.number(3, 2));
+                        first = false;
+                    }
                 }
             }
         } else if (ch.has(4)) {
@@ -676,12 +691,19 @@ void Session::handleAudio(quint8 channel, quint16 id, const QByteArray &payload)
     pb::Reader r(payload);
     if (id == av::SetupResponse) { // CONFIG
         const bool ok = r.number(1) == 2;
+        AudioState &a = m_audio[channel];
+        a.setupOk = ok;
+        a.maxUnacked = qMax(1, static_cast<int>(r.number(2, 1)));
         emit log(QStringLiteral("Audio-Kanal %1 (Typ %2): Setup %3, max. %4 offen")
                      .arg(channel).arg(m_audioType.value(channel)).arg(ok ? QStringLiteral("ok") : QStringLiteral("ABGELEHNT"))
                      .arg(r.number(2)));
         return;
     }
-    if (id == av::MediaAck) return;
+    if (id == av::MediaAck) {
+        AudioState &a = m_audio[channel];
+        a.unacked = qMax(0, a.unacked - qMax(1, static_cast<int>(r.number(2, 1))));
+        return;
+    }
     emit log(QStringLiteral("Audio-Kanal %1: Nachricht 0x%2 %3").arg(channel).arg(id, 4, 16, QChar('0')).arg(Trace::dump(payload)));
 }
 
@@ -699,6 +721,68 @@ void Session::handleBluetooth(quint16 id, const QByteArray &payload)
         return;
     }
     emit log(QStringLiteral("Bluetooth: Nachricht 0x%1 %2").arg(id, 4, 16, QChar('0')).arg(Trace::dump(payload)));
+}
+
+int Session::audioChannel(int streamType) const
+{
+    for (auto it = m_audioType.constBegin(); it != m_audioType.constEnd(); ++it)
+        if (it.value() == streamType && m_audio.value(it.key()).setupOk) return it.key();
+    return -1;
+}
+
+void Session::requestAudioFocus(int request)
+{
+    if (m_state != Streaming) return;
+    pb::Writer w;
+    w.varint(1, static_cast<uint64_t>(request));
+    send(ChControl, ctrl::AudioFocusRequest, w.data(), true);
+    static const char *names[] = {"?", "GAIN", "GAIN_TRANSIENT", "GAIN_TRANSIENT_MAY_DUCK", "RELEASE"};
+    emit log(QStringLiteral("Audio-Fokus angefragt: %1").arg(QLatin1String(request >= 1 && request <= 4 ? names[request] : "?")));
+}
+
+void Session::audioFormat(int channel, int *rate, int *channels) const
+{
+    const AudioState a = m_audio.value(channel);
+    if (rate) *rate = a.rate;
+    if (channels) *channels = a.channels;
+}
+
+bool Session::startAudio(int channel)
+{
+    if (m_state != Streaming || !m_audio.value(channel).setupOk) return false;
+    AudioState &a = m_audio[channel];
+    a.session += 1;
+    a.unacked = 0;
+    a.started = true;
+    pb::Writer w;
+    w.sint(1, a.session).varint(2, 0); // session, config index
+    send(static_cast<quint8>(channel), av::StartIndication, w.data(), true);
+    emit log(QStringLiteral("Audio-Kanal %1: START (Sitzung %2)").arg(channel).arg(a.session));
+    return true;
+}
+
+void Session::stopAudio(int channel)
+{
+    if (!m_audio.value(channel).started) return;
+    AudioState &a = m_audio[channel];
+    a.started = false;
+    pb::Writer w;
+    w.sint(1, a.session);
+    send(static_cast<quint8>(channel), av::StopIndication, w.data(), true);
+    emit log(QStringLiteral("Audio-Kanal %1: STOP").arg(channel));
+}
+
+bool Session::canSendAudio(int channel) const
+{
+    const AudioState a = m_audio.value(channel);
+    return m_state == Streaming && a.started && a.unacked < a.maxUnacked;
+}
+
+void Session::sendAudio(int channel, const QByteArray &pcm, quint64 timestampUs)
+{
+    if (!canSendAudio(channel)) return;
+    send(static_cast<quint8>(channel), av::MediaWithTimestamp, u64(timestampUs) + pcm, true);
+    m_audio[channel].unacked += 1;
 }
 
 QString Session::summary() const
