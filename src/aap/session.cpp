@@ -56,8 +56,8 @@ Session::Session(QIODevice *transport, const QString &certPath, const QString &k
     m_silence.setSingleShot(true);
     m_silence.setInterval(5000);
     connect(&m_silence, &QTimer::timeout, this, [this]() {
-        emit log(QStringLiteral("5 s keine Daten von der Head Unit (TCP steht, aber OpenAuto sendet nichts). "
-                                "OpenAuto neu starten?"));
+        emit log(QStringLiteral("5 s keine Daten von der Head Unit (Verbindung steht, aber sie sendet nichts)."));
+        emit silent();
     });
 
     m_focusFallback.setSingleShot(true);

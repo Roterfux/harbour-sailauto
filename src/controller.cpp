@@ -261,6 +261,16 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
+    connect(m_session, &aap::Session::silent, this, [this]() {
+        if (auto *usb = qobject_cast<UsbAccessoryDevice *>(m_socket.data())) {
+            appendLog(QStringLiteral("USB-Handshake vom Auto (Kernel): ") + usb->handshakeInfo());
+            appendLog(QStringLiteral("USB-Modus laut Root-Dienst: \"%1\". Leere Texte = das Auto hat (noch) keinen "
+                                     "Accessory-Handshake geschickt (falsche Buchse? Gadget nicht an?).").arg(aoaState()));
+            QFile f(QStringLiteral("/run/harbour-sailauto/watch.log"));
+            if (f.open(QIODevice::ReadOnly))
+                appendLog(QStringLiteral("Root-Wächter: ") + QString::fromUtf8(f.readAll()).trimmed().right(600));
+        }
+    });
     m_session->setTrace(m_trace);
     const QString bt = phoneBluetoothAddress();
     m_session->setPhoneBluetoothAddress(bt);

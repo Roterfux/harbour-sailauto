@@ -24,6 +24,9 @@ public:
     qint64 bytesAvailable() const override;
     QString path() const { return m_path; }
     void runReader(); // reader thread entry
+    // What the USB host sent in the AOA handshake (kernel f_accessory ioctls):
+    // manufacturer, model, description, version, uri, serial, start requested.
+    QString handshakeInfo() const;
 
 signals:
     void disconnected();

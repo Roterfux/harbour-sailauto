@@ -5,6 +5,16 @@
 #include <cstring>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+
+// From the Android kernel's include/uapi/linux/usb/f_accessory.h
+#define ACCESSORY_GET_STRING_MANUFACTURER _IOW('M', 1, char[256])
+#define ACCESSORY_GET_STRING_MODEL _IOW('M', 2, char[256])
+#define ACCESSORY_GET_STRING_DESCRIPTION _IOW('M', 3, char[256])
+#define ACCESSORY_GET_STRING_VERSION _IOW('M', 4, char[256])
+#define ACCESSORY_GET_STRING_URI _IOW('M', 5, char[256])
+#define ACCESSORY_GET_STRING_SERIAL _IOW('M', 6, char[256])
+#define ACCESSORY_IS_START_REQUESTED _IO('M', 7)
 
 namespace {
 // Qt 5.6 has no QThread::create().
@@ -90,6 +100,23 @@ void UsbAccessoryDevice::readerLoop()
         if (!m_stop) QMetaObject::invokeMethod(this, "disconnected", Qt::QueuedConnection);
         break;
     }
+}
+
+QString UsbAccessoryDevice::handshakeInfo() const
+{
+    if (m_fd < 0) return QStringLiteral("Gerät nicht offen");
+    auto get = [this](unsigned long req) {
+        char buf[256];
+        std::memset(buf, 0, sizeof(buf));
+        if (::ioctl(m_fd, req, buf) < 0) return QStringLiteral("-");
+        return QString::fromUtf8(buf);
+    };
+    const int start = ::ioctl(m_fd, ACCESSORY_IS_START_REQUESTED);
+    return QStringLiteral("Hersteller=\"%1\" Modell=\"%2\" Beschreibung=\"%3\" Version=\"%4\" URI=\"%5\" Serie=\"%6\" START=%7")
+        .arg(get(ACCESSORY_GET_STRING_MANUFACTURER), get(ACCESSORY_GET_STRING_MODEL),
+             get(ACCESSORY_GET_STRING_DESCRIPTION), get(ACCESSORY_GET_STRING_VERSION),
+             get(ACCESSORY_GET_STRING_URI), get(ACCESSORY_GET_STRING_SERIAL))
+        .arg(start < 0 ? QStringLiteral("?") : start ? QStringLiteral("ja") : QStringLiteral("nein"));
 }
 
 qint64 UsbAccessoryDevice::bytesAvailable() const

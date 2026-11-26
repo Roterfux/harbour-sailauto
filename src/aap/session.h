@@ -77,6 +77,8 @@ signals:
     void nightModeChanged(bool night);
     void drivingStatusChanged(int status);
     void closed(const QString &reason);
+    // No byte from the HU 5 s after the transport came up.
+    void silent();
 
 private slots:
     void onReadyRead();
