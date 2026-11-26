@@ -4,6 +4,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QPainter>
+#include <QPainterPath>
 #include <QtMath>
 
 namespace {
@@ -120,6 +121,154 @@ void CarScreen::drawBanner(QPainter &p)
                QFontMetrics(f).elidedText(QString(body).replace(QLatin1Char('\n'), QLatin1Char(' ')), Qt::ElideRight, in.width()));
 }
 
+void CarScreen::setNav(const NavState &s, const QImage &icon)
+{
+    // Show the navigation page when a route starts.
+    if (s.running && !m_nav.running && m_page != Navigation) m_page = Navigation;
+    m_nav = s;
+    m_navIcon = icon;
+}
+
+void CarScreen::drawManeuver(QPainter &p, const QRect &r, bool small)
+{
+    const Palette c = palette(m_night);
+    if (!m_navIcon.isNull()) {
+        p.drawImage(r, m_navIcon);
+        return;
+    }
+    // Own arrow from the icon name: left/right/slight/sharp/uturn/roundabout/arrive.
+    const QString n = m_nav.icon;
+    p.setPen(QPen(c.text, qMax(small ? 2 : 4, r.width() / 10), Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    p.setBrush(Qt::NoBrush);
+    const QPoint bottom(r.center().x(), r.bottom() - r.height() / 10);
+    const QPoint mid = r.center();
+    if (n.startsWith(QLatin1String("arrive")) || n == QLatin1String("flag")) {
+        p.drawLine(QPoint(mid.x() - r.width() / 6, r.bottom() - r.height() / 10), QPoint(mid.x() - r.width() / 6, r.top() + r.height() / 8));
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.accent);
+        QPolygon flag;
+        flag << QPoint(mid.x() - r.width() / 6, r.top() + r.height() / 8) << QPoint(mid.x() + r.width() / 4, r.top() + r.height() / 4)
+             << QPoint(mid.x() - r.width() / 6, r.top() + r.height() * 3 / 8);
+        p.drawPolygon(flag);
+        return;
+    }
+    if (n.startsWith(QLatin1String("roundabout")) || n.startsWith(QLatin1String("rotary"))) {
+        const int rad = r.width() / 5;
+        p.drawEllipse(mid, rad, rad);
+        p.drawLine(bottom, QPoint(mid.x(), mid.y() + rad));
+        if (m_nav.roundaboutExit > 0 && !small) {
+            QFont f = p.font();
+            f.setPixelSize(rad);
+            f.setBold(true);
+            p.setFont(f);
+            p.drawText(QRect(mid.x() - rad, mid.y() - rad, 2 * rad, 2 * rad), Qt::AlignCenter, QString::number(m_nav.roundaboutExit));
+        }
+        return;
+    }
+    int dx = 0; // end point direction
+    if (n.contains(QLatin1String("uturn"))) {
+        QPainterPath path(bottom);
+        path.lineTo(mid.x() + r.width() / 6, mid.y() - r.height() / 8);
+        path.arcTo(QRectF(mid.x() - r.width() / 6, mid.y() - r.height() / 3, r.width() / 3, r.height() / 3), 0, 180);
+        path.lineTo(mid.x() - r.width() / 6, mid.y() + r.height() / 8);
+        p.drawPath(path);
+        return;
+    }
+    if (n.contains(QLatin1String("left"))) dx = n.contains(QLatin1String("slight")) ? -1 : n.contains(QLatin1String("sharp")) ? -3 : -2;
+    else if (n.contains(QLatin1String("right"))) dx = n.contains(QLatin1String("slight")) ? 1 : n.contains(QLatin1String("sharp")) ? 3 : 2;
+    const QPoint turn(mid.x(), mid.y() + r.height() / 10);
+    QPoint end;
+    switch (qAbs(dx)) {
+    case 0: end = QPoint(mid.x(), r.top() + r.height() / 8); break;
+    case 1: end = QPoint(mid.x() + (dx > 0 ? 1 : -1) * r.width() / 4, r.top() + r.height() / 6); break;
+    case 2: end = QPoint(mid.x() + (dx > 0 ? 1 : -1) * r.width() * 3 / 8, turn.y()); break;
+    default: end = QPoint(mid.x() + (dx > 0 ? 1 : -1) * r.width() / 3, r.bottom() - r.height() / 4); break;
+    }
+    p.drawLine(bottom, turn);
+    p.drawLine(turn, end);
+    // Arrow head
+    const QLineF dir(end, turn);
+    QLineF a = dir; a.setLength(r.width() / 6); a.setAngle(dir.angle() + 35);
+    QLineF b = dir; b.setLength(r.width() / 6); b.setAngle(dir.angle() - 35);
+    p.drawLine(a);
+    p.drawLine(b);
+}
+
+void CarScreen::drawNavPage(QPainter &p, const QRect &body)
+{
+    const Palette c = palette(m_night);
+    const int bar = m_safe.height() / 8;
+    m_navStartButton = QRect();
+    QFont f = p.font();
+    if (!m_nav.running) {
+        f.setPixelSize(bar / 2);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.text);
+        const QString msg = !m_nav.app ? QStringLiteral("Pure Maps läuft nicht.")
+                                       : QStringLiteral("Keine Route.\nZiel in Pure Maps am Telefon wählen\nund Navigation starten.");
+        p.drawText(body.adjusted(0, 0, 0, -bar * 2), Qt::AlignCenter | Qt::TextWordWrap, msg);
+        if (!m_nav.app) {
+            m_navStartButton = QRect(body.center().x() - bar * 3, body.bottom() - bar * 2, bar * 6, bar * 3 / 2);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.accent);
+            p.drawRoundedRect(m_navStartButton, 14, 14);
+            p.setPen(c.bg);
+            p.drawText(m_navStartButton, Qt::AlignCenter, QStringLiteral("Pure Maps starten"));
+        }
+        return;
+    }
+    // Left: maneuver icon + distance. Right: street, instruction. Bottom: destination.
+    const int iconSize = qMin(body.height() * 5 / 10, body.width() / 3);
+    const QRect left(body.left(), body.top(), iconSize + 40, body.height() - bar * 3 / 2);
+    const QRect iconR(left.center().x() - iconSize / 2, left.top() + 10, iconSize, iconSize);
+    drawManeuver(p, iconR, false);
+    f.setPixelSize(bar * 4 / 5);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(c.text);
+    p.drawText(QRect(left.left(), iconR.bottom() + 5, left.width(), bar), Qt::AlignCenter, m_nav.manDist);
+
+    const QRect right(left.right() + 20, body.top(), body.right() - left.right() - 20, left.height());
+    f.setPixelSize(bar * 3 / 4);
+    p.setFont(f);
+    const QString street = m_nav.street.isEmpty() ? m_nav.narrative : m_nav.street;
+    p.drawText(QRect(right.left(), right.top() + 10, right.width(), right.height() / 2 - 10),
+               Qt::AlignLeft | Qt::AlignVCenter | Qt::TextWordWrap, street);
+    if (!m_nav.street.isEmpty() && !m_nav.narrative.isEmpty()) {
+        f.setPixelSize(bar * 2 / 5);
+        f.setBold(false);
+        p.setFont(f);
+        p.setPen(c.dim);
+        p.drawText(QRect(right.left(), right.center().y(), right.width(), right.height() / 2),
+                   Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, m_nav.narrative);
+    }
+    if (!m_nav.alongRoute) {
+        f.setPixelSize(bar * 2 / 5);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(QColor(240, 170, 40));
+        p.drawText(QRect(right.left(), right.bottom() - bar / 2, right.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("Abseits der Route"));
+    }
+    // Destination strip with progress
+    const QRect strip(body.left(), body.bottom() - bar, body.width(), bar);
+    p.setPen(Qt::NoPen);
+    p.setBrush(c.panel);
+    p.drawRoundedRect(strip, 12, 12);
+    p.setBrush(c.accent);
+    const QRect prog(strip.left() + 10, strip.bottom() - 8, (strip.width() - 20) * qBound(0, m_nav.progress, 100) / 100, 4);
+    p.drawRect(prog);
+    f.setPixelSize(bar * 9 / 20);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(c.text);
+    p.drawText(strip.adjusted(20, 0, -20, -6), Qt::AlignVCenter | Qt::AlignLeft,
+               QStringLiteral("Ziel: %1  ·  %2").arg(m_nav.destDist, m_nav.destTime));
+    p.drawText(strip.adjusted(20, 0, -20, -6), Qt::AlignVCenter | Qt::AlignRight,
+               QStringLiteral("Ankunft %1").arg(m_nav.destEta));
+}
+
 void CarScreen::setApps(const QVector<CarApp> &apps)
 {
     m_apps = apps;
@@ -200,6 +349,8 @@ void CarScreen::touch(int action, int x, int y)
         } else if (m_backButton.contains(m_touch)) {
             m_page = Home;
             emit tapped(QStringLiteral("Zurück"));
+        } else if (m_page == Navigation && m_navStartButton.contains(m_touch)) {
+            emit launchApp(QStringLiteral("harbour-pure-maps"));
         } else if (m_page == Apps) {
             if (m_appPrev.contains(m_touch) && m_appPage > 0) {
                 --m_appPage;
@@ -248,8 +399,16 @@ void CarScreen::drawTopBar(QPainter &p)
     drawStatusIcons(p, r.right() - clockW - bar / 3, r.top(), bar);
     p.setPen(c.accent);
     p.setFont(f);
-    if (m_page == Home)
+    if (m_nav.running && m_page != Navigation) {
+        // Next maneuver, small, left in the bar (right of the back button).
+        const int x0 = m_page == Home ? r.left() + m_safe.width() / 40 : m_backButton.right() + bar / 3;
+        drawManeuver(p, QRect(x0, r.top() + bar / 8, bar * 3 / 4, bar * 3 / 4), true);
+        p.setFont(f);
+        p.setPen(c.text);
+        p.drawText(QRect(x0 + bar, r.top(), m_safe.width() / 3, bar), Qt::AlignLeft | Qt::AlignVCenter, m_nav.manDist);
+    } else if (m_page == Home) {
         p.drawText(r.adjusted(m_safe.width() / 40, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("SailAuto"));
+    }
 }
 
 int CarScreen::drawStatusIcons(QPainter &p, int right, int top, int height)
@@ -402,20 +561,9 @@ void CarScreen::drawPage(QPainter &p)
     f.setPixelSize(bar * 2 / 3);
     p.setFont(f);
     switch (m_page) {
-    case Navigation: {
-        // Placeholder "map": a moving grid with a position marker.
-        p.setPen(QPen(c.dim, 1));
-        const int step = 40;
-        const int off = static_cast<int>(m_frame % step);
-        for (int x = body.left() - off; x < body.right(); x += step) p.drawLine(x, body.top(), x, body.bottom());
-        for (int y = body.top() + off; y < body.bottom(); y += step) p.drawLine(body.left(), y, body.right(), y);
-        p.setBrush(c.accent);
-        p.setPen(Qt::NoPen);
-        p.drawEllipse(body.center(), 14, 14);
-        p.setPen(c.text);
-        p.drawText(body, Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("Navigation (Platzhalter)"));
+    case Navigation:
+        drawNavPage(p, body);
         break;
-    }
     case Music: {
         auto drawRound = [&](const QRect &r, bool accent) {
             p.setPen(Qt::NoPen);

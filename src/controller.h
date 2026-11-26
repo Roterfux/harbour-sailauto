@@ -10,6 +10,7 @@
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
 #include "apps/appcatalog.h"
+#include "nav/puremaps.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -148,6 +149,7 @@ private:
     PhoneStatus m_phoneStatus;
     AppCatalog m_apps;
     NotificationWatcher m_notify;
+    PureMapsClient m_nav;
     bool m_notifyToCar = true;
     int m_drivingStatus = -1;
     void pushAppsToScreen();

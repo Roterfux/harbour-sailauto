@@ -194,6 +194,20 @@ Ab 0.6.0.
   App und Titel. Die App liest sie als D-Bus-Monitor mit. Im Log stehen nur
   App und Länge, nicht der Inhalt.
 
+## Navigation mit Pure Maps
+
+Ab 0.7.0. Die Seite „Navigation“ im Auto zeigt, was Pure Maps am Telefon
+navigiert (über dessen D-Bus-Schnittstelle): Abbiege-Symbol (aus Pure Maps),
+Entfernung, Straße, Anweisung, unten Restweg, Restzeit, Ankunft und Fortschritt.
+Startet eine Route, springt das Auto auf diese Seite; auf anderen Seiten steht
+das nächste Manöver klein oben links. Läuft Pure Maps nicht, gibt es einen
+Knopf „Pure Maps starten“. Ziel wählen weiterhin am Telefon.
+Sprachansagen von Pure Maps laufen mit „Telefon-Ton ins Auto“ über den
+Medienkanal ins Auto (eigener Ansagekanal: später).
+
+OSM Scout (Karry) bietet keine Navigationsdaten über D-Bus an, nur
+„Seite öffnen“ und „Geo-Link öffnen“ – deshalb Pure Maps.
+
 ## Autostart im Auto
 
 Ab 0.5.0, Schalter „Autostart im Auto“ (Standard: aus). Schaltet den

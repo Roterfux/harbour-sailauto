@@ -1,5 +1,5 @@
 TARGET = harbour-sailauto
-QT += network quick qml dbus
+QT += network quick qml dbus svg
 CONFIG += c++14 link_pkgconfig
 
 include(third_party/openh264/openh264.pri)
@@ -62,6 +62,7 @@ HEADERS += \
     src/phone/phonestatus.h \
     src/phone/notificationwatcher.h \
     src/apps/appcatalog.h \
+    src/nav/puremaps.h \
     src/controller.h
 
 SOURCES += \
@@ -80,6 +81,7 @@ SOURCES += \
     src/phone/phonestatus.cpp \
     src/phone/notificationwatcher.cpp \
     src/apps/appcatalog.cpp \
+    src/nav/puremaps.cpp \
     src/controller.cpp
 
 DISTFILES += \

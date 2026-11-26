@@ -11,6 +11,7 @@
 #include <QVector>
 
 #include "../phone/phonestatus.h"
+#include "../nav/puremaps.h"
 
 class CarScreen : public QObject
 {
@@ -30,6 +31,8 @@ public:
     // Banner for a phone notification (8 s, tap closes). Text only when parked.
     void showNotification(const QString &app, const QString &title, const QString &body);
     void setParked(bool parked) { m_parked = parked; }
+    // Pure Maps navigation; icon may be null (own arrow is drawn then).
+    void setNav(const NavState &s, const QImage &icon);
 
     QSize size() const { return m_image.size(); }
     // Draws the next frame and returns it (RGB32).
@@ -84,6 +87,12 @@ private:
     QRect m_bannerRect;
     bool m_parked = false;
     void drawBanner(QPainter &p);
+    // Navigation
+    NavState m_nav;
+    QImage m_navIcon;
+    QRect m_navStartButton;
+    void drawNavPage(QPainter &p, const QRect &body);
+    void drawManeuver(QPainter &p, const QRect &r, bool small);
     bool m_hasPlayer = false, m_mediaPlaying = false;
     QString m_player, m_title, m_artist, m_album;
     QImage m_art;

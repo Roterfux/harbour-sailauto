@@ -58,6 +58,11 @@ Controller::Controller(QObject *parent) : QObject(parent)
         appendLog(QStringLiteral("App: starte \"%1\" vom Auto aus").arg(a ? a->name : id));
         if (a && a->media) m_mpris.setPreferred(id);
     });
+    connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
+    connect(&m_nav, &PureMapsClient::changed, this, [this]() {
+        const NavState &n = m_nav.state();
+        m_screen.setNav(n, m_nav.icon(n.icon, 256));
+    });
     connect(&m_phoneStatus, &PhoneStatus::changed, this, [this]() { m_screen.setPhoneState(m_phoneStatus.state()); });
     connect(&m_phoneStatus, &PhoneStatus::log, this, &Controller::appendLog);
     connect(&m_mpris, &MprisClient::changed, this, [this]() {
@@ -775,6 +780,7 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     startRouter();
     m_mpris.start();
     m_phoneStatus.start();
+    m_nav.start();
     if (m_notifyToCar) m_notify.start();
     setStatus(QStringLiteral("Projiziert auf %1").arg(m_session ? m_session->headUnitName() : QStringLiteral("Head Unit")));
 }
@@ -833,6 +839,7 @@ void Controller::onSessionClosed(const QString &reason)
     stopRouter();
     m_mpris.stop();
     m_phoneStatus.stop();
+    m_nav.stop();
     m_notify.stop();
     m_drivingStatus = -1;
     m_screen.setParked(false);
