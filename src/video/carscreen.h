@@ -20,6 +20,7 @@ public:
     void setNight(bool night);
     void setInfo(const QString &headUnit, const QString &encoder);
     void setStats(double fps, double kbps);
+    void setVersion(const QString &v) { m_version = v; }
 
     QSize size() const { return m_image.size(); }
     // Draws the next frame and returns it (RGB32).
@@ -63,7 +64,7 @@ private:
     bool m_pressed = false;
     QPoint m_touch;
     QVector<QPoint> m_trail;
-    QString m_headUnit, m_encoder;
+    QString m_headUnit, m_encoder, m_version;
     double m_fps = 0, m_kbps = 0;
     quint64 m_frame = 0;
 };

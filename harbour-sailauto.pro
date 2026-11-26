@@ -3,6 +3,11 @@ QT += network quick qml dbus
 CONFIG += c++14 link_pkgconfig
 
 include(third_party/openh264/openh264.pri)
+
+# App version comes from the RPM spec, so there is one place to change it.
+APP_VERSION = $$system(sed -n \'s/^Version:[[:space:]]*//p\' $$PWD/rpm/harbour-sailauto.spec)
+isEmpty(APP_VERSION): APP_VERSION = dev
+DEFINES += APP_VERSION=\\\"$$APP_VERSION\\\"
 PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 libpulse
 
 desktop {

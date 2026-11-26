@@ -17,6 +17,13 @@ CoverBackground {
         Label {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
+            text: controller.version
+            color: Theme.secondaryColor
+            font.pixelSize: Theme.fontSizeExtraSmall
+        }
+        Label {
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
             text: controller.status
             font.pixelSize: Theme.fontSizeSmall

@@ -90,6 +90,8 @@ signals:
     void drivingStatusChanged(int status);
     // AudioFocusStateType from the car: 1 GAIN, 2 GAIN_TRANSIENT, 3 LOSS, 4 LOSS_CAN_DUCK, 5 LOSS_TRANSIENT, ...
     void audioFocusChanged(int state);
+    // An audio channel finished its setup (streamType: 1 guidance, 2 system, 3 media).
+    void audioReady(int streamType);
     void closed(const QString &reason);
     // No byte from the HU 5 s after the transport came up.
     void silent();

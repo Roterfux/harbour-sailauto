@@ -60,6 +60,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     m_usbRetry.setInterval(2000);
     connect(&m_usbRetry, &QTimer::timeout, this, &Controller::tryOpenUsb);
     setStatus(QStringLiteral("Bereit"));
+    appendLog(QStringLiteral("SailAuto Version %1").arg(version()));
 }
 
 Controller::~Controller()
@@ -123,10 +124,7 @@ void Controller::setSoundToCar(bool on)
 void Controller::startRouter()
 {
     if (!m_soundToCar || m_router.running() || !m_session) return;
-    if (m_session->audioChannel(3) < 0) {
-        appendLog(QStringLiteral("Ton: Auto hat keinen Medien-Audiokanal"));
-        return;
-    }
+    if (m_session->audioChannel(3) < 0) return; // audioReady() starts us later
     QString err;
     if (!m_router.start(&err)) appendLog(QStringLiteral("Ton ins Auto nicht möglich: ") + err);
 }
@@ -436,6 +434,7 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         m_trace = nullptr;
     }
     appendLog(label);
+    appendLog(QStringLiteral("SailAuto Version %1").arg(version()));
     if (m_trace) appendLog(QStringLiteral("Diagnose-Aufzeichnung: ") + m_lastTraceDir);
     else appendLog(QStringLiteral("Diagnose-Aufzeichnung nicht möglich in ") + m_traceBase);
 
@@ -448,6 +447,10 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     connect(m_session, &aap::Session::videoCanSend, this, &Controller::flush);
     connect(m_session, &aap::Session::touch, &m_screen, &CarScreen::touch);
     connect(m_session, &aap::Session::key, this, &Controller::onCarKey);
+    // The car may finish the media channel setup after the video started.
+    connect(m_session, &aap::Session::audioReady, this, [this](int type) {
+        if (type == 3 && m_encoder.running()) startRouter();
+    });
     connect(m_session, &aap::Session::nightModeChanged, this, [this](bool n) {
         m_screen.setNight(n);
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
@@ -507,6 +510,7 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
         return;
     }
     m_screen.setInfo(m_session ? m_session->headUnitName() : QString(), m_encoder.encoderName());
+    m_screen.setVersion(version());
     m_queue.clear();
     m_clock.start();
     m_statClock.start();

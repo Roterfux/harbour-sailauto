@@ -37,6 +37,7 @@ class Controller : public QObject
     Q_PROPERTY(double kbps READ kbps NOTIFY statsChanged)
     Q_PROPERTY(bool usbActive READ usbActive NOTIFY listeningChanged)
     Q_PROPERTY(QString traceDir READ traceDir NOTIFY statusChanged)
+    Q_PROPERTY(QString version READ version CONSTANT)
     Q_PROPERTY(bool soundToCar READ soundToCar WRITE setSoundToCar NOTIFY soundToCarChanged)
 
 public:
@@ -58,6 +59,7 @@ public:
     bool usbActive() const { return m_usbWanted; }
     QString traceDir() const { return m_lastTraceDir; }
     bool soundToCar() const { return m_soundToCar; }
+    QString version() const { return QStringLiteral(APP_VERSION); }
     void setSoundToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }

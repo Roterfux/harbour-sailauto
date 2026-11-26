@@ -46,7 +46,10 @@ Page {
             width: parent.width
             spacing: Theme.paddingMedium
 
-            PageHeader { title: "SailAuto" }
+            PageHeader {
+                title: "SailAuto"
+                description: qsTr("Version %1").arg(controller.version)
+            }
 
             TextSwitch {
                 text: qsTr("Auf Head Unit warten")

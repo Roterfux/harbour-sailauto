@@ -762,6 +762,7 @@ void Session::handleAudio(quint8 channel, quint16 id, const QByteArray &payload)
         AudioState &a = m_audio[channel];
         a.setupOk = ok;
         a.maxUnacked = qMax(1, static_cast<int>(r.number(2, 1)));
+        if (ok) QTimer::singleShot(0, this, [this, channel]() { emit audioReady(m_audioType.value(channel)); });
         emit log(QStringLiteral("Audio-Kanal %1 (Typ %2): Setup %3, max. %4 offen")
                      .arg(channel).arg(m_audioType.value(channel)).arg(ok ? QStringLiteral("ok") : QStringLiteral("ABGELEHNT"))
                      .arg(r.number(2)));

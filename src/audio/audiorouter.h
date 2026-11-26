@@ -1,12 +1,12 @@
 // Sends the phone's own sound (music apps, navigation voice, ...) to the car.
 //
 // While running:
-//  - a PulseAudio null sink "sailauto_car" exists and is the default sink,
+//  - a PulseAudio pipe sink "sailauto_car" exists and is the default sink,
 //  - every playing stream (sink input) is moved onto it, new ones too,
-//  - its monitor is recorded (48 kHz, s16le, stereo, 20 ms chunks) and handed
-//    out through chunk(). The recording is verified to come from that
-//    monitor (DONT_MOVE + device check): Sailfish's policy could otherwise
-//    route it to the microphone, which howls in the car.
+//  - PulseAudio writes its mix into a FIFO which we read (48 kHz, s16le,
+//    stereo, 20 ms chunks) and hand out through chunk(). No recording stream:
+//    on Sailfish the policy rerouted a monitor recording to the microphone,
+//    which howled in the car.
 // stop() moves the streams back and restores the old default sink.
 // Everything that happens is reported through log(), including streams the
 // Sailfish audio policy moves back to the phone.
@@ -16,7 +16,9 @@
 #include <QHash>
 #include <QSet>
 #include <QStringList>
+#include <QElapsedTimer>
 #include <QObject>
+#include <QTimer>
 #include <QString>
 #include <atomic>
 
@@ -43,8 +45,7 @@ public:
     void paLog(const QString &line);
     void onSinkInput(uint32_t index, uint32_t sink, const QString &name, const QString &app, const QString &role, bool isNew);
     void onSubscription(int facility, int type, uint32_t index);
-    void onReadable(struct pa_stream *st);
-    void checkSource(uint32_t source, const QString &why);
+
 
 signals:
     void log(const QString &line);
@@ -66,8 +67,13 @@ private:
     QHash<uint32_t, int> m_moveCount;      // to stop fighting the policy
     QSet<uint32_t> m_seen;                 // streams already reported
     bool startCapture(QString *error);
-    struct pa_stream *m_stream = nullptr;
+    void readPipe();
     uint32_t m_carMonitor = 0xffffffffu;
-    std::atomic<bool> m_captureOk{false}; // only true when recording our own monitor
+    QString m_fifoPath;
+    int m_fd = -1;
+    bool m_selfPaced = false;   // PulseAudio paces the pipe (use_system_clock_for_timing)
+    QTimer m_readTimer;
+    QElapsedTimer m_readClock;
+    qint64 m_bytesRead = 0;
     QByteArray m_pending;
 };

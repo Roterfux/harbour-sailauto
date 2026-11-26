@@ -290,13 +290,14 @@ void CarScreen::drawPage(QPainter &p)
         f.setPixelSize(bar / 2);
         f.setBold(false);
         p.setFont(f);
-        const QString txt = QStringLiteral("Head Unit: %1\nVideo: %2x%3, sicher %4x%5\nEncoder: %6\n%7 fps, %8 kbit/s\nNachtmodus: %9")
+        const QString txt = QStringLiteral("SailAuto %10\nHead Unit: %1\nVideo: %2x%3, sicher %4x%5\nEncoder: %6\n%7 fps, %8 kbit/s\nNachtmodus: %9")
                                 .arg(m_headUnit.isEmpty() ? QStringLiteral("?") : m_headUnit)
                                 .arg(m_image.width()).arg(m_image.height())
                                 .arg(m_safe.width()).arg(m_safe.height())
                                 .arg(m_encoder)
                                 .arg(m_fps, 0, 'f', 1).arg(m_kbps, 0, 'f', 0)
-                                .arg(m_night ? QStringLiteral("an") : QStringLiteral("aus"));
+                                .arg(m_night ? QStringLiteral("an") : QStringLiteral("aus"))
+                                .arg(m_version);
         p.drawText(body, Qt::AlignLeft | Qt::AlignVCenter, txt);
         break;
     }
