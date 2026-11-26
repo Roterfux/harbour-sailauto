@@ -58,6 +58,9 @@ Controller::Controller(QObject *parent) : QObject(parent)
         appendLog(QStringLiteral("App: starte \"%1\" vom Auto aus").arg(a ? a->name : id));
         if (a && a->media) m_mpris.setPreferred(id);
     });
+    connect(&m_calls, &CallMonitor::log, this, &Controller::appendLog);
+    connect(&m_calls, &CallMonitor::changed, this, &Controller::onCallChanged);
+    connect(&m_screen, &CarScreen::callAction, this, &Controller::onCallAction);
     connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
@@ -75,6 +78,14 @@ Controller::Controller(QObject *parent) : QObject(parent)
     m_soundToCar = QSettings().value(QStringLiteral("soundToCar"), true).toBool();
     m_autostart = QSettings().value(QStringLiteral("autostart"), false).toBool();
     m_notifyToCar = QSettings().value(QStringLiteral("notifyToCar"), true).toBool();
+    {
+        QSettings st;
+        m_parked.valid = st.value(QStringLiteral("parked/valid"), false).toBool();
+        m_parked.lat = st.value(QStringLiteral("parked/lat")).toDouble();
+        m_parked.lon = st.value(QStringLiteral("parked/lon")).toDouble();
+        m_parked.acc = st.value(QStringLiteral("parked/accuracy"), -1).toDouble();
+        m_parked.time = st.value(QStringLiteral("parked/time")).toDateTime();
+    }
     connect(&m_notify, &NotificationWatcher::log, this, &Controller::appendLog);
     connect(&m_notify, &NotificationWatcher::notification, this,
             [this](const QString &app, const QString &title, const QString &body, const QString &category) {
@@ -228,6 +239,7 @@ void Controller::stopCarAudio(const QString &why)
 void Controller::onPhoneAudio(const QByteArray &pcm)
 {
     if (!m_session || m_audioTest.running()) return;
+    if (callBlocksAudio()) return; // ringing or talking: the car's phone has the speakers
     const qint16 *s = reinterpret_cast<const qint16 *>(pcm.constData());
     const int samples = pcm.size() / 2;
     int peak = 0;
@@ -281,6 +293,13 @@ void Controller::startSeeking(int dir)
 
 void Controller::onCarKey(int code, bool pressed, bool longPress)
 {
+    // CALL / ENDCALL: answer, decline, hang up.
+    if ((code == 5 || code == 6) && m_calls.call().state != CallInfo::None) {
+        if (!pressed) return;
+        if (code == 5 && m_calls.call().state == CallInfo::Incoming) onCallAction(QStringLiteral("answer"));
+        else if (code == 6) onCallAction(QStringLiteral("hangup"));
+        return;
+    }
     // NEXT/PREVIOUS: short press = track, hold = spool (like a car radio).
     if (code == 87 || code == 88) {
         const int dir = code == 87 ? 1 : -1;
@@ -479,6 +498,116 @@ void Controller::setNotifyToCar(bool on)
     emit notifyToCarChanged();
     if (!on) m_notify.stop();
     else if (m_encoder.running()) m_notify.start();
+}
+
+QString Controller::parkedTime() const
+{
+    if (!m_parked.valid) return QString();
+    const QDateTime t = m_parked.time.toLocalTime();
+    return t.date() == QDate::currentDate() ? t.toString(QStringLiteral("HH:mm"))
+                                            : t.toString(QStringLiteral("dd.MM. HH:mm"));
+}
+
+void Controller::onCarLocation(double lat, double lon, double acc)
+{
+    const bool first = !m_carFix.valid;
+    m_carFix.valid = true;
+    m_carFix.lat = lat;
+    m_carFix.lon = lon;
+    m_carFix.acc = acc;
+    m_carFix.time = QDateTime::currentDateTimeUtc();
+    if (first) {
+        // No coordinates in the log (it may be shared for diagnosis).
+        appendLog(QStringLiteral("Auto-GPS: Position empfangen (Genauigkeit %1)")
+                      .arg(acc < 0 ? QStringLiteral("?") : QString::number(qRound(acc)) + QStringLiteral(" m")));
+    }
+    // Save now and then, so a crash or dead battery still leaves a position.
+    if (first || !m_fixSaved.isValid() || m_fixSaved.elapsed() > 30000) saveParked(m_carFix, false);
+}
+
+void Controller::saveParked(const Fix &f, bool final)
+{
+    if (!f.valid) return;
+    m_parked = f;
+    if (final) m_parked.time = QDateTime::currentDateTimeUtc();
+    QSettings st;
+    st.setValue(QStringLiteral("parked/valid"), true);
+    st.setValue(QStringLiteral("parked/lat"), m_parked.lat);
+    st.setValue(QStringLiteral("parked/lon"), m_parked.lon);
+    st.setValue(QStringLiteral("parked/accuracy"), m_parked.acc);
+    st.setValue(QStringLiteral("parked/time"), m_parked.time);
+    m_fixSaved.start();
+    emit parkedChanged();
+    if (final)
+        appendLog(QStringLiteral("Parkplatz gemerkt (letzte Auto-Position, Genauigkeit %1)")
+                      .arg(m_parked.acc < 0 ? QStringLiteral("?") : QString::number(qRound(m_parked.acc)) + QStringLiteral(" m")));
+}
+
+bool Controller::callBlocksAudio() const
+{
+    const CallInfo &c = m_calls.call();
+    return (c.state == CallInfo::Incoming && !m_callSilenced) || c.state == CallInfo::Active
+           || c.state == CallInfo::Outgoing || c.state == CallInfo::Held;
+}
+
+void Controller::onCallChanged()
+{
+    const CallInfo c = m_calls.call();
+    const QString who = c.name.isEmpty() ? (c.number.isEmpty() ? QStringLiteral("Unbekannt") : c.number) : c.name;
+    if (c.state != m_lastCall.state || c.id != m_lastCall.id) {
+        static const char *names[] = {"keiner", "eingehend", "aktiv", "ausgehend", "gehalten"};
+        // Log the state, not the number (the log may be shared).
+        appendLog(QStringLiteral("Anruf: %1%2").arg(QLatin1String(names[c.state]))
+                      .arg(c.state == CallInfo::Incoming ? (c.name.isEmpty() ? QStringLiteral(" (unbekannt)") : QStringLiteral(" (Kontakt)"))
+                                                         : QString()));
+    }
+    if (c.state == CallInfo::Incoming && (m_lastCall.state != CallInfo::Incoming || c.id != m_lastCall.id)) {
+        // New ringing call: music off, speakers free for the car's phone.
+        m_callSilenced = false;
+        m_callHandled = false;
+        if (m_mpris.playing()) {
+            m_mpris.pause();
+            m_pausedForCall = true;
+        }
+        stopCarAudio(QStringLiteral("Anruf"));
+    }
+    if ((c.state == CallInfo::Active || c.state == CallInfo::Outgoing) && m_carAudioOn)
+        stopCarAudio(QStringLiteral("Gespräch"));
+    if (c.state == CallInfo::None && m_lastCall.state != CallInfo::None) {
+        if (m_lastCall.state == CallInfo::Incoming && !m_callHandled) {
+            const QString lastWho = m_lastCall.name.isEmpty() ? m_lastCall.number : m_lastCall.name;
+            m_screen.showNotification(QStringLiteral("Telefon"), QStringLiteral("Verpasster Anruf"), lastWho);
+        }
+        if (m_pausedForCall) {
+            m_pausedForCall = false;
+            m_mpris.play();
+            appendLog(QStringLiteral("Anruf vorbei: Musik läuft weiter"));
+        }
+        m_callSilenced = false;
+    }
+    Q_UNUSED(who)
+    m_lastCall = c;
+    m_screen.setCall(c, m_callSilenced);
+}
+
+void Controller::onCallAction(const QString &action)
+{
+    if (action == QLatin1String("answer")) {
+        m_callHandled = true;
+        m_calls.answer();
+    } else if (action == QLatin1String("decline") || action == QLatin1String("hangup")) {
+        m_callHandled = true;
+        m_calls.hangup();
+    } else if (action == QLatin1String("silence") || action == QLatin1String("silence_music")) {
+        m_calls.silenceRingtone();
+        m_callSilenced = true;
+        if (action == QLatin1String("silence_music") && m_pausedForCall) {
+            m_pausedForCall = false;
+            m_mpris.play();
+            appendLog(QStringLiteral("Anruf stumm: Musik läuft weiter"));
+        }
+        m_screen.setCall(m_calls.call(), true);
+    }
 }
 
 void Controller::startedByCar()
@@ -703,6 +832,7 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
+    connect(m_session, &aap::Session::locationChanged, this, &Controller::onCarLocation);
     connect(m_session, &aap::Session::drivingStatusChanged, this, [this](int st) {
         // 0 = UNRESTRICTED (parked); any bit set = driving restrictions.
         if (st == m_drivingStatus) return;
@@ -781,6 +911,7 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     m_mpris.start();
     m_phoneStatus.start();
     m_nav.start();
+    m_calls.start();
     if (m_notifyToCar) m_notify.start();
     setStatus(QStringLiteral("Projiziert auf %1").arg(m_session ? m_session->headUnitName() : QStringLiteral("Head Unit")));
 }
@@ -840,10 +971,16 @@ void Controller::onSessionClosed(const QString &reason)
     m_mpris.stop();
     m_phoneStatus.stop();
     m_nav.stop();
+    m_calls.stop();
+    m_screen.setCall(CallInfo(), false);
+    m_lastCall = CallInfo();
+    m_pausedForCall = false;
     m_notify.stop();
     m_drivingStatus = -1;
     m_screen.setParked(false);
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
+    if (m_carFix.valid) saveParked(m_carFix, true);
+    m_carFix = Fix();
     if (m_session->receivedBytes() > 0) m_autoReplugs = 0;
     m_usbKick.stop();
     if (m_session->state() != aap::Session::Closed) appendLog(m_session->summary());

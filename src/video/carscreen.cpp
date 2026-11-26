@@ -269,6 +269,132 @@ void CarScreen::drawNavPage(QPainter &p, const QRect &body)
                QStringLiteral("Ankunft %1").arg(m_nav.destEta));
 }
 
+void CarScreen::setCall(const CallInfo &c, bool silenced)
+{
+    m_call = c;
+    m_callSilenced = silenced;
+    if (c.state == CallInfo::None) m_callButtons.clear();
+}
+
+void CarScreen::drawCall(QPainter &p)
+{
+    m_callButtons.clear();
+    if (m_call.state == CallInfo::None) return;
+    const Palette c = palette(m_night);
+    const QColor green(40, 170, 80), red(210, 50, 50);
+    const int bar = m_safe.height() / 8;
+    const QString who = m_call.name.isEmpty() ? (m_call.number.isEmpty() ? QStringLiteral("Unbekannt") : m_call.number)
+                                              : m_call.name;
+    QFont f = p.font();
+    auto button = [&](const QRect &r, const QString &action, const QString &label, const QColor &col) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(col);
+        p.drawRoundedRect(r, 14, 14);
+        QFont bf = f;
+        bf.setBold(true);
+        bf.setPixelSize(qMin(r.height() * 2 / 5, bar * 9 / 20));
+        p.setFont(bf);
+        p.setPen(Qt::white);
+        p.drawText(r, Qt::AlignCenter, label);
+        m_callButtons.append({r, action, label, col});
+    };
+
+    if (callFullScreen()) {
+        p.fillRect(m_safe, c.bg);
+        const QRect area = m_safe.adjusted(m_safe.width() / 20, bar / 2, -m_safe.width() / 20, -bar / 3);
+        const int ph = area.height() * 9 / 20;
+        const QRect photoR(area.left(), area.top(), ph, ph);
+        if (!m_call.photo.isNull()) {
+            QPainterPath clip;
+            clip.addEllipse(photoR);
+            p.save();
+            p.setClipPath(clip);
+            p.drawImage(photoR, m_call.photo);
+            p.restore();
+        } else {
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.accent);
+            p.drawEllipse(photoR);
+            f.setPixelSize(ph / 2);
+            f.setBold(true);
+            p.setFont(f);
+            p.setPen(c.bg);
+            const QString initials = m_call.name.isEmpty() ? QStringLiteral("?")
+                : QString(m_call.name.split(QLatin1Char(' '), QString::SkipEmptyParts).value(0).left(1)
+                          + m_call.name.split(QLatin1Char(' '), QString::SkipEmptyParts).value(1).left(1)).toUpper();
+            p.drawText(photoR, Qt::AlignCenter, initials);
+        }
+        const QRect textR(photoR.right() + bar / 2, area.top(), area.right() - photoR.right() - bar / 2, ph);
+        f.setPixelSize(bar * 2 / 5);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.accent);
+        p.drawText(QRect(textR.left(), textR.top(), textR.width(), ph / 4), Qt::AlignLeft | Qt::AlignVCenter,
+                   QStringLiteral("Eingehender Anruf"));
+        f.setPixelSize(bar * 4 / 5);
+        p.setFont(f);
+        p.setPen(c.text);
+        p.drawText(QRect(textR.left(), textR.top() + ph / 4, textR.width(), ph / 2), Qt::AlignLeft | Qt::AlignVCenter,
+                   QFontMetrics(f).elidedText(who, Qt::ElideRight, textR.width()));
+        if (!m_call.name.isEmpty() && !m_call.number.isEmpty()) {
+            f.setPixelSize(bar / 2);
+            f.setBold(false);
+            p.setFont(f);
+            p.setPen(c.dim);
+            p.drawText(QRect(textR.left(), textR.top() + ph * 3 / 4, textR.width(), ph / 4), Qt::AlignLeft | Qt::AlignVCenter,
+                       m_call.number);
+        }
+        // Buttons: decline | silence | silence + music | answer
+        const int gap = bar / 4;
+        const int bh = qMin(area.bottom() - photoR.bottom() - bar / 2, bar * 2);
+        const int bw = (area.width() - 3 * gap) / 4;
+        const int by = area.bottom() - bh;
+        button(QRect(area.left(), by, bw, bh), QStringLiteral("decline"), QStringLiteral("Ablehnen"), red);
+        button(QRect(area.left() + (bw + gap), by, bw, bh), QStringLiteral("silence"), QStringLiteral("Stumm"), c.panelPressed);
+        button(QRect(area.left() + 2 * (bw + gap), by, bw, bh), QStringLiteral("silence_music"),
+               QStringLiteral("Stumm\n+ Musik"), c.panelPressed);
+        button(QRect(area.left() + 3 * (bw + gap), by, bw, bh), QStringLiteral("answer"), QStringLiteral("Annehmen"), green);
+        return;
+    }
+
+    // Strip at the bottom: silenced ringing, active, outgoing or held call.
+    const int sh = bar + bar / 3;
+    const QRect strip(m_safe.left() + m_safe.width() / 40, m_safe.bottom() - sh - bar / 6,
+                      m_safe.width() * 38 / 40, sh);
+    p.setPen(QPen(m_call.state == CallInfo::Incoming ? c.accent : green, 2));
+    p.setBrush(c.panelPressed);
+    p.drawRoundedRect(strip, 14, 14);
+    QString status;
+    switch (m_call.state) {
+    case CallInfo::Incoming: status = QStringLiteral("Anruf (stumm)"); break;
+    case CallInfo::Outgoing: status = QStringLiteral("Wählt"); break;
+    case CallInfo::Held: status = QStringLiteral("Gehalten"); break;
+    default: {
+        const qint64 secs = m_call.startedAt.isValid() ? m_call.startedAt.secsTo(QDateTime::currentDateTime()) : 0;
+        status = QStringLiteral("Gespräch %1:%2").arg(secs / 60).arg(secs % 60, 2, 10, QLatin1Char('0'));
+    }
+    }
+    const int pad = bar / 4;
+    const int bw = bar * 3;
+    QRect buttons(strip.right() - pad - (m_call.state == CallInfo::Incoming ? 2 * bw + pad : bw), strip.top() + pad / 2,
+                  0, strip.height() - pad);
+    buttons.setRight(strip.right() - pad);
+    if (m_call.state == CallInfo::Incoming) {
+        button(QRect(buttons.left(), buttons.top(), bw, buttons.height()), QStringLiteral("decline"), QStringLiteral("Ablehnen"), red);
+        button(QRect(buttons.left() + bw + pad, buttons.top(), bw, buttons.height()), QStringLiteral("answer"),
+               QStringLiteral("Annehmen"), green);
+    } else {
+        button(buttons, QStringLiteral("hangup"), QStringLiteral("Auflegen"), red);
+    }
+    const QRect textR(strip.left() + pad, strip.top(), buttons.left() - strip.left() - 2 * pad, strip.height());
+    f.setPixelSize(bar * 2 / 5);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(c.text);
+    p.drawText(textR, Qt::AlignLeft | Qt::AlignVCenter,
+               QFontMetrics(f).elidedText(status + QStringLiteral(": ") + who, Qt::ElideRight, textR.width()));
+}
+
 void CarScreen::setApps(const QVector<CarApp> &apps)
 {
     m_apps = apps;
@@ -334,6 +460,15 @@ void CarScreen::touch(int action, int x, int y)
                 if (m_appRects[i].contains(m_touch)) m_pressedApp = i;
     } else if (action == 1) { // release
         m_pressed = false;
+        for (const CallButton &b : m_callButtons) {
+            if (b.rect.contains(m_touch)) {
+                emit callAction(b.action);
+                m_pressedTile = -1;
+                m_pressedApp = -1;
+                return;
+            }
+        }
+        if (callFullScreen()) return; // nothing else is reachable while it rings
         if (!m_banners.isEmpty() && m_bannerRect.contains(m_touch)) {
             m_banners.removeFirst();
             m_bannerClock.start();
@@ -750,6 +885,7 @@ const QImage &CarScreen::render()
     else drawPage(p);
 
     drawBanner(p);
+    drawCall(p);
 
     // Touch feedback: proves the input path end to end.
     if (!m_trail.isEmpty()) {

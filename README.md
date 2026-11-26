@@ -208,6 +208,25 @@ Medienkanal ins Auto (eigener Ansagekanal: später).
 OSM Scout (Karry) bietet keine Navigationsdaten über D-Bus an, nur
 „Seite öffnen“ und „Geo-Link öffnen“ – deshalb Pure Maps.
 
+## Anrufe und Parkplatz
+
+Ab 0.8.0.
+
+- **Eingehender Anruf**: Musik pausiert, das Auto zeigt den Anrufer
+  (Name und Bild aus dem Adressbuch, sonst Nummer) mit vier Knöpfen:
+  **Ablehnen**, **Stumm** (Klingelton aus, Musik bleibt aus), **Stumm + Musik**
+  (Klingelton aus, Musik läuft weiter), **Annehmen**. Nach „Stumm“ bleibt unten
+  eine Leiste mit Annehmen/Ablehnen. Während des Gesprächs: Leiste mit Dauer und
+  „Auflegen“. Lenkrad: Hörer-Taste = annehmen, Auflegen-Taste = ablehnen/
+  auflegen. Danach läuft die Musik weiter; verpasste Anrufe als Banner.
+  Der Gesprächston läuft wie bisher über Bluetooth (Freisprechen des Autos).
+  Technik: Sailfish-voicecall-Dienst (D-Bus), Adressbuch über QtContacts.
+  Im Log steht nur der Zustand, nicht die Nummer.
+- **Wo steht mein Auto?** Die App fragt die GPS-Position des Autos ab (Sensor
+  LOCATION) und merkt sich die letzte beim Trennen. Am Telefon: Abschnitt
+  „Auto geparkt“ mit Uhrzeit, „Auf Karte zeigen“ (geo:-Link → Pure Maps /
+  OSM Scout) und „Kopieren“. Koordinaten stehen nicht im Log.
+
 ## Autostart im Auto
 
 Ab 0.5.0, Schalter „Autostart im Auto“ (Standard: aus). Schaltet den

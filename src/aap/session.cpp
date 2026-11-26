@@ -485,7 +485,11 @@ void Session::handleServiceDiscovery(const QByteArray &payload)
             if (m_sensorChannel < 0) m_sensorChannel = id;
             pb::Reader se(ch.bytes(2));
             QStringList types;
-            for (const pb::Value &sv : se.all(1)) types << QString::number(pb::Reader(sv.bytes).number(1));
+            for (const pb::Value &sv : se.all(1)) {
+                const int t = static_cast<int>(pb::Reader(sv.bytes).number(1));
+                types << QString::number(t);
+                m_sensorTypes << t;
+            }
             detail = QStringLiteral("Typen ") + types.join(QLatin1Char(','));
         } else if (ch.has(5)) {
             kind = Trace::Mic;
@@ -607,7 +611,10 @@ void Session::onChannelOpened(quint8 channel, bool ok)
         for (int k : m_keycodes) w.sint(1, k);
         send(channel, input::BindingRequest, w.data(), true);
     } else if (channel == m_sensorChannel) {
-        for (int type : {sensor::DrivingStatus, sensor::NightData}) {
+        QList<int> wanted{sensor::DrivingStatus, sensor::NightData};
+        // Car GPS for "where is my car" (only if offered: asking for more can upset some cars)
+        if (m_sensorTypes.contains(sensor::Location)) wanted << sensor::Location;
+        for (int type : wanted) {
             pb::Writer w;
             w.varint(1, static_cast<uint64_t>(type)).sint(2, 0);
             send(channel, sensor::StartRequest, w.data(), true);
@@ -723,6 +730,16 @@ void Session::handleSensor(quint16 id, const QByteArray &payload)
         emit nightModeChanged(pb::Reader(v.bytes).boolean(1));
     for (const pb::Value &v : r.all(13))
         emit drivingStatusChanged(static_cast<int>(pb::Reader(v.bytes).number(1)));
+    // LocationData { timestamp=1, latitude_e7=2, longitude_e7=3, accuracy_e3=4, ... } (int32 as varint)
+    for (const pb::Value &v : r.all(1)) {
+        pb::Reader l(v.bytes);
+        if (!l.has(2) || !l.has(3)) continue;
+        const double lat = static_cast<int32_t>(static_cast<int64_t>(l.number(2))) / 1e7;
+        const double lon = static_cast<int32_t>(static_cast<int64_t>(l.number(3))) / 1e7;
+        const double acc = l.has(4) ? static_cast<int32_t>(static_cast<int64_t>(l.number(4))) / 1e3 : -1;
+        if (lat == 0 && lon == 0) continue;
+        emit locationChanged(lat, lon, acc);
+    }
 }
 
 // ---------------------------------------------------------------- video out

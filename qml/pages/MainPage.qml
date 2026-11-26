@@ -123,6 +123,31 @@ Page {
                 value: controller.customCert ? qsTr("eigenes") : qsTr("Entwickler (selbstsigniert)")
             }
 
+            SectionHeader {
+                text: qsTr("Auto geparkt")
+                visible: controller.parkedValid
+            }
+            DetailItem {
+                visible: controller.parkedValid
+                label: qsTr("Seit")
+                value: controller.parkedTime
+                       + (controller.parkedAccuracy >= 0 ? qsTr(" (±%1 m)").arg(Math.round(controller.parkedAccuracy)) : "")
+            }
+            Row {
+                visible: controller.parkedValid
+                x: Theme.horizontalPageMargin
+                spacing: Theme.paddingMedium
+                Button {
+                    text: qsTr("Auf Karte zeigen")
+                    onClicked: Qt.openUrlExternally("geo:" + controller.parkedLat.toFixed(6) + ","
+                                                    + controller.parkedLon.toFixed(6))
+                }
+                Button {
+                    text: qsTr("Kopieren")
+                    onClicked: Clipboard.text = controller.parkedLat.toFixed(6) + ", " + controller.parkedLon.toFixed(6)
+                }
+            }
+
             SectionHeader { text: qsTr("So verbindest du OpenAuto") }
 
             Label {

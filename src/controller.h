@@ -9,6 +9,7 @@
 #include "media/mprisclient.h"
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
+#include "phone/callmonitor.h"
 #include "apps/appcatalog.h"
 #include "nav/puremaps.h"
 #include "video/carscreen.h"
@@ -46,6 +47,12 @@ class Controller : public QObject
     Q_PROPERTY(bool soundToCar READ soundToCar WRITE setSoundToCar NOTIFY soundToCarChanged)
     Q_PROPERTY(bool autostart READ autostart WRITE setAutostart NOTIFY autostartChanged)
     Q_PROPERTY(bool notifyToCar READ notifyToCar WRITE setNotifyToCar NOTIFY notifyToCarChanged)
+    // Where the car was parked (last car GPS fix when the connection ended)
+    Q_PROPERTY(bool parkedValid READ parkedValid NOTIFY parkedChanged)
+    Q_PROPERTY(double parkedLat READ parkedLat NOTIFY parkedChanged)
+    Q_PROPERTY(double parkedLon READ parkedLon NOTIFY parkedChanged)
+    Q_PROPERTY(double parkedAccuracy READ parkedAccuracy NOTIFY parkedChanged)
+    Q_PROPERTY(QString parkedTime READ parkedTime NOTIFY parkedChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -78,6 +85,11 @@ public:
     bool autostart() const { return m_autostart; }
     void setAutostart(bool on);
     bool notifyToCar() const { return m_notifyToCar; }
+    bool parkedValid() const { return m_parked.valid; }
+    double parkedLat() const { return m_parked.lat; }
+    double parkedLon() const { return m_parked.lon; }
+    double parkedAccuracy() const { return m_parked.acc; }
+    QString parkedTime() const;
     void setNotifyToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
@@ -99,6 +111,7 @@ signals:
     void soundToCarChanged();
     void autostartChanged();
     void notifyToCarChanged();
+    void parkedChanged();
 
 private:
     void onNewConnection();
@@ -150,8 +163,24 @@ private:
     AppCatalog m_apps;
     NotificationWatcher m_notify;
     PureMapsClient m_nav;
+    // Calls
+    CallMonitor m_calls;
+    CallInfo m_lastCall;
+    bool m_callSilenced = false;
+    bool m_pausedForCall = false;   // we paused the player; resume when the call is over
+    bool m_callHandled = false;     // answered/declined by us (else: missed)
+    void onCallChanged();
+    void onCallAction(const QString &action);
+    bool callBlocksAudio() const;
     bool m_notifyToCar = true;
     int m_drivingStatus = -1;
+    // Car GPS / parked position
+    struct Fix { bool valid = false; double lat = 0, lon = 0, acc = -1; QDateTime time; };
+    Fix m_carFix;           // latest from the car this session
+    Fix m_parked;           // saved (QSettings "parked/...")
+    QElapsedTimer m_fixSaved;
+    void onCarLocation(double lat, double lon, double acc);
+    void saveParked(const Fix &f, bool final);
     void pushAppsToScreen();
     void onCarKey(int code, bool pressed, bool longPress);
     void onMediaCommand(const QString &cmd);

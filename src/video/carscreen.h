@@ -12,6 +12,7 @@
 
 #include "../phone/phonestatus.h"
 #include "../nav/puremaps.h"
+#include "../phone/callmonitor.h"
 
 class CarScreen : public QObject
 {
@@ -33,6 +34,8 @@ public:
     void setParked(bool parked) { m_parked = parked; }
     // Pure Maps navigation; icon may be null (own arrow is drawn then).
     void setNav(const NavState &s, const QImage &icon);
+    // Phone call: ringing = full screen with 4 buttons; silenced/active = strip at the bottom.
+    void setCall(const CallInfo &c, bool silenced);
 
     QSize size() const { return m_image.size(); }
     // Draws the next frame and returns it (RGB32).
@@ -53,6 +56,8 @@ signals:
     void mediaSeek(double fraction);
     // Apps page: start this phone app (desktop id)
     void launchApp(const QString &id);
+    // "answer", "decline", "silence", "silence_music", "hangup"
+    void callAction(const QString &action);
 
 private:
     enum Page { Home, Navigation, Music, Apps, Phone, Info };
@@ -93,6 +98,13 @@ private:
     QRect m_navStartButton;
     void drawNavPage(QPainter &p, const QRect &body);
     void drawManeuver(QPainter &p, const QRect &r, bool small);
+    // Call
+    CallInfo m_call;
+    bool m_callSilenced = false;
+    struct CallButton { QRect rect; QString action, label; QColor color; };
+    QVector<CallButton> m_callButtons;
+    void drawCall(QPainter &p);
+    bool callFullScreen() const { return m_call.state == CallInfo::Incoming && !m_callSilenced; }
     bool m_hasPlayer = false, m_mediaPlaying = false;
     QString m_player, m_title, m_artist, m_album;
     QImage m_art;

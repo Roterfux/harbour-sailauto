@@ -316,6 +316,12 @@ class HeadUnit:
                 self.send(ch, SENSOR_EVENT, f_bytes(13, f_varint(1, 0)))
             elif f[1][0] == 10:
                 self.send(ch, SENSOR_EVENT, f_bytes(10, f_varint(1, 1 if self.args.night else 0)))
+            elif f[1][0] == 1:
+                # LocationData: Wolfsburg, 8 m accuracy (int32 as varint)
+                loc = (f_varint(1, int(time.time() * 1000)) + f_varint(2, 524229000) + f_varint(3, 107865000)
+                       + f_varint(4, 8000))
+                self.send(ch, SENSOR_EVENT, f_bytes(1, loc))
+                self.log("sent car location")
         else:
             self.log("ch %d msg 0x%04x" % (ch, msg_id))
 
@@ -351,7 +357,8 @@ class HeadUnit:
         touch = f_varint(1, w) + f_varint(2, h)
         keys = b"".join(varint(k) for k in (3, 4, 84, 85, 87, 88, 89, 90))
         inp = f_varint(1, CH_INPUT) + f_bytes(4, f_bytes(1, keys) + f_bytes(2, touch))
-        sensor = f_varint(1, CH_SENSOR) + f_bytes(2, f_bytes(1, f_varint(1, 13)) + f_bytes(1, f_varint(1, 10)))
+        sensor = f_varint(1, CH_SENSOR) + f_bytes(2, f_bytes(1, f_varint(1, 13)) + f_bytes(1, f_varint(1, 10))
+                                                  + f_bytes(1, f_varint(1, 1)))
         acfg = f_varint(1, 48000) + f_varint(2, 16) + f_varint(3, 2)
         audio = f_varint(1, CH_MEDIA_AUDIO) + f_bytes(3, f_varint(1, 1) + f_varint(2, 3) + f_bytes(3, acfg))
         speech = f_varint(1, 5) + f_bytes(3, f_varint(1, 1) + f_varint(2, 1) +

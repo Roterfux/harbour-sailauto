@@ -9,6 +9,11 @@ APP_VERSION = $$system(sed -n \'s/^Version:[[:space:]]*//p\' $$PWD/rpm/harbour-s
 isEmpty(APP_VERSION): APP_VERSION = dev
 DEFINES += APP_VERSION=\\\"$$APP_VERSION\\\"
 PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 libpulse dbus-1
+# Caller name/photo from the address book (Sailfish: qtcontacts-sqlite)
+packagesExist(Qt5Contacts) {
+    QT += contacts
+    DEFINES += HAVE_QTCONTACTS
+}
 
 desktop {
     # Headless test build:  qmake CONFIG+=desktop && make
@@ -61,6 +66,7 @@ HEADERS += \
     src/media/mprisclient.h \
     src/phone/phonestatus.h \
     src/phone/notificationwatcher.h \
+    src/phone/callmonitor.h \
     src/apps/appcatalog.h \
     src/nav/puremaps.h \
     src/controller.h
@@ -80,6 +86,7 @@ SOURCES += \
     src/media/mprisclient.cpp \
     src/phone/phonestatus.cpp \
     src/phone/notificationwatcher.cpp \
+    src/phone/callmonitor.cpp \
     src/apps/appcatalog.cpp \
     src/nav/puremaps.cpp \
     src/controller.cpp
