@@ -194,6 +194,16 @@ Ab 0.6.0.
   App und Titel. Die App liest sie als D-Bus-Monitor mit. Im Log stehen nur
   App und Länge, nicht der Inhalt.
 
+## Eigene Navigation (ab 0.15.0)
+
+Standard: SailAuto navigiert selbst (Schalter in „Ziele“). Ziel im Auto wählen
+(Zuhause/Arbeit/Adresse/Kontakte/letzte Ziele) → Route sofort, ohne Telefon.
+Route: offline über OSM Scout Server (`/v2/route`, Valhalla), sonst online über
+den Valhalla-Server der FOSSGIS (OpenStreetMap). Anzeige: nächstes Manöver mit
+Entfernung und Straße, Restweg/-zeit/Ankunft, blaue Routenlinie auf der
+Live-Karte, „Beenden“. Weicht man ab (3 Messungen > 45 m), wird neu berechnet.
+Position: Auto-GPS, sonst Telefon-GPS. Noch keine Sprachansagen.
+
 ## Navigation mit Pure Maps
 
 Ab 0.7.0. Die Seite „Navigation“ im Auto zeigt, was Pure Maps am Telefon

@@ -17,6 +17,7 @@
 #include "nav/puremaps.h"
 #include "nav/mapview.h"
 #include "nav/geosearch.h"
+#include "nav/navigator.h"
 #include "weather/weather.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
@@ -66,6 +67,8 @@ class Controller : public QObject
     Q_PROPERTY(bool mapEnabled READ mapEnabled WRITE setMapEnabled NOTIFY mapChanged)
     Q_PROPERTY(QString mapUrl READ mapUrl WRITE setMapUrl NOTIFY mapChanged)
     Q_PROPERTY(bool weatherEnabled READ weatherEnabled WRITE setWeatherEnabled NOTIFY weatherChanged)
+    // true: SailAuto navigates itself; false: Pure Maps
+    Q_PROPERTY(bool ownNavigation READ ownNavigation WRITE setOwnNavigation NOTIFY ownNavigationChanged)
     Q_PROPERTY(bool closeIdlePlayers READ closeIdlePlayers WRITE setCloseIdlePlayers NOTIFY closeIdleChanged)
 
 public:
@@ -115,6 +118,8 @@ public:
     QString mapUrl() const { return m_map.tileUrl(); }
     void setMapUrl(const QString &u);
     bool weatherEnabled() const { return m_weatherEnabled; }
+    bool ownNavigation() const { return m_ownNavEnabled; }
+    void setOwnNavigation(bool on);
     void setWeatherEnabled(bool on);
     bool closeIdlePlayers() const { return m_closeIdle; }
     void setCloseIdlePlayers(bool on);
@@ -143,6 +148,7 @@ signals:
     void destinationsChanged();
     void mapChanged();
     void weatherChanged();
+    void ownNavigationChanged();
     void closeIdleChanged();
 
 private:
@@ -199,6 +205,10 @@ private:
     PureMapsClient m_nav;
     MapView m_map;
     GeoSearch m_geo;
+    Navigator m_ownNav;
+    bool m_ownNavEnabled = true;
+    void pushNav();
+    void positionForNav(double lat, double lon, double bearing, double speed);
     // Phone GPS: for the map/weather when the car sends no (fresh) position
     class QGeoPositionInfoSource *m_phonePos = nullptr;
     QElapsedTimer m_carFixClock;

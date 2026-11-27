@@ -74,6 +74,7 @@ HEADERS += \
     src/nav/puremaps.h \
     src/nav/mapview.h \
     src/nav/geosearch.h \
+    src/nav/navigator.h \
     src/weather/weather.h \
     src/controller.h
 
@@ -100,6 +101,7 @@ SOURCES += \
     src/nav/puremaps.cpp \
     src/nav/mapview.cpp \
     src/nav/geosearch.cpp \
+    src/nav/navigator.cpp \
     src/weather/weather.cpp \
     src/controller.cpp
 

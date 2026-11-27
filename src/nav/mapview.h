@@ -12,6 +12,7 @@
 #include <QPointF>
 #include <QSet>
 #include <QString>
+#include <QVector>
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -32,6 +33,8 @@ public:
     bool hasFix() const { return m_haveFix; }
     // Draws the map into r (cached, redrawn at most ~15 times a second).
     void paint(QPainter &p, const QRect &r);
+    // Route line (lat, lon); empty = none
+    void setRoute(const QVector<QPointF> &latlon) { m_route = latlon; }
 
 signals:
     void log(const QString &line);
@@ -67,6 +70,8 @@ private:
     QImage m_canvas;
     int m_canvasZ = -1, m_canvasX = 0, m_canvasY = 0; // top-left tile
     bool m_canvasDirty = true;
+
+    QVector<QPointF> m_route;
 
     // Rendered layer (rate limited)
     QImage m_layer;

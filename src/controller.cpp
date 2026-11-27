@@ -146,6 +146,11 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_geo, &GeoSearch::finished, this, [this](const QString &text, const QVector<GeoResult> &res, const QString &error) {
         m_geoResults = res;
         if (!error.isEmpty()) {
+            if (m_ownNavEnabled) {
+                appendLog(QStringLiteral("Navigation: Adresssuche nicht erreichbar (%1)").arg(error));
+                m_screen.setSearchResults({}, false, QStringLiteral("Adresssuche nicht erreichbar.\nInternet oder OSM Scout Server nötig."));
+                return;
+            }
             appendLog(QStringLiteral("Navigation: Adresssuche nicht erreichbar (%1), suche in Pure Maps").arg(error));
             m_screen.setSearchResults({}, false, QStringLiteral("Adresssuche offline und online nicht erreichbar.\n"
                                                                "Pure Maps sucht am Telefon: Ergebnis antippen, dann „Route“."));
@@ -158,6 +163,12 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_screen, &CarScreen::navPick, this, [this](int i) {
         if (i < 0 || i >= m_geoResults.size()) return;
         const GeoResult g = m_geoResults[i];
+        if (m_ownNavEnabled) {
+            m_ownNav.setDestination(g.title, g.lat, g.lon);
+            if (m_parked.valid && !m_carFix.valid && !m_phonePosLogged) // no live position yet
+                m_ownNav.updatePosition(m_parked.lat, m_parked.lon, -1, -1);
+            return;
+        }
         if (m_nav.state().app) {
             m_nav.showPoi(g.title, g.lat, g.lon);
             return;
@@ -202,10 +213,16 @@ Controller::Controller(QObject *parent) : QObject(parent)
         showItems(items, false);
     });
     connect(&m_screen, &CarScreen::navStart, &m_nav, &PureMapsClient::startNavigation);
-    connect(&m_screen, &CarScreen::navStop, &m_nav, &PureMapsClient::stopNavigation);
+    connect(&m_screen, &CarScreen::navStop, this, [this]() {
+        if (m_ownNav.active()) m_ownNav.stop(); else m_nav.stopNavigation();
+    });
+    m_ownNavEnabled = QSettings().value(QStringLiteral("nav/own"), true).toBool();
+    connect(&m_ownNav, &Navigator::log, this, &Controller::appendLog);
+    connect(&m_ownNav, &Navigator::changed, this, &Controller::pushNav);
+    connect(&m_ownNav, &Navigator::routeChanged, this, [this]() { m_map.setRoute(m_ownNav.shape()); });
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
-        m_screen.setNav(n, m_nav.icon(n.icon, 256));
+        if (!m_ownNav.active()) m_screen.setNav(n, m_nav.icon(n.icon, 256));
         if (n.app && !m_pendingPoi.title.isEmpty()) {
             const GeoResult g = m_pendingPoi;
             m_pendingPoi = GeoResult();
@@ -671,6 +688,7 @@ QString Controller::parkedTime() const
 void Controller::onCarLocation(double lat, double lon, double acc, double bearing, double speed)
 {
     m_carFixClock.start();
+    positionForNav(lat, lon, bearing, speed);
     if (m_mapEnabled) m_map.updateFix(lat, lon, bearing, speed);
     if (m_weatherEnabled) m_weather.setPosition(lat, lon);
     const bool first = !m_carFix.valid;
@@ -820,6 +838,7 @@ void Controller::startPhonePosition()
         const double speed = info.hasAttribute(QGeoPositionInfo::GroundSpeed) ? info.attribute(QGeoPositionInfo::GroundSpeed) : -1;
         if (m_mapEnabled) m_map.updateFix(c.latitude(), c.longitude(), dir, speed);
         if (m_weatherEnabled) m_weather.setPosition(c.latitude(), c.longitude());
+        positionForNav(c.latitude(), c.longitude(), dir, speed);
     });
     m_phonePos->startUpdates();
     // Use what the phone already knows right away (a fix can take a while).
@@ -844,6 +863,31 @@ void Controller::stopPhonePosition()
     m_phonePos->deleteLater();
     m_phonePos = nullptr;
     m_phonePosLogged = false;
+}
+
+void Controller::positionForNav(double lat, double lon, double bearing, double speed)
+{
+    m_ownNav.updatePosition(lat, lon, bearing, speed);
+}
+
+void Controller::pushNav()
+{
+    if (m_ownNav.active()) {
+        const NavState &n = m_ownNav.state();
+        m_screen.setNav(n, m_nav.icon(n.icon, 256)); // Pure Maps' icons if installed, else own arrows
+    } else {
+        m_screen.setNav(m_nav.state(), m_nav.icon(m_nav.state().icon, 256));
+        m_map.setRoute({});
+    }
+}
+
+void Controller::setOwnNavigation(bool on)
+{
+    if (on == m_ownNavEnabled) return;
+    m_ownNavEnabled = on;
+    QSettings().setValue(QStringLiteral("nav/own"), on);
+    if (!on) m_ownNav.stop();
+    emit ownNavigationChanged();
 }
 
 void Controller::setCloseIdlePlayers(bool on)

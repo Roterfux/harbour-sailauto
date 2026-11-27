@@ -218,6 +218,16 @@ void MapView::renderLayer(const QSize &size)
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
     p.setTransform(t * rot * proj);
     p.drawImage(0, 0, m_canvas);
+    // Route line in canvas coordinates (same transform as the tiles)
+    if (m_route.size() > 1) {
+        QPolygonF line;
+        const QPointF origin(m_canvasX * kTile, m_canvasY * kTile);
+        for (const QPointF &ll : m_route) line << worldPixel(ll.x(), ll.y(), z) - origin;
+        p.setPen(QPen(QColor(255, 255, 255, 200), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawPolyline(line);
+        p.setPen(QPen(QColor(30, 120, 230), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawPolyline(line);
+    }
     p.restore();
     // Haze towards the horizon
     QLinearGradient haze(0, horizon, 0, horizon + h * 0.18);

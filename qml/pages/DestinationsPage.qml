@@ -34,6 +34,15 @@ Page {
                 EnterKey.onClicked: focus = false
                 onActiveFocusChanged: if (!activeFocus) controller.workAddress = text
             }
+            SectionHeader { text: qsTr("Navigation") }
+            TextSwitch {
+                text: qsTr("SailAuto navigiert selbst")
+                description: qsTr("Route offline über OSM Scout Server, sonst online (OpenStreetMap-Routenserver). "
+                                  + "Aus: Pure Maps übernimmt (Ziel dort bestätigen).")
+                checked: controller.ownNavigation
+                onCheckedChanged: controller.ownNavigation = checked
+            }
+
             SectionHeader { text: qsTr("Karte im Auto") }
             TextSwitch {
                 text: qsTr("Live-Karte (experimentell)")
