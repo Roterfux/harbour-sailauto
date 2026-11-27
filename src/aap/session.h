@@ -94,6 +94,8 @@ signals:
     void locationChanged(double lat, double lon, double accuracyM, double bearingDeg, double speedMs);
     // GearData: 0 neutral, 1..10 gears, 100 drive, 101 park, 102 reverse
     void gearChanged(int gear);
+    // Streaming, but the car sent nothing for ~20 s (switched off / stale USB)
+    void carSilent();
     // AudioFocusStateType from the car: 1 GAIN, 2 GAIN_TRANSIENT, 3 LOSS, 4 LOSS_CAN_DUCK, 5 LOSS_TRANSIENT, ...
     void audioFocusChanged(int state);
     // An audio channel finished its setup (streamType: 1 guidance, 2 system, 3 media).
@@ -166,6 +168,8 @@ private:
     QTimer m_focusFallback;
     QTimer m_silence;
     qint64 m_rxTotal = 0;
+    qint64 m_rxAtCheck = -1;  // liveness check while streaming
+    int m_silentChecks = 0;
     int m_heldLongKey = -1;
     QList<int> m_sensorTypes; // offered by the car
 };

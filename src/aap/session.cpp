@@ -87,7 +87,20 @@ Session::Session(QIODevice *transport, const QString &certPath, const QString &k
     // testing against an unknown car).
     m_watchdog.setInterval(10000);
     connect(&m_watchdog, &QTimer::timeout, this, [this]() {
-        if (m_state == Streaming || m_state == Closed || m_state == Idle) return;
+        if (m_state == Streaming) {
+            // The car pings every few seconds. Silence = car switched off or
+            // USB went stale without an error: give up, so we reconnect.
+            if (m_rxTotal == m_rxAtCheck && ++m_silentChecks >= 2) {
+                emit log(QStringLiteral("Auto sendet seit 20 s nichts mehr (ausgeschaltet?) – Verbindung wird neu aufgebaut"));
+                emit carSilent();
+                fail(QStringLiteral("Auto antwortet nicht mehr"));
+                return;
+            }
+            if (m_rxTotal != m_rxAtCheck) m_silentChecks = 0;
+            m_rxAtCheck = m_rxTotal;
+            return;
+        }
+        if (m_state == Closed || m_state == Idle) return;
         static const char *names[] = {"Idle", "Versioning", "Handshaking", "Discovering", "OpeningChannels", "Streaming", "Closed"};
         emit log(QStringLiteral("HÄNGT: seit 10 s im Zustand %1 (offene Kanalanfragen: %2)")
                      .arg(QLatin1String(names[m_state])).arg(m_pendingOpens));

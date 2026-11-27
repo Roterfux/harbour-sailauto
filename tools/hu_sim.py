@@ -121,6 +121,7 @@ class HeadUnit:
         self.errors = []
         self.night_sent = False
         self.done = False
+        self.t_start = time.time()
         self.discovery = open(args.discovery, "rb").read() if args.discovery else None
         self.ch_video, self.ch_input, self.ch_sensor = CH_VIDEO, CH_INPUT, CH_SENSOR
         if self.discovery:
@@ -141,6 +142,8 @@ class HeadUnit:
 
     # -- frame I/O
     def send(self, ch, msg_id, payload=b"", enc=True, control=False):
+        if self.args.silent_after and getattr(self, "t_start", None) and time.time() - self.t_start > self.args.silent_after:
+            return  # car "switched off": socket stays open, nothing is sent
         msg = struct.pack(">H", msg_id) + payload
         flags = (F_ENC if enc else 0) | (F_CONTROL if control else 0)
         with self.lock:
@@ -215,7 +218,7 @@ class HeadUnit:
     def ping_loop(self):
         while not self.done:
             time.sleep(self.args.ping)
-            if self.pings - self.pongs > 1:
+            if self.pings - self.pongs > 1 and not self.args.silent_after:
                 self.errors.append("ping timeout")
                 self.log("ping timer exceeded (OpenAuto would quit here)")
                 self.done = True
@@ -411,6 +414,7 @@ def main():
     ap.add_argument("--out", help="write the received H.264 stream here")
     ap.add_argument("--ping", type=float, default=2.0, help="ping interval (OpenAuto: 5 s)")
     ap.add_argument("--night", action="store_true")
+    ap.add_argument("--silent-after", type=float, default=0, help="stop sending anything after N s (car off, link stale)")
     ap.add_argument("--drive", action="store_true", help="send car GPS once a second, driving 50 km/h with turns")
     ap.add_argument("--key", action="append", default=[],
                     help="steering wheel key code[@seconds[:hold]], e.g. 87@4 (next), 85@5 (play/pause), "

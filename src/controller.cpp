@@ -1020,6 +1020,7 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
     connect(m_session, &aap::Session::locationChanged, this, &Controller::onCarLocation);
+    connect(m_session, &aap::Session::carSilent, this, [this]() { m_replugOnClose = true; });
     connect(m_session, &aap::Session::drivingStatusChanged, this, [this](int st) {
         // 0 = UNRESTRICTED (parked); any bit set = driving restrictions.
         if (st == m_drivingStatus) return;
@@ -1199,7 +1200,17 @@ void Controller::onSessionClosed(const QString &reason)
     }
     setStatus(m_server.isListening() ? QStringLiteral("Warte auf Head Unit")
               : m_usbWanted ? QStringLiteral("Warte auf USB") : QStringLiteral("Bereit"));
-    if (m_usbWanted) m_usbRetry.start(); // car may come back (ignition, replug)
+    const bool replug = m_replugOnClose;
+    m_replugOnClose = false;
+    if (m_usbWanted) {
+        m_usbRetry.start(); // car may come back (ignition, replug)
+        // Car went silent without a USB error: re-register so it sees a fresh device.
+        if (replug && m_aoaRequested) {
+            m_lastReplug.start();
+            appendLog(QStringLiteral("USB: verbinde neu (Gerät kurz ab- und wieder anmelden)"));
+            requestAoa(QStringLiteral("replug"));
+        }
+    }
 }
 
 void Controller::appendLog(const QString &line)
