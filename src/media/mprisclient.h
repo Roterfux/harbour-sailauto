@@ -6,6 +6,7 @@
 
 #include <QElapsedTimer>
 #include <QHash>
+#include <QVector>
 #include <QImage>
 #include <QObject>
 #include <QString>
@@ -29,6 +30,10 @@ public:
     bool playing() const { return m_playing; }
     qint64 positionMs() const { return m_positionMs; }
     qint64 lengthMs() const { return m_lengthMs; }
+    // Browsing (optional MPRIS interfaces Playlists and TrackList).
+    struct Entry { QString id, title, sub; bool playlist; };
+    QVector<Entry> browse(QString *info);       // playlists first, then tracks
+    void activate(const Entry &e);
 
 public slots:
     void playPause();

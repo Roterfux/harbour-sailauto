@@ -109,3 +109,29 @@ void PureMapsClient::stopNavigation()
     QDBusConnection::sessionBus().call(m, QDBus::Block, 1000);
     emit log(QStringLiteral("Navigation: vom Auto aus gestoppt"));
 }
+
+bool PureMapsClient::search(const QString &text)
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(QLatin1String(kService), QStringLiteral("/io/github/rinigus/PureMaps"),
+                                                    QStringLiteral("io.github.rinigus.PureMaps"), QStringLiteral("Search"));
+    m << text;
+    const QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 3000);
+    if (r.type() == QDBusMessage::ErrorMessage) {
+        emit log(QStringLiteral("Navigation: Suche an Pure Maps fehlgeschlagen (%1)").arg(r.errorName()));
+        return false;
+    }
+    emit log(QStringLiteral("Navigation: Ziel an Pure Maps geschickt"));
+    return true;
+}
+
+bool PureMapsClient::startNavigation()
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(QLatin1String(kService), QLatin1String(kPath),
+                                                    QLatin1String(kIface), QStringLiteral("Start"));
+    const QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 3000);
+    const bool ok = r.type() == QDBusMessage::ReplyMessage && !r.arguments().isEmpty() && r.arguments().first().toBool();
+    emit log(ok ? QStringLiteral("Navigation: vom Auto aus gestartet")
+                : QStringLiteral("Navigation: Start nicht möglich (%1)").arg(r.errorMessage().isEmpty() ? QStringLiteral("keine Route") : r.errorMessage()));
+    QTimer::singleShot(300, this, &PureMapsClient::poll);
+    return ok;
+}

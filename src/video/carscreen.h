@@ -35,10 +35,17 @@ public:
     void setParked(bool parked) { m_parked = parked; }
     // Pure Maps navigation; icon may be null (own arrow is drawn then).
     void setNav(const NavState &s, const QImage &icon);
+    // Destinations for the navigation page (home/work from the phone settings).
+    // Music page list (playlists/tracks of the player), shown after "Liste".
+    struct ListItem { QString title, sub; bool playlist; };
+    void setMusicList(const QVector<ListItem> &items) { m_musicList = items; m_musicListOn = true; m_musicListPage = 0; }
+    void setDestinations(const QString &home, const QString &work, const QStringList &recent)
+    { m_home = home; m_work = work; m_recentDest = recent; }
     // Phone call: ringing = full screen with 4 buttons; silenced/active = strip at the bottom.
     void setCall(const CallInfo &c, bool silenced);
     // Address book for the phone page.
     void setContacts(const QVector<PhoneContact> &contacts);
+    void setRecentCalls(const QVector<RecentCall> &calls) { m_recent = calls; }
 
     QSize size() const { return m_image.size(); }
     // Draws the next frame and returns it (RGB32).
@@ -63,6 +70,12 @@ signals:
     void callAction(const QString &action);
     // Phone page: call this number
     void dial(const QString &number, const QString &name, const QImage &photo);
+    // Navigation page: search this destination in Pure Maps / start the route
+    void navSearch(const QString &text);
+    void navStart();
+    // Music page: "Liste" tapped / an entry picked
+    void musicListRequested();
+    void musicListPicked(int index);
 
 private:
     enum Page { Home, Navigation, Music, Apps, Phone, Info };
@@ -102,6 +115,23 @@ private:
     QImage m_navIcon;
     QRect m_navStartButton;
     void drawNavPage(QPainter &p, const QRect &body);
+    // Destination entry (navigation page without a running route)
+    struct NavButton { QRect rect; QString kind, value; };
+    QVector<NavButton> m_navButtons;
+    int m_navView = 0;           // 0 choose, 1 keyboard, 2 contacts with address
+    QString m_navInput;
+    int m_navContactPage = 0;
+    QString m_home, m_work;
+    QStringList m_recentDest;
+    bool m_navSearchSent = false;
+    void drawNavChoose(QPainter &p, const QRect &body);
+    QVector<ListItem> m_musicList;
+    bool m_musicListOn = false;
+    int m_musicListPage = 0;
+    QRect m_listButton, m_mlUp, m_mlDown;
+    QVector<QPair<QRect, int>> m_musicRows;
+    void drawMusicList(QPainter &p, const QRect &body);
+    void navButtonTapped(const NavButton &b);
     void drawManeuver(QPainter &p, const QRect &r, bool small);
     // Call
     CallInfo m_call;
@@ -112,12 +142,14 @@ private:
     bool callFullScreen() const { return m_call.state == CallInfo::Incoming && !m_callSilenced; }
     // Phone page (address book)
     QVector<PhoneContact> m_contacts;
-    int m_phoneTab = 0;          // 0 favorites, 1 all
+    int m_phoneTab = 0;          // 0 favorites, 1 all, 2 recent calls
+    QVector<RecentCall> m_recent;
+    int contactForNumber(const QString &number) const;
     int m_phoneScroll = 0;       // pixels
     int m_phoneDetail = -1;      // index into m_contacts, -1 = list
     struct Row { QRect rect; int contact; };
     QVector<Row> m_phoneRows;
-    QRect m_phoneTabs[2], m_phoneUp, m_phoneDown, m_phoneList;
+    QRect m_phoneTabs[3], m_phoneUp, m_phoneDown, m_phoneList;
     struct DialButton { QRect rect; QString number; };
     QVector<DialButton> m_dialButtons;
     int m_dragStartY = 0, m_dragStartScroll = 0;

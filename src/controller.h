@@ -54,6 +54,9 @@ class Controller : public QObject
     Q_PROPERTY(double parkedLon READ parkedLon NOTIFY parkedChanged)
     Q_PROPERTY(double parkedAccuracy READ parkedAccuracy NOTIFY parkedChanged)
     Q_PROPERTY(QString parkedTime READ parkedTime NOTIFY parkedChanged)
+    // Navigation destinations (phone page "Ziele")
+    Q_PROPERTY(QString homeAddress READ homeAddress WRITE setHomeAddress NOTIFY destinationsChanged)
+    Q_PROPERTY(QString workAddress READ workAddress WRITE setWorkAddress NOTIFY destinationsChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -93,6 +96,10 @@ public:
     double parkedLon() const { return m_parked.lon; }
     double parkedAccuracy() const { return m_parked.acc; }
     QString parkedTime() const;
+    QString homeAddress() const { return m_home; }
+    QString workAddress() const { return m_work; }
+    void setHomeAddress(const QString &a);
+    void setWorkAddress(const QString &a);
     void setNotifyToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
@@ -115,6 +122,7 @@ signals:
     void autostartChanged();
     void notifyToCarChanged();
     void parkedChanged();
+    void destinationsChanged();
 
 private:
     void onNewConnection();
@@ -167,6 +175,11 @@ private:
     AppCatalog m_apps;
     NotificationWatcher m_notify;
     PureMapsClient m_nav;
+    QString m_home, m_work, m_pendingSearch;
+    QStringList m_recentDest;
+    void pushDestinations();
+    void onNavSearch(const QString &text);
+    QVector<MprisClient::Entry> m_browse;
     // Calls
     CallMonitor m_calls;
     PhoneBook m_phonebook;

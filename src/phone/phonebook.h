@@ -15,8 +15,16 @@ struct PhoneContact {
     QString name;
     QStringList numbers;
     QStringList labels;   // "Mobil", "Privat", "Arbeit", ... per number
+    QStringList addresses; // postal addresses, one line each (for navigation)
     QImage photo;         // small (72 px), null if none
     bool favorite = false;
+};
+
+struct RecentCall {
+    QString number;
+    qint64 time = 0;      // seconds since epoch
+    bool outgoing = false;
+    bool missed = false;
 };
 
 class QProcess;
@@ -34,6 +42,7 @@ public:
     // Entry point of that helper: prints the contacts as JSON, returns exit code.
     static int dumpMain(int argc, char *argv[]);
     const QVector<PhoneContact> &contacts() const { return m_contacts; }
+    const QVector<RecentCall> &recentCalls() const { return m_calls; }
 
 signals:
     void loaded();
@@ -41,8 +50,10 @@ signals:
 
 private:
     static QVector<PhoneContact> loadDirect(QString *error);
-    static QVector<PhoneContact> fromJson(const QByteArray &json);
+    static QVector<PhoneContact> fromJson(const QByteArray &json, QVector<RecentCall> *calls);
+    static QVector<RecentCall> loadCalls(QString *error);
     void finish(QVector<PhoneContact> list, qint64 ms, const QString &source);
     QVector<PhoneContact> m_contacts;
+    QVector<RecentCall> m_calls;
     QProcess *m_helper = nullptr;
 };

@@ -36,6 +36,11 @@ public:
     // Null image if not found; the car screen then draws its own arrow.
     QImage icon(const QString &name, int size);
     void stopNavigation();
+    // Destination: Pure Maps search (shows results on the phone; pick one and
+    // "Route" there). Returns false if Pure Maps is not running.
+    bool search(const QString &text);
+    // Start the route Pure Maps has (hasRoute && !running).
+    bool startNavigation();
 
 signals:
     void changed();

@@ -1,5 +1,5 @@
 TARGET = harbour-sailauto
-QT += network quick qml dbus svg
+QT += network quick qml dbus svg sql
 CONFIG += c++14 link_pkgconfig
 
 include(third_party/openh264/openh264.pri)
@@ -99,6 +99,7 @@ DISTFILES += \
     qml/pages/MainPage.qml \
     qml/pages/LogPage.qml \
     qml/pages/AppsPage.qml \
+    qml/pages/DestinationsPage.qml \
     qml/cover/CoverPage.qml \
     rpm/harbour-sailauto.spec \
     tools/hu_sim.py \

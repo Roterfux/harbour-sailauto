@@ -72,6 +72,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_phonebook, &PhoneBook::log, this, &Controller::appendLog);
     connect(&m_phonebook, &PhoneBook::loaded, this, [this]() {
         m_screen.setContacts(m_phonebook.contacts());
+        m_screen.setRecentCalls(m_phonebook.recentCalls());
         m_calls.setContacts(m_phonebook.contacts());
     });
     connect(&m_screen, &CarScreen::dial, this, [this](const QString &number, const QString &name, const QImage &photo) {
@@ -81,9 +82,39 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_calls, &CallMonitor::changed, this, &Controller::onCallChanged);
     connect(&m_screen, &CarScreen::callAction, this, &Controller::onCallAction);
     connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
+    {
+        QSettings st;
+        m_home = st.value(QStringLiteral("nav/home")).toString();
+        m_work = st.value(QStringLiteral("nav/work")).toString();
+        m_recentDest = st.value(QStringLiteral("nav/recent")).toStringList();
+    }
+    pushDestinations();
+    connect(&m_screen, &CarScreen::navSearch, this, &Controller::onNavSearch);
+    connect(&m_screen, &CarScreen::musicListRequested, this, [this]() {
+        QString info;
+        m_browse = m_mpris.browse(&info);
+        appendLog(QStringLiteral("Musik: Liste – ") + info);
+        if (m_browse.isEmpty()) {
+            m_screen.showNotification(QStringLiteral("Musik"), QStringLiteral("Keine Liste verfügbar"),
+                                      QStringLiteral("%1 bietet keine Playlists/Titelliste an (MPRIS).").arg(m_mpris.playerName()));
+            return;
+        }
+        QVector<CarScreen::ListItem> items;
+        for (const MprisClient::Entry &e : m_browse) items.append({e.title, e.sub, e.playlist});
+        m_screen.setMusicList(items);
+    });
+    connect(&m_screen, &CarScreen::musicListPicked, this, [this](int i) {
+        if (i >= 0 && i < m_browse.size()) m_mpris.activate(m_browse[i]);
+    });
+    connect(&m_screen, &CarScreen::navStart, &m_nav, &PureMapsClient::startNavigation);
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
         m_screen.setNav(n, m_nav.icon(n.icon, 256));
+        if (n.app && !m_pendingSearch.isEmpty()) {
+            const QString t = m_pendingSearch;
+            m_pendingSearch.clear();
+            QTimer::singleShot(1500, this, [this, t]() { m_nav.search(t); }); // let its UI come up
+        }
     });
     connect(&m_phoneStatus, &PhoneStatus::changed, this, [this]() { m_screen.setPhoneState(m_phoneStatus.state()); });
     connect(&m_phoneStatus, &PhoneStatus::log, this, &Controller::appendLog);
@@ -601,6 +632,7 @@ void Controller::onCallChanged()
     if ((c.state == CallInfo::Active || c.state == CallInfo::Outgoing) && m_carAudioOn)
         stopCarAudio(QStringLiteral("Gespräch"));
     if (c.state == CallInfo::None && m_lastCall.state != CallInfo::None) {
+        QTimer::singleShot(3000, &m_phonebook, &PhoneBook::load); // refresh "Zuletzt"
         if (m_lastCall.state == CallInfo::Incoming && !m_callHandled) {
             const QString lastWho = m_lastCall.name.isEmpty() ? m_lastCall.number : m_lastCall.name;
             m_screen.showNotification(QStringLiteral("Telefon"), QStringLiteral("Verpasster Anruf"), lastWho);
@@ -645,6 +677,52 @@ void Controller::repairAudio()
     }
     const int n = m_router.repairSilentStreams();
     if (n == 0) appendLog(QStringLiteral("Ton reparieren: keine stumme Wiedergabe gefunden"));
+}
+
+void Controller::pushDestinations()
+{
+    m_screen.setDestinations(m_home, m_work, m_recentDest);
+}
+
+void Controller::setHomeAddress(const QString &a)
+{
+    if (a == m_home) return;
+    m_home = a.trimmed();
+    QSettings().setValue(QStringLiteral("nav/home"), m_home);
+    pushDestinations();
+    emit destinationsChanged();
+}
+
+void Controller::setWorkAddress(const QString &a)
+{
+    if (a == m_work) return;
+    m_work = a.trimmed();
+    QSettings().setValue(QStringLiteral("nav/work"), m_work);
+    pushDestinations();
+    emit destinationsChanged();
+}
+
+void Controller::onNavSearch(const QString &text)
+{
+    // Remember (not home/work), newest first, max 5.
+    if (text != m_home && text != m_work) {
+        m_recentDest.removeAll(text);
+        m_recentDest.prepend(text);
+        while (m_recentDest.size() > 5) m_recentDest.removeLast();
+        QSettings().setValue(QStringLiteral("nav/recent"), m_recentDest);
+        pushDestinations();
+    }
+    if (m_nav.state().app) {
+        m_nav.search(text);
+        return;
+    }
+    // Pure Maps not running: start it, search once it is on D-Bus.
+    m_pendingSearch = text;
+    QString err;
+    if (m_apps.launch(QStringLiteral("harbour-pure-maps"), &err) == AppCatalog::Failed)
+        appendLog(QStringLiteral("Navigation: Pure Maps nicht startbar (%1)").arg(err));
+    else
+        appendLog(QStringLiteral("Navigation: starte Pure Maps für die Zielsuche"));
 }
 
 void Controller::startedByCar()

@@ -205,6 +205,13 @@ Knopf „Pure Maps starten“. Ziel wählen weiterhin am Telefon.
 Sprachansagen von Pure Maps laufen mit „Telefon-Ton ins Auto“ über den
 Medienkanal ins Auto (eigener Ansagekanal: später).
 
+**Ziel eingeben (ab 0.10.0):** Ohne Route zeigt die Seite „Navigation“
+Zuhause, Arbeit (am Telefon: Pull-down „Ziele“), „Adresse eingeben“ (Tastatur,
+nur im Stand), „Kontakte“ (Kontakte mit Adresse) und die letzten 5 Ziele.
+Antippen schickt die Adresse an Pure Maps (startet es bei Bedarf). Pure Maps
+erlaubt von außen nur „Suchen“: am Telefon das Ergebnis antippen und „Route“,
+dann im Auto „Route bereit – Navigation starten“.
+
 OSM Scout (Karry) bietet keine Navigationsdaten über D-Bus an, nur
 „Seite öffnen“ und „Geo-Link öffnen“ – deshalb Pure Maps.
 
@@ -231,6 +238,13 @@ Ab 0.8.0.
   ab 0.9.2 als große Kacheln (3×2, blättern mit Pfeilen), eine Nummer = Antippen
   ruft sofort an. Apps aus der Kachel „Apps“ werden nur einmal gestartet.
   Im Log nur Anzahlen, keine Namen/Nummern.
+- **Zuletzt** (ab 0.10.0): dritter Reiter im Telefonbuch mit der Anrufliste
+  (rot = verpasst, Pfeil = ein-/ausgehend, Name aus dem Adressbuch, Zeit).
+  Antippen ruft zurück. Gelesen vom selben Helfer aus der Sailfish-Anrufliste.
+- **Musik-Listen** (ab 0.10.0): Knopf „Liste“ auf der Musikseite zeigt
+  Playlists und Titelliste des Players (MPRIS Playlists/TrackList), Antippen
+  spielt. Bietet ein Player das nicht an, sagt das Auto das; im Log steht, was
+  der Player kann.
 - **Wo steht mein Auto?** Die App fragt die GPS-Position des Autos ab (Sensor
   LOCATION) und merkt sich die letzte beim Trennen. Am Telefon: Abschnitt
   „Auto geparkt“ mit Uhrzeit, „Auf Karte zeigen“ (geo:-Link → Pure Maps /

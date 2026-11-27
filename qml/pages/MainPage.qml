@@ -21,6 +21,10 @@ Page {
                 onClicked: controller.repairAudio()
             }
             MenuItem {
+                text: qsTr("Ziele")
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("DestinationsPage.qml"))
+            }
+            MenuItem {
                 text: qsTr("Apps fürs Auto")
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("AppsPage.qml"))
             }

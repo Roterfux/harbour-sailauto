@@ -2,7 +2,11 @@
 
 #include <QBuffer>
 #include <QCoreApplication>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QProcess>
 #include <QFile>
 #include <QJsonArray>
@@ -12,6 +16,7 @@
 #include <algorithm>
 
 #ifdef HAVE_QTCONTACTS
+#include <QContactAddress>
 #include <QContactAvatar>
 #include <QContactDetailFilter>
 #include <QContactDisplayLabel>
@@ -51,10 +56,24 @@ const char kHelper[] = "/usr/libexec/harbour-sailauto/contacts-helper";
 
 PhoneBook::PhoneBook(QObject *parent) : QObject(parent) {}
 
-QVector<PhoneContact> PhoneBook::fromJson(const QByteArray &json)
+QVector<PhoneContact> PhoneBook::fromJson(const QByteArray &json, QVector<RecentCall> *calls)
 {
     QVector<PhoneContact> out;
-    for (const QJsonValue &v : QJsonDocument::fromJson(json).array()) {
+    const QJsonDocument doc = QJsonDocument::fromJson(json);
+    const QJsonArray contacts = doc.isArray() ? doc.array() : doc.object().value(QStringLiteral("contacts")).toArray();
+    if (calls) {
+        calls->clear();
+        for (const QJsonValue &v : doc.object().value(QStringLiteral("calls")).toArray()) {
+            const QJsonObject o = v.toObject();
+            RecentCall rc;
+            rc.number = o.value(QStringLiteral("number")).toString();
+            rc.time = static_cast<qint64>(o.value(QStringLiteral("time")).toDouble());
+            rc.outgoing = o.value(QStringLiteral("out")).toBool();
+            rc.missed = o.value(QStringLiteral("missed")).toBool();
+            if (!rc.number.isEmpty()) calls->append(rc);
+        }
+    }
+    for (const QJsonValue &v : contacts) {
         const QJsonObject o = v.toObject();
         PhoneContact c;
         c.name = o.value(QStringLiteral("name")).toString();
@@ -67,8 +86,48 @@ QVector<PhoneContact> PhoneBook::fromJson(const QByteArray &json)
             c.numbers << n.toObject().value(QStringLiteral("number")).toString();
             c.labels << n.toObject().value(QStringLiteral("label")).toString();
         }
-        if (!c.numbers.isEmpty()) out.append(c);
+        for (const QJsonValue &a : o.value(QStringLiteral("addresses")).toArray())
+            c.addresses << a.toString();
+        if (!c.numbers.isEmpty() || !c.addresses.isEmpty()) out.append(c);
     }
+    return out;
+}
+
+QVector<RecentCall> PhoneBook::loadCalls(QString *error)
+{
+    // Sailfish call history (commhistory): Events, type 3 = call,
+    // direction 1 in / 2 out. Same privileged folder rules as contacts.
+    QVector<RecentCall> out;
+    QString path = QString::fromLocal8Bit(qgetenv("SAILAUTO_COMMHISTORY_DB"));
+    if (path.isEmpty()) path = QDir::homePath() + QStringLiteral("/.local/share/commhistory/commhistory.db");
+    if (!QFile::exists(path)) {
+        if (error) *error = QStringLiteral("Anrufliste nicht gefunden");
+        return out;
+    }
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("commhistory"));
+        db.setDatabaseName(path);
+        db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+        if (!db.open()) {
+            if (error) *error = QStringLiteral("Anrufliste nicht lesbar: %1").arg(db.lastError().text());
+        } else {
+            QSqlQuery q(db);
+            if (!q.exec(QStringLiteral("SELECT remoteUid, startTime, direction, isMissedCall FROM Events "
+                                       "WHERE type = 3 ORDER BY startTime DESC LIMIT 60"))) {
+                if (error) *error = QStringLiteral("Anrufliste: %1").arg(q.lastError().text());
+            }
+            while (q.next()) {
+                RecentCall rc;
+                rc.number = q.value(0).toString();
+                rc.time = q.value(1).toLongLong();
+                rc.outgoing = q.value(2).toInt() == 2;
+                rc.missed = q.value(3).toInt() != 0;
+                if (!rc.number.isEmpty()) out.append(rc);
+            }
+        }
+        db.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("commhistory"));
     return out;
 }
 
@@ -80,7 +139,7 @@ QVector<PhoneContact> PhoneBook::loadDirect(QString *error)
     QContactFetchHint hint;
     hint.setDetailTypesHint(QList<QContactDetail::DetailType>()
                             << QContactDisplayLabel::Type << QContactName::Type << QContactPhoneNumber::Type
-                            << QContactAvatar::Type << QContactFavorite::Type);
+                            << QContactAvatar::Type << QContactFavorite::Type << QContactAddress::Type);
     // Only contacts with a phone number (filter: detail type exists)
     QContactDetailFilter hasNumber;
     hasNumber.setDetailType(QContactPhoneNumber::Type);
@@ -95,6 +154,12 @@ QVector<PhoneContact> PhoneBook::loadDirect(QString *error)
             c.name = (n.firstName() + QLatin1Char(' ') + n.lastName()).trimmed();
         }
         c.favorite = k.detail<QContactFavorite>().isFavorite();
+        for (const QContactAddress &a : k.details<QContactAddress>()) {
+            QStringList parts;
+            for (const QString &x : {a.street(), (a.postcode() + QLatin1Char(' ') + a.locality()).trimmed(), a.country()})
+                if (!x.trimmed().isEmpty()) parts << x.trimmed();
+            if (!parts.isEmpty()) c.addresses << parts.join(QStringLiteral(", "));
+        }
         for (const QContactPhoneNumber &n : k.details<QContactPhoneNumber>()) {
             if (n.number().trimmed().isEmpty() || c.numbers.contains(n.number())) continue;
             c.numbers << n.number();
@@ -105,7 +170,7 @@ QVector<PhoneContact> PhoneBook::loadDirect(QString *error)
             c.photo = smallPhoto(u.isLocalFile() ? u.toLocalFile() : u.toString());
             if (!c.photo.isNull()) break;
         }
-        if (!c.numbers.isEmpty()) out.append(c);
+        if (!c.numbers.isEmpty() || !c.addresses.isEmpty()) out.append(c);
     }
 #else
     if (error) *error = QStringLiteral("ohne Adressbuch gebaut");
@@ -131,6 +196,7 @@ int PhoneBook::dumpMain(int argc, char *argv[])
             nums.append(n);
         }
         o.insert(QStringLiteral("numbers"), nums);
+        if (!c.addresses.isEmpty()) o.insert(QStringLiteral("addresses"), QJsonArray::fromStringList(c.addresses));
         if (!c.photo.isNull()) {
             // The photo files are in the privileged folder too: send the pixels.
             QByteArray png;
@@ -143,7 +209,21 @@ int PhoneBook::dumpMain(int argc, char *argv[])
     }
     QFile out;
     out.open(stdout, QIODevice::WriteOnly);
-    out.write(QJsonDocument(arr).toJson(QJsonDocument::Compact));
+    QString callError;
+    QJsonArray calls;
+    for (const RecentCall &rc : loadCalls(&callError)) {
+        QJsonObject o;
+        o.insert(QStringLiteral("number"), rc.number);
+        o.insert(QStringLiteral("time"), static_cast<double>(rc.time));
+        o.insert(QStringLiteral("out"), rc.outgoing);
+        o.insert(QStringLiteral("missed"), rc.missed);
+        calls.append(o);
+    }
+    if (!callError.isEmpty()) error += (error.isEmpty() ? QString() : QStringLiteral("; ")) + callError;
+    QJsonObject root;
+    root.insert(QStringLiteral("contacts"), arr);
+    root.insert(QStringLiteral("calls"), calls);
+    out.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
     if (!error.isEmpty()) {
         QFile err;
         err.open(stderr, QIODevice::WriteOnly);
@@ -161,7 +241,7 @@ void PhoneBook::load()
     if (!fake.isEmpty()) {
         QFile f(fake);
         f.open(QIODevice::ReadOnly);
-        finish(fromJson(f.readAll()), t.elapsed(), QStringLiteral("Testdatei"));
+        finish(fromJson(f.readAll(), &m_calls), t.elapsed(), QStringLiteral("Testdatei"));
         return;
     }
     if (QFile::exists(QLatin1String(kHelper))) {
@@ -174,7 +254,10 @@ void PhoneBook::load()
             const QString err = QString::fromUtf8(m_helper->readAllStandardError()).trimmed();
             if (code != 0 || !err.isEmpty())
                 emit log(QStringLiteral("Telefonbuch: Helfer meldet %1 (Code %2)").arg(err.isEmpty() ? QStringLiteral("-") : err).arg(code));
-            finish(fromJson(json), clock->elapsed(), QStringLiteral("Helfer"));
+            QVector<RecentCall> calls;
+            QVector<PhoneContact> list = fromJson(json, &calls);
+            m_calls = calls;
+            finish(list, clock->elapsed(), QStringLiteral("Helfer"));
             delete clock;
             m_helper->deleteLater();
             m_helper = nullptr;
@@ -185,6 +268,10 @@ void PhoneBook::load()
     QString error;
     QVector<PhoneContact> list = loadDirect(&error);
     if (!error.isEmpty()) emit log(QStringLiteral("Telefonbuch: ") + error);
+    QString callError;
+    m_calls = loadCalls(&callError);
+    if (!callError.isEmpty() && !qEnvironmentVariableIsSet("SAILAUTO_FAKE_CONTACTS"))
+        emit log(QStringLiteral("Telefonbuch: ") + callError);
     finish(list, t.elapsed(), QStringLiteral("direkt"));
 }
 
@@ -199,7 +286,7 @@ void PhoneBook::finish(QVector<PhoneContact> out, qint64 ms, const QString &sour
         favs += c.favorite;
         photos += !c.photo.isNull();
     }
-    emit log(QStringLiteral("Telefonbuch: %1 Kontakte mit Nummer, %2 Favoriten, %3 mit Bild (%4, %5 ms)")
-                 .arg(m_contacts.size()).arg(favs).arg(photos).arg(source).arg(ms));
+    emit log(QStringLiteral("Telefonbuch: %1 Kontakte, %2 Favoriten, %3 mit Bild, %4 Anrufe (%5, %6 ms)")
+                 .arg(m_contacts.size()).arg(favs).arg(photos).arg(m_calls.size()).arg(source).arg(ms));
     emit loaded();
 }

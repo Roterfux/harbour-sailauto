@@ -7,6 +7,7 @@
 #include <QDBusObjectPath>
 #include <QDBusReply>
 #include <QDBusVariant>
+#include <QDBusMetaType>
 #include <QUrl>
 #include <QVariantMap>
 
@@ -209,4 +210,82 @@ void MprisClient::setPreferred(const QString &desktopId)
     m_preferred = desktopId;
     m_preferredSince.start();
     QTimer::singleShot(1500, this, &MprisClient::poll);
+}
+
+QVector<MprisClient::Entry> MprisClient::browse(QString *info)
+{
+    QVector<Entry> out;
+    if (m_service.isEmpty()) {
+        if (info) *info = QStringLiteral("kein Player");
+        return out;
+    }
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    // Playlists: GetPlaylists(u index, u max, s order, b reverse) -> a(oss)
+    int playlists = 0, tracks = 0;
+    {
+        QDBusMessage m = QDBusMessage::createMethodCall(m_service, QLatin1String(kPath),
+                                                        QStringLiteral("org.mpris.MediaPlayer2.Playlists"),
+                                                        QStringLiteral("GetPlaylists"));
+        m << 0u << 200u << QStringLiteral("Alphabetical") << false;
+        const QDBusMessage r = bus.call(m, QDBus::Block, 1500);
+        if (r.type() == QDBusMessage::ReplyMessage && !r.arguments().isEmpty()) {
+            const QDBusArgument arg = r.arguments().first().value<QDBusArgument>();
+            arg.beginArray();
+            while (!arg.atEnd()) {
+                QDBusObjectPath id;
+                QString name, icon;
+                arg.beginStructure();
+                arg >> id >> name >> icon;
+                arg.endStructure();
+                out.append({id.path(), name, QString(), true});
+                ++playlists;
+            }
+            arg.endArray();
+        }
+    }
+    // TrackList: Tracks (ao) + GetTracksMetadata(ao) -> aa{sv}
+    if (getProperty(m_service, kRootIface, "HasTrackList").toBool()) {
+        const QVariant v = getProperty(m_service, "org.mpris.MediaPlayer2.TrackList", "Tracks");
+        QList<QDBusObjectPath> ids;
+        if (v.canConvert<QDBusArgument>()) v.value<QDBusArgument>() >> ids;
+        if (!ids.isEmpty()) {
+            QDBusMessage m = QDBusMessage::createMethodCall(m_service, QLatin1String(kPath),
+                                                            QStringLiteral("org.mpris.MediaPlayer2.TrackList"),
+                                                            QStringLiteral("GetTracksMetadata"));
+            m << QVariant::fromValue(ids.mid(0, 200));
+            const QDBusMessage r = bus.call(m, QDBus::Block, 2000);
+            if (r.type() == QDBusMessage::ReplyMessage && !r.arguments().isEmpty()) {
+                const QDBusArgument arg = r.arguments().first().value<QDBusArgument>();
+                arg.beginArray();
+                while (!arg.atEnd()) {
+                    QVariantMap md;
+                    arg >> md;
+                    const QVariant tid = md.value(QStringLiteral("mpris:trackid"));
+                    const QString id = tid.canConvert<QDBusObjectPath>() ? tid.value<QDBusObjectPath>().path() : tid.toString();
+                    out.append({id, md.value(QStringLiteral("xesam:title")).toString(),
+                                joinList(md.value(QStringLiteral("xesam:artist"))), false});
+                    ++tracks;
+                }
+                arg.endArray();
+            }
+        }
+    }
+    if (info)
+        *info = QStringLiteral("%1: %2 Playlists, %3 Titel in der Liste").arg(playerName()).arg(playlists).arg(tracks);
+    return out;
+}
+
+void MprisClient::activate(const Entry &e)
+{
+    QDBusMessage m = e.playlist
+        ? QDBusMessage::createMethodCall(m_service, QLatin1String(kPath), QStringLiteral("org.mpris.MediaPlayer2.Playlists"),
+                                         QStringLiteral("ActivatePlaylist"))
+        : QDBusMessage::createMethodCall(m_service, QLatin1String(kPath), QStringLiteral("org.mpris.MediaPlayer2.TrackList"),
+                                         QStringLiteral("GoTo"));
+    m << QVariant::fromValue(QDBusObjectPath(e.id));
+    const QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 2000);
+    emit log(r.type() == QDBusMessage::ErrorMessage
+                 ? QStringLiteral("Musik: Auswahl fehlgeschlagen (%1)").arg(r.errorMessage())
+                 : QStringLiteral("Musik: %1 gewählt").arg(e.playlist ? QStringLiteral("Playlist") : QStringLiteral("Titel")));
+    QTimer::singleShot(300, this, &MprisClient::poll);
 }
