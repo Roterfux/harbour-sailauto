@@ -7,6 +7,27 @@
 #include <QPainterPath>
 #include <QtMath>
 
+
+// Text never gets cut with "…": shrink the font (down to ~55 %), and wrap
+// onto a second line when the rect is tall enough.
+static void drawFit(QPainter &p, const QRect &r, int flags, const QString &t)
+{
+    p.save();
+    QFont f = p.font();
+    int px = f.pixelSize() > 0 ? f.pixelSize() : 16;
+    const int minPx = qMax(9, px * 55 / 100);
+    for (; px > minPx; --px) {
+        f.setPixelSize(px);
+        if (QFontMetrics(f).width(t) <= r.width()) break;
+    }
+    f.setPixelSize(px);
+    p.setFont(f);
+    const QFontMetrics fm(f);
+    if (fm.width(t) > r.width() && r.height() >= fm.height() * 2) flags |= Qt::TextWordWrap;
+    p.drawText(r, flags, t);
+    p.restore();
+}
+
 namespace {
 struct Palette { QColor bg, panel, panelPressed, text, dim, accent; };
 Palette palette(bool night)
@@ -104,21 +125,21 @@ void CarScreen::drawBanner(QPainter &p)
     p.setFont(f);
     p.setPen(c.accent);
     const QString head = b.app + (m_banners.size() > 1 ? QStringLiteral("  (+%1)").arg(m_banners.size() - 1) : QString());
-    p.drawText(QRect(in.left(), in.top(), in.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
-               QFontMetrics(f).elidedText(head, Qt::ElideRight, in.width()));
+    drawFit(p, QRect(in.left(), in.top(), in.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
+               head);
     f.setPixelSize(bar * 9 / 20);
     p.setFont(f);
     p.setPen(c.text);
     const QRect titleR(in.left(), in.top() + bar / 2, in.width(), bar * 2 / 3);
-    p.drawText(titleR, Qt::AlignLeft | Qt::AlignVCenter, QFontMetrics(f).elidedText(b.title, Qt::ElideRight, in.width()));
+    drawFit(p, titleR, Qt::AlignLeft | Qt::AlignVCenter, b.title);
     f.setBold(false);
     f.setPixelSize(bar * 2 / 5);
     p.setFont(f);
     p.setPen(m_parked ? c.text : c.dim);
     const QString body = m_parked ? b.body : (b.body.isEmpty() ? QString() : QStringLiteral("Text nur im Stand"));
     const QRect bodyR(in.left(), titleR.bottom(), in.width(), in.bottom() - titleR.bottom());
-    p.drawText(bodyR, Qt::AlignLeft | Qt::AlignVCenter,
-               QFontMetrics(f).elidedText(QString(body).replace(QLatin1Char('\n'), QLatin1Char(' ')), Qt::ElideRight, in.width()));
+    drawFit(p, bodyR, Qt::AlignLeft | Qt::AlignVCenter,
+               QString(body).replace(QLatin1Char('\n'), QLatin1Char(' ')));
 }
 
 void CarScreen::setNav(const NavState &s, const QImage &icon)
@@ -326,8 +347,8 @@ void CarScreen::drawCall(QPainter &p)
         f.setPixelSize(bar * 4 / 5);
         p.setFont(f);
         p.setPen(c.text);
-        p.drawText(QRect(textR.left(), textR.top() + ph / 4, textR.width(), ph / 2), Qt::AlignLeft | Qt::AlignVCenter,
-                   QFontMetrics(f).elidedText(who, Qt::ElideRight, textR.width()));
+        drawFit(p, QRect(textR.left(), textR.top() + ph / 4, textR.width(), ph / 2), Qt::AlignLeft | Qt::AlignVCenter,
+                   who);
         if (!m_call.name.isEmpty() && !m_call.number.isEmpty()) {
             f.setPixelSize(bar / 2);
             f.setBold(false);
@@ -383,8 +404,8 @@ void CarScreen::drawCall(QPainter &p)
     f.setBold(true);
     p.setFont(f);
     p.setPen(c.text);
-    p.drawText(textR, Qt::AlignLeft | Qt::AlignVCenter,
-               QFontMetrics(f).elidedText(status + QStringLiteral(": ") + who, Qt::ElideRight, textR.width()));
+    drawFit(p, textR, Qt::AlignLeft | Qt::AlignVCenter,
+               status + QStringLiteral(": ") + who);
 }
 
 void CarScreen::setContacts(const QVector<PhoneContact> &contacts)
@@ -557,8 +578,8 @@ void CarScreen::drawPhonePage(QPainter &p, const QRect &body)
             p.setPen(rc.missed ? QColor(240, 110, 100) : c.text);
             const QString who = ci >= 0 ? m_contacts[ci].name : rc.number;
             const int whenW = QFontMetrics(f).width(when) + 20;
-            p.drawText(tr.adjusted(0, 0, -whenW, 0), Qt::AlignLeft | Qt::AlignVCenter,
-                       QFontMetrics(f).elidedText(who, Qt::ElideRight, tr.width() - whenW));
+            drawFit(p, tr.adjusted(0, 0, -whenW, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                       who);
             f.setBold(false);
             p.setFont(f);
             p.setPen(c.dim);
@@ -661,16 +682,16 @@ void CarScreen::drawPhonePage(QPainter &p, const QRect &body)
         f.setBold(true);
         p.setFont(f);
         p.setPen(c.text);
-        p.drawText(tr.adjusted(0, 0, 0, -r.height() / 3), Qt::AlignLeft | Qt::AlignBottom,
-                   QFontMetrics(f).elidedText(ct.name, Qt::ElideRight, tr.width()));
+        drawFit(p, tr.adjusted(0, 0, 0, -r.height() / 3), Qt::AlignLeft | Qt::AlignBottom,
+                   ct.name);
         f.setBold(false);
         f.setPixelSize(qMin(bar * 3 / 10, r.height() * 3 / 10));
         p.setFont(f);
         p.setPen(c.dim);
         const QString sub = ct.labels.value(0) + QStringLiteral(" ") + ct.numbers.value(0)
                             + (ct.numbers.size() > 1 ? QStringLiteral("  (+%1)").arg(ct.numbers.size() - 1) : QString());
-        p.drawText(tr.adjusted(0, r.height() * 2 / 3 - 4, 0, 0), Qt::AlignLeft | Qt::AlignTop,
-                   QFontMetrics(f).elidedText(sub, Qt::ElideRight, tr.width()));
+        drawFit(p, tr.adjusted(0, r.height() * 2 / 3 - 4, 0, 0), Qt::AlignLeft | Qt::AlignTop,
+                   sub);
         m_phoneRows.append({r.intersected(m_phoneList), vis[k]});
     }
     p.restore();
@@ -768,8 +789,8 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         f.setPixelSize(bar * 2 / 5);
         p.setFont(f);
         const QString street = m_nav.street.isEmpty() ? m_nav.narrative : m_nav.street;
-        p.drawText(QRect(tr.left(), tr.center().y(), tr.width(), tr.height() / 2), Qt::AlignLeft | Qt::AlignVCenter,
-                   QFontMetrics(f).elidedText(street, Qt::ElideRight, tr.width()));
+        drawFit(p, QRect(tr.left(), tr.center().y(), tr.width(), tr.height() / 2), Qt::AlignLeft | Qt::AlignVCenter,
+                   street);
         // Destination strip
         const QRect strip(area.left() + 10, area.bottom() - bar - 6, area.width() * 2 / 5, bar); // leaves the car free
         p.setBrush(card);
@@ -820,7 +841,7 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
         f.setBold(bold);
         p.setFont(f);
         p.setPen(col);
-        p.drawText(r, Qt::AlignLeft | Qt::AlignVCenter, QFontMetrics(f).elidedText(text, Qt::ElideRight, r.width()));
+        drawFit(p, r, Qt::AlignLeft | Qt::AlignVCenter, text);
     };
     const int px = bar * 2 / 5;
 
@@ -1003,14 +1024,14 @@ void CarScreen::drawMusicList(QPainter &p, const QRect &body)
         p.setPen(c.text);
         const QString title = (it.playlist ? QStringLiteral("▤  ") : QString()) + (it.title.isEmpty() ? QStringLiteral("(ohne Titel)") : it.title);
         const QRect tr = r.adjusted(14, 0, -14, it.sub.isEmpty() ? 0 : -rh / 3);
-        p.drawText(tr, Qt::AlignLeft | Qt::AlignVCenter, QFontMetrics(f).elidedText(title, Qt::ElideRight, tr.width()));
+        drawFit(p, tr, Qt::AlignLeft | Qt::AlignVCenter, title);
         if (!it.sub.isEmpty()) {
             f.setBold(false);
             f.setPixelSize(qMin(bar * 3 / 10, rh * 3 / 10));
             p.setFont(f);
             p.setPen(c.dim);
             const QRect sr = r.adjusted(14, rh * 2 / 3 - 4, -14, 0);
-            p.drawText(sr, Qt::AlignLeft | Qt::AlignTop, QFontMetrics(f).elidedText(it.sub, Qt::ElideRight, sr.width()));
+            drawFit(p, sr, Qt::AlignLeft | Qt::AlignTop, it.sub);
         }
         m_musicRows.append(qMakePair(r, idx));
     }
@@ -1441,18 +1462,17 @@ void CarScreen::drawPage(QPainter &p)
         p.setFont(t);
         p.setPen(c.text);
         const QFontMetrics fmTitle(t);
-        p.drawText(textRect.adjusted(0, 0, 0, -artSize * 2 / 3), Qt::AlignLeft | Qt::AlignVCenter,
-                   fmTitle.elidedText(m_title.isEmpty() ? QStringLiteral("(ohne Titel)") : m_title, Qt::ElideRight, textRect.width()));
+        drawFit(p, textRect.adjusted(0, 0, 0, -artSize * 2 / 3), Qt::AlignLeft | Qt::AlignVCenter,
+                   m_title.isEmpty() ? QStringLiteral("(ohne Titel)") : m_title);
         t.setBold(false);
         t.setPixelSize(bar / 2);
         p.setFont(t);
         const QFontMetrics fm(t);
-        p.drawText(textRect.adjusted(0, artSize / 3, 0, -artSize / 3), Qt::AlignLeft | Qt::AlignVCenter,
-                   fm.elidedText(m_artist, Qt::ElideRight, textRect.width()));
+        drawFit(p, textRect.adjusted(0, artSize / 3, 0, -artSize / 3), Qt::AlignLeft | Qt::AlignVCenter,
+                   m_artist);
         p.setPen(c.dim);
-        p.drawText(textRect.adjusted(0, artSize * 2 / 3, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
-                   fm.elidedText(m_album.isEmpty() ? m_player : m_album + QStringLiteral(" · ") + m_player,
-                                 Qt::ElideRight, textRect.width()));
+        drawFit(p, textRect.adjusted(0, artSize * 2 / 3, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
+                   m_album.isEmpty() ? m_player : m_album + QStringLiteral(" · ") + m_player);
         // Progress bar (position extrapolated between polls while playing) and
         // time. Some players (podcasts) give no length: then only the time.
         {
@@ -1543,7 +1563,7 @@ void CarScreen::drawPage(QPainter &p)
             p.setFont(nf);
             p.setPen(c.text);
             const QRect tr(r.left() + 6, ir.bottom() + 4, r.width() - 12, r.bottom() - ir.bottom() - 6);
-            p.drawText(tr, Qt::AlignCenter, nfm.elidedText(a.name, Qt::ElideRight, tr.width()));
+            drawFit(p, tr, Qt::AlignCenter, a.name);
         }
         if (!m_appPrev.isNull()) {
             const int pages = (m_apps.size() + 7) / 8;
