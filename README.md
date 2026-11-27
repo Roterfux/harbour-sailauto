@@ -212,9 +212,15 @@ Antippen schickt die Adresse an Pure Maps (startet es bei Bedarf). Pure Maps
 erlaubt von außen nur „Suchen“: am Telefon das Ergebnis antippen und „Route“,
 dann im Auto „Route bereit – Navigation starten“.
 
+**Ziel im Auto wählen (ab 0.12.0):** Suche über OSM Scout Server (offline,
+`/v1/search`, nach Position gewichtet); die Treffer stehen im Auto, Antippen
+schickt den Punkt an Pure Maps (ShowPoi). Am Telefon bleibt ein Tipp auf
+„Navigieren“, dann im Auto „Navigation starten“. Ohne OSM Scout Server sucht
+Pure Maps wie bisher am Telefon.
+
 **Live-Karte (ab 0.11.0, optional, Pull-down „Ziele“ → „Live-Karte“):** Karte
 geneigt (3D), Fahrtrichtung oben, Auto unten in der Mitte, Position vom GPS des
-Autos (zwischen den Messungen weitergerechnet), Zoom nach Tempo. Kacheln von
+Autos, sonst (ab 0.12.0) vom Telefon-GPS; zwischen den Messungen weitergerechnet, Zoom nach Tempo. Kacheln von
 OSM Scout Server (`http://127.0.0.1:8553/v1/tile?…`, Adresse änderbar), Tag/Nacht
 folgt dem Auto. Mit Route: Abbiege-Karte oben links, Restweg unten links.
 Gezeichnet mit QPainter (kein OpenGL); braucht spürbar Rechenleistung.
@@ -256,6 +262,15 @@ Ab 0.8.0.
   LOCATION) und merkt sich die letzte beim Trennen. Am Telefon: Abschnitt
   „Auto geparkt“ mit Uhrzeit, „Auf Karte zeigen“ (geo:-Link → Pure Maps /
   OSM Scout) und „Kopieren“. Koordinaten stehen nicht im Log.
+
+## Wetter, Ladebildschirm
+
+Ab 0.12.0. **Wetter** oben im Auto (Symbol + Temperatur), antippen: jetzt,
+nächste 6 Stunden, 3 Tage. Quelle Open-Meteo (kein Schlüssel); dafür geht die
+auf ~10 km gerundete Position ins Internet. Schalter „Wetter im Auto“.
+**Ladebildschirm** beim Start einer App aus dem Auto (bis ihr Player da ist,
+max. 15 s; Antippen schließt). **Musik ohne Player:** freundlicher Hinweis und
+Kacheln zum Starten der Musik-Apps.
 
 ## Autostart im Auto
 

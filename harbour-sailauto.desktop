@@ -10,6 +10,6 @@ X-Nemo-Single-Instance=yes
 [X-Sailjail]
 # /dev/usb_accessory is not reachable from inside the sandbox.
 Sandboxing=Disabled
-Permissions=Internet
+Permissions=Internet;Location
 OrganizationName=org.roterfux
 ApplicationName=harbour-sailauto

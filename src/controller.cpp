@@ -7,6 +7,7 @@
 #include <QSettings>
 #include <QRegularExpression>
 #include <QFileInfo>
+#include <QGeoPositionInfoSource>
 #include <QDBusConnection>
 #include <QDBusMessage>
 #include <QDBusArgument>
@@ -62,9 +63,15 @@ Controller::Controller(QObject *parent) : QObject(parent)
         case AppCatalog::AlreadyRunning:
             appendLog(QStringLiteral("App: \"%1\" läuft schon, starte nicht nochmal").arg(name));
             break;
-        case AppCatalog::Started:
+        case AppCatalog::Started: {
             appendLog(QStringLiteral("App: starte \"%1\" vom Auto aus").arg(name));
+            QImage icon;
+            if (a && !a->iconPath.isEmpty()) icon.load(a->iconPath);
+            m_screen.showLoading(name, icon);
+            // Music apps: until their player shows up (see MPRIS). Others: a short moment.
+            if (!a || !a->media) QTimer::singleShot(3000, this, [this]() { m_screen.hideLoading(); });
             break;
+        }
         }
         if (a && a->media) m_mpris.setPreferred(id);
     });
@@ -83,6 +90,9 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_screen, &CarScreen::callAction, this, &Controller::onCallAction);
     connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
     connect(&m_map, &MapView::log, this, &Controller::appendLog);
+    m_weatherEnabled = QSettings().value(QStringLiteral("weather/enabled"), true).toBool();
+    connect(&m_weather, &WeatherClient::log, this, &Controller::appendLog);
+    connect(&m_weather, &WeatherClient::changed, this, [this]() { m_screen.setWeather(m_weather.data()); });
     {
         QSettings st;
         m_mapEnabled = st.value(QStringLiteral("map/enabled"), false).toBool();
@@ -98,6 +108,30 @@ Controller::Controller(QObject *parent) : QObject(parent)
     }
     pushDestinations();
     connect(&m_screen, &CarScreen::navSearch, this, &Controller::onNavSearch);
+    connect(&m_geo, &GeoSearch::finished, this, [this](const QString &text, const QVector<GeoResult> &res, const QString &error) {
+        m_geoResults = res;
+        if (!error.isEmpty()) {
+            appendLog(QStringLiteral("Navigation: Adresssuche (OSM Scout Server) nicht erreichbar, suche in Pure Maps"));
+            m_screen.setSearchResults({}, false, QStringLiteral("Ohne OSM Scout Server: Pure Maps sucht am Telefon.\n"
+                                                               "Dort Ergebnis antippen, dann „Route“."));
+            sendToPureMaps(text);
+            return;
+        }
+        appendLog(QStringLiteral("Navigation: %1 Treffer").arg(res.size()));
+        m_screen.setSearchResults(res, false, QStringLiteral("Nichts gefunden. Anders schreiben?"));
+    });
+    connect(&m_screen, &CarScreen::navPick, this, [this](int i) {
+        if (i < 0 || i >= m_geoResults.size()) return;
+        const GeoResult g = m_geoResults[i];
+        if (m_nav.state().app) {
+            m_nav.showPoi(g.title, g.lat, g.lon);
+            return;
+        }
+        m_pendingPoi = g;
+        QString err;
+        if (m_apps.launch(QStringLiteral("harbour-pure-maps"), &err) == AppCatalog::Failed)
+            appendLog(QStringLiteral("Navigation: Pure Maps nicht startbar (%1)").arg(err));
+    });
     connect(&m_screen, &CarScreen::musicListRequested, this, [this]() {
         QString info;
         m_browse = m_mpris.browse(&info);
@@ -118,6 +152,11 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
         m_screen.setNav(n, m_nav.icon(n.icon, 256));
+        if (n.app && !m_pendingPoi.title.isEmpty()) {
+            const GeoResult g = m_pendingPoi;
+            m_pendingPoi = GeoResult();
+            QTimer::singleShot(1500, this, [this, g]() { m_nav.showPoi(g.title, g.lat, g.lon); });
+        }
         if (n.app && !m_pendingSearch.isEmpty()) {
             const QString t = m_pendingSearch;
             m_pendingSearch.clear();
@@ -127,6 +166,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_phoneStatus, &PhoneStatus::changed, this, [this]() { m_screen.setPhoneState(m_phoneStatus.state()); });
     connect(&m_phoneStatus, &PhoneStatus::log, this, &Controller::appendLog);
     connect(&m_mpris, &MprisClient::changed, this, [this]() {
+        if (m_mpris.showingPreferred()) m_screen.hideLoading();
         m_screen.setNowPlaying(m_mpris.hasPlayer(), m_mpris.playerName(), m_mpris.title(), m_mpris.artist(),
                                m_mpris.album(), m_mpris.art(), m_mpris.playing(), m_mpris.positionMs(), m_mpris.lengthMs());
     });
@@ -576,7 +616,9 @@ QString Controller::parkedTime() const
 
 void Controller::onCarLocation(double lat, double lon, double acc, double bearing, double speed)
 {
+    m_carFixClock.start();
     if (m_mapEnabled) m_map.updateFix(lat, lon, bearing, speed);
+    if (m_weatherEnabled) m_weather.setPosition(lat, lon);
     const bool first = !m_carFix.valid;
     m_carFix.valid = true;
     m_carFix.lat = lat;
@@ -688,6 +730,50 @@ void Controller::repairAudio()
     if (n == 0) appendLog(QStringLiteral("Ton reparieren: keine stumme Wiedergabe gefunden"));
 }
 
+void Controller::startPhonePosition()
+{
+    if (m_phonePos || (!m_mapEnabled && !m_weatherEnabled)) return;
+    m_phonePos = QGeoPositionInfoSource::createDefaultSource(this);
+    if (!m_phonePos) {
+        appendLog(QStringLiteral("Telefon-GPS: keine Positionsquelle (Ortung aus?)"));
+        return;
+    }
+    m_phonePos->setUpdateInterval(1000);
+    connect(m_phonePos, &QGeoPositionInfoSource::positionUpdated, this, [this](const QGeoPositionInfo &info) {
+        if (!info.isValid()) return;
+        if (!m_phonePosLogged) {
+            m_phonePosLogged = true;
+            appendLog(QStringLiteral("Telefon-GPS: Position da"));
+        }
+        // The car's GPS wins while it is fresh.
+        if (m_carFixClock.isValid() && m_carFixClock.elapsed() < 3000) return;
+        const QGeoCoordinate c = info.coordinate();
+        const double dir = info.hasAttribute(QGeoPositionInfo::Direction) ? info.attribute(QGeoPositionInfo::Direction) : -1;
+        const double speed = info.hasAttribute(QGeoPositionInfo::GroundSpeed) ? info.attribute(QGeoPositionInfo::GroundSpeed) : -1;
+        if (m_mapEnabled) m_map.updateFix(c.latitude(), c.longitude(), dir, speed);
+        if (m_weatherEnabled) m_weather.setPosition(c.latitude(), c.longitude());
+    });
+    m_phonePos->startUpdates();
+}
+
+void Controller::stopPhonePosition()
+{
+    if (!m_phonePos) return;
+    m_phonePos->stopUpdates();
+    m_phonePos->deleteLater();
+    m_phonePos = nullptr;
+    m_phonePosLogged = false;
+}
+
+void Controller::setWeatherEnabled(bool on)
+{
+    if (on == m_weatherEnabled) return;
+    m_weatherEnabled = on;
+    QSettings().setValue(QStringLiteral("weather/enabled"), on);
+    if (!on) m_screen.setWeather(WeatherData());
+    emit weatherChanged();
+}
+
 void Controller::setMapEnabled(bool on)
 {
     if (on == m_mapEnabled) return;
@@ -695,6 +781,8 @@ void Controller::setMapEnabled(bool on)
     QSettings().setValue(QStringLiteral("map/enabled"), on);
     m_screen.setMap(on ? &m_map : nullptr);
     appendLog(on ? QStringLiteral("Karte im Auto: an") : QStringLiteral("Karte im Auto: aus"));
+    if (on && m_carFix.valid) m_map.updateFix(m_carFix.lat, m_carFix.lon, -1, -1);
+    if (on && m_session) startPhonePosition();
     emit mapChanged();
 }
 
@@ -739,11 +827,18 @@ void Controller::onNavSearch(const QString &text)
         QSettings().setValue(QStringLiteral("nav/recent"), m_recentDest);
         pushDestinations();
     }
+    // Results in the car via OSM Scout Server; fallback: Pure Maps search on the phone.
+    if (m_carFix.valid) m_geo.setBias(m_carFix.lat, m_carFix.lon);
+    else if (m_parked.valid) m_geo.setBias(m_parked.lat, m_parked.lon);
+    m_geo.search(text);
+}
+
+void Controller::sendToPureMaps(const QString &text)
+{
     if (m_nav.state().app) {
         m_nav.search(text);
         return;
     }
-    // Pure Maps not running: start it, search once it is on D-Bus.
     m_pendingSearch = text;
     QString err;
     if (m_apps.launch(QStringLiteral("harbour-pure-maps"), &err) == AppCatalog::Failed)
@@ -1106,6 +1201,8 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     startRouter();
     m_mpris.start();
     m_phoneStatus.start();
+    startPhonePosition();
+    if (m_weatherEnabled && m_parked.valid) m_weather.setPosition(m_parked.lat, m_parked.lon);
     m_nav.start();
     m_calls.start();
     QTimer::singleShot(2000, &m_phonebook, &PhoneBook::load); // after the picture is up
@@ -1167,6 +1264,7 @@ void Controller::onSessionClosed(const QString &reason)
     stopRouter();
     m_mpris.stop();
     m_phoneStatus.stop();
+    stopPhonePosition();
     m_nav.stop();
     m_calls.stop();
     m_screen.setCall(CallInfo(), false);

@@ -46,6 +46,8 @@ public slots:
     void seekToFraction(double fraction);
     // An app was started from the car: show its player once it appears.
     void setPreferred(const QString &desktopId);
+    // The player of the app started from the car is now the shown one.
+    bool showingPreferred() const { return m_showingPreferred; }
 
 signals:
     void changed();
@@ -57,6 +59,7 @@ private:
 
     QTimer m_timer;
     QString m_preferred;
+    bool m_showingPreferred = false;
     QElapsedTimer m_preferredSince;
     QHash<QString, QString> m_desktopOf; // service -> DesktopEntry
     QString m_service, m_identity;

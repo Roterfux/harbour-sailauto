@@ -135,3 +135,17 @@ bool PureMapsClient::startNavigation()
     QTimer::singleShot(300, this, &PureMapsClient::poll);
     return ok;
 }
+
+bool PureMapsClient::showPoi(const QString &title, double lat, double lon)
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(QLatin1String(kService), QStringLiteral("/io/github/rinigus/PureMaps"),
+                                                    QStringLiteral("io.github.rinigus.PureMaps"), QStringLiteral("ShowPoi"));
+    m << title << lat << lon;
+    const QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 3000);
+    if (r.type() == QDBusMessage::ErrorMessage) {
+        emit log(QStringLiteral("Navigation: Ziel an Pure Maps fehlgeschlagen (%1)").arg(r.errorName()));
+        return false;
+    }
+    emit log(QStringLiteral("Navigation: gewähltes Ziel an Pure Maps geschickt"));
+    return true;
+}

@@ -14,6 +14,8 @@
 #include "apps/appcatalog.h"
 #include "nav/puremaps.h"
 #include "nav/mapview.h"
+#include "nav/geosearch.h"
+#include "weather/weather.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -61,6 +63,7 @@ class Controller : public QObject
     // Live map on the car's navigation page (optional, experimental)
     Q_PROPERTY(bool mapEnabled READ mapEnabled WRITE setMapEnabled NOTIFY mapChanged)
     Q_PROPERTY(QString mapUrl READ mapUrl WRITE setMapUrl NOTIFY mapChanged)
+    Q_PROPERTY(bool weatherEnabled READ weatherEnabled WRITE setWeatherEnabled NOTIFY weatherChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -108,6 +111,8 @@ public:
     void setMapEnabled(bool on);
     QString mapUrl() const { return m_map.tileUrl(); }
     void setMapUrl(const QString &u);
+    bool weatherEnabled() const { return m_weatherEnabled; }
+    void setWeatherEnabled(bool on);
     void setNotifyToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
@@ -132,6 +137,7 @@ signals:
     void parkedChanged();
     void destinationsChanged();
     void mapChanged();
+    void weatherChanged();
 
 private:
     void onNewConnection();
@@ -186,11 +192,23 @@ private:
     NotificationWatcher m_notify;
     PureMapsClient m_nav;
     MapView m_map;
+    GeoSearch m_geo;
+    // Phone GPS: for the map/weather when the car sends no (fresh) position
+    class QGeoPositionInfoSource *m_phonePos = nullptr;
+    QElapsedTimer m_carFixClock;
+    bool m_phonePosLogged = false;
+    void startPhonePosition();
+    void stopPhonePosition();
+    QVector<GeoResult> m_geoResults;
+    GeoResult m_pendingPoi;
+    WeatherClient m_weather;
+    bool m_weatherEnabled = true;
     bool m_mapEnabled = false;
     QString m_home, m_work, m_pendingSearch;
     QStringList m_recentDest;
     void pushDestinations();
     void onNavSearch(const QString &text);
+    void sendToPureMaps(const QString &text);
     QVector<MprisClient::Entry> m_browse;
     // Calls
     CallMonitor m_calls;

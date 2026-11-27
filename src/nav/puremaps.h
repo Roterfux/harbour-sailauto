@@ -41,6 +41,8 @@ public:
     bool search(const QString &text);
     // Start the route Pure Maps has (hasRoute && !running).
     bool startNavigation();
+    // Show a picked destination in Pure Maps (there: "Navigate").
+    bool showPoi(const QString &title, double lat, double lon);
 
 signals:
     void changed();

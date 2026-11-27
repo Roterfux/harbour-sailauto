@@ -89,6 +89,7 @@ void MprisClient::poll()
     if (!preferredOne.isEmpty()
         && (m_preferredSince.elapsed() < 30000 || playingOne.isEmpty() || playingOne == preferredOne)) {
         chosen = preferredOne;
+        m_showingPreferred = true;
     } else {
         if (!preferredOne.isEmpty()) m_preferred.clear(); // user went back to another player
         chosen = playingOne;
@@ -208,6 +209,7 @@ void MprisClient::seekToFraction(double fraction)
 void MprisClient::setPreferred(const QString &desktopId)
 {
     m_preferred = desktopId;
+    m_showingPreferred = false;
     m_preferredSince.start();
     QTimer::singleShot(1500, this, &MprisClient::poll);
 }

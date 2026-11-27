@@ -105,6 +105,14 @@ Page {
             }
 
             TextSwitch {
+                text: qsTr("Wetter im Auto")
+                description: qsTr("Oben im Auto-Bildschirm, antippen für die Vorhersage. Quelle: Open-Meteo; "
+                                  + "dafür geht die ungefähre Position (auf ~10 km gerundet) ins Internet.")
+                checked: controller.weatherEnabled
+                onCheckedChanged: controller.weatherEnabled = checked
+            }
+
+            TextSwitch {
                 text: qsTr("Telefon-Ton ins Auto")
                 description: qsTr("Musik, Navigationsansagen usw. laufen über die Autolautsprecher, solange verbunden")
                 checked: controller.soundToCar

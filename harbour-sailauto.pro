@@ -1,5 +1,5 @@
 TARGET = harbour-sailauto
-QT += network quick qml dbus svg sql
+QT += network quick qml dbus svg sql positioning
 CONFIG += c++14 link_pkgconfig
 
 include(third_party/openh264/openh264.pri)
@@ -71,6 +71,8 @@ HEADERS += \
     src/apps/appcatalog.h \
     src/nav/puremaps.h \
     src/nav/mapview.h \
+    src/nav/geosearch.h \
+    src/weather/weather.h \
     src/controller.h
 
 SOURCES += \
@@ -93,6 +95,8 @@ SOURCES += \
     src/apps/appcatalog.cpp \
     src/nav/puremaps.cpp \
     src/nav/mapview.cpp \
+    src/nav/geosearch.cpp \
+    src/weather/weather.cpp \
     src/controller.cpp
 
 DISTFILES += \

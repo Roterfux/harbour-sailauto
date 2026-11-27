@@ -881,6 +881,41 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
         return;
     }
 
+    if (m_navView == 3) {
+        // Search results, 4 per page
+        if (m_searching || m_results.isEmpty()) {
+            f.setPixelSize(bar / 2);
+            f.setBold(true);
+            p.setFont(f);
+            p.setPen(m_searching ? c.text : c.dim);
+            p.drawText(body, Qt::AlignCenter | Qt::TextWordWrap,
+                       m_searching ? QStringLiteral("Suche läuft") : m_resultNote);
+            return;
+        }
+        const int per = 4;
+        const int pages = (m_results.size() + per - 1) / per;
+        m_resultPage = qBound(0, m_resultPage, pages - 1);
+        const int btnW = bar + 10;
+        const QRect list(body.left(), body.top(), body.width() - btnW - 10, body.height());
+        const int rh = (list.height() - 3 * 8) / per;
+        for (int k = 0; k < per && m_resultPage * per + k < m_results.size(); ++k) {
+            const int idx = m_resultPage * per + k;
+            const GeoResult &g = m_results[idx];
+            const QRect r(list.left(), list.top() + k * (rh + 8), list.width(), rh);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.panel);
+            p.drawRoundedRect(r, 12, 12);
+            line(r.adjusted(16, 4, -16, -rh / 2), g.title, c.text, qMin(px, rh / 3), true);
+            line(r.adjusted(16, rh / 2, -16, -4), g.region, c.dim, qMin(px * 4 / 5, rh / 3), false);
+            m_navButtons.append({r, QStringLiteral("pick"), QString::number(idx)});
+        }
+        button(QRect(list.right() + 10, body.top(), btnW, body.height() / 2 - 5), QStringLiteral("rpage"), QStringLiteral("-1"),
+               QStringLiteral("▲"), c.panel, m_resultPage > 0 ? c.text : c.dim, px);
+        button(QRect(list.right() + 10, body.center().y() + 5, btnW, body.height() / 2 - 5), QStringLiteral("rpage"), QStringLiteral("1"),
+               QStringLiteral("▼"), c.panel, m_resultPage + 1 < pages ? c.text : c.dim, px);
+        return;
+    }
+
     if (m_navView == 2) {
         // Contacts with a postal address, 4 per page
         QVector<QPair<QString, QString>> items; // name, address
@@ -922,7 +957,7 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
         y += bar * 3 / 2 + 10;
     } else {
         const QString hint = !m_nav.app ? QStringLiteral("Pure Maps läuft nicht – Ziel wählen startet es.")
-                             : m_navSearchSent ? QStringLiteral("Am Telefon: Ergebnis antippen, dann „Route“. Danach hier starten.")
+                             : m_navSearchSent ? QStringLiteral("Am Telefon in Pure Maps „Navigieren“ antippen, dann hier starten.")
                                                : QStringLiteral("Ziel wählen:");
         f.setPixelSize(px * 9 / 10);
         f.setBold(false);
@@ -971,15 +1006,21 @@ void CarScreen::navButtonTapped(const NavButton &b)
                              QStringLiteral("Am Telefon: SailAuto → Ziele"));
             return;
         }
-        m_navView = 0;
-        m_navSearchSent = true;
-        m_navChoosing = false;
+        m_navView = 3;
+        m_searching = true;
         emit navSearch(b.value);
     } else if (b.kind == QLatin1String("keyboard")) {
         m_navView = 1;
     } else if (b.kind == QLatin1String("contacts")) {
         m_navView = 2;
         m_navContactPage = 0;
+    } else if (b.kind == QLatin1String("pick")) {
+        m_navView = 0;
+        m_navChoosing = false;
+        m_navSearchSent = true;
+        emit navPick(b.value.toInt());
+    } else if (b.kind == QLatin1String("rpage")) {
+        m_resultPage += b.value.toInt();
     } else if (b.kind == QLatin1String("cpage")) {
         m_navContactPage += b.value.toInt();
     } else if (b.kind == QLatin1String("key")) {
@@ -991,9 +1032,8 @@ void CarScreen::navButtonTapped(const NavButton &b)
     } else if (b.kind == QLatin1String("search")) {
         const QString t = m_navInput.trimmed();
         if (t.isEmpty()) return;
-        m_navView = 0;
-        m_navSearchSent = true;
-        m_navChoosing = false;
+        m_navView = 3;
+        m_searching = true;
         m_navInput.clear();
         emit navSearch(t);
     }
@@ -1051,6 +1091,183 @@ void CarScreen::drawMusicList(QPainter &p, const QRect &body)
         else tri << QPoint(o.x() - k, o.y() - k / 2) << QPoint(o.x() + k, o.y() - k / 2) << QPoint(o.x(), o.y() + k / 2);
         p.drawPolygon(tri);
     }
+}
+
+void CarScreen::drawWeatherIcon(QPainter &p, const QRectF &r, int code, bool day) const
+{
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+    const double u = r.width();
+    const QColor sun(250, 200, 50), cloud = m_night ? QColor(170, 176, 190) : QColor(225, 230, 240);
+    const QColor rain(90, 170, 250), snow(240, 245, 255), bolt(250, 210, 60);
+    auto drawSun = [&](const QPointF &c, double rad) {
+        p.setPen(QPen(sun, qMax(1.5, u / 18), Qt::SolidLine, Qt::RoundCap));
+        for (int i = 0; i < 8; ++i) {
+            const double a = i * M_PI / 4;
+            p.drawLine(c + QPointF(std::cos(a), std::sin(a)) * rad * 1.35, c + QPointF(std::cos(a), std::sin(a)) * rad * 1.8);
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(sun);
+        p.drawEllipse(c, rad, rad);
+    };
+    auto drawMoon = [&](const QPointF &c, double rad) {
+        QPainterPath m;
+        m.addEllipse(c, rad, rad);
+        QPainterPath cut;
+        cut.addEllipse(c + QPointF(rad * 0.55, -rad * 0.35), rad * 0.9, rad * 0.9);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(235, 225, 160));
+        p.drawPath(m.subtracted(cut));
+    };
+    auto drawCloud = [&](const QPointF &o, double s) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(cloud);
+        p.drawEllipse(QRectF(o.x(), o.y() + s * 0.25, s * 0.55, s * 0.45));
+        p.drawEllipse(QRectF(o.x() + s * 0.25, o.y(), s * 0.55, s * 0.6));
+        p.drawEllipse(QRectF(o.x() + s * 0.5, o.y() + s * 0.2, s * 0.5, s * 0.5));
+        p.drawRoundedRect(QRectF(o.x() + s * 0.1, o.y() + s * 0.35, s * 0.85, s * 0.35), s * 0.15, s * 0.15);
+    };
+    const QPointF c = r.center();
+    if (code == 0) {
+        if (day) drawSun(c, u * 0.22); else drawMoon(c, u * 0.3);
+    } else if (code <= 2) {
+        if (day) drawSun(QPointF(r.left() + u * 0.38, r.top() + u * 0.36), u * 0.16);
+        else drawMoon(QPointF(r.left() + u * 0.38, r.top() + u * 0.36), u * 0.2);
+        drawCloud(QPointF(r.left() + u * 0.18, r.top() + u * 0.38), u * 0.78);
+    } else if (code == 45 || code == 48) {
+        p.setPen(QPen(cloud, qMax(2.0, u / 10), Qt::SolidLine, Qt::RoundCap));
+        for (int i = 0; i < 3; ++i)
+            p.drawLine(QPointF(r.left() + u * (0.15 + 0.08 * (i % 2)), r.top() + u * (0.35 + 0.18 * i)),
+                       QPointF(r.right() - u * (0.15 + 0.08 * ((i + 1) % 2)), r.top() + u * (0.35 + 0.18 * i)));
+    } else {
+        drawCloud(QPointF(r.left() + u * 0.08, r.top() + u * 0.12), u * 0.84);
+        const bool isSnow = (code >= 71 && code <= 77) || code == 85 || code == 86;
+        const bool isRain = (code >= 51 && code <= 67) || (code >= 80 && code <= 82);
+        if (isRain || isSnow) {
+            for (int i = 0; i < 3; ++i) {
+                const QPointF d(r.left() + u * (0.3 + 0.2 * i), r.top() + u * 0.78);
+                if (isSnow) {
+                    p.setPen(Qt::NoPen);
+                    p.setBrush(snow);
+                    p.drawEllipse(d, u * 0.05, u * 0.05);
+                } else {
+                    p.setPen(QPen(rain, qMax(1.5, u / 16), Qt::SolidLine, Qt::RoundCap));
+                    p.drawLine(d, d + QPointF(-u * 0.06, u * 0.14));
+                }
+            }
+        } else if (code >= 95) {
+            p.setPen(Qt::NoPen);
+            p.setBrush(bolt);
+            QPolygonF b({QPointF(c.x() + u * 0.05, r.top() + u * 0.58), QPointF(c.x() - u * 0.12, r.top() + u * 0.82),
+                         QPointF(c.x(), r.top() + u * 0.82), QPointF(c.x() - u * 0.06, r.bottom()),
+                         QPointF(c.x() + u * 0.14, r.top() + u * 0.74), QPointF(c.x() + u * 0.02, r.top() + u * 0.74)});
+            p.drawPolygon(b);
+        }
+    }
+    p.restore();
+}
+
+void CarScreen::drawWeatherPage(QPainter &p, const QRect &body)
+{
+    const Palette c = palette(m_night);
+    const int bar = m_safe.height() / 8;
+    QFont f = p.font();
+    if (!m_weather.valid) {
+        f.setPixelSize(bar / 2);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.dim);
+        p.drawText(body, Qt::AlignCenter | Qt::TextWordWrap,
+                   QStringLiteral("Noch kein Wetter.\nBraucht die Position des Autos und Internet."));
+        return;
+    }
+    // Now: big icon, temperature, description
+    const int big = body.height() * 2 / 5;
+    drawWeatherIcon(p, QRectF(body.left(), body.top(), big, big), m_weather.code, m_weather.day);
+    f.setPixelSize(bar);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(c.text);
+    const QRect tr(body.left() + big + 20, body.top(), body.width() - big - 20, big);
+    p.drawText(tr.adjusted(0, 0, 0, -big / 2), Qt::AlignLeft | Qt::AlignBottom, QString::number(qRound(m_weather.temp)) + QStringLiteral(" °C"));
+    f.setPixelSize(bar / 2);
+    f.setBold(false);
+    p.setFont(f);
+    p.setPen(c.dim);
+    p.drawText(tr.adjusted(0, big / 2 + 6, 0, 0), Qt::AlignLeft | Qt::AlignTop, WeatherClient::describe(m_weather.code));
+    // Next hours (left) and days (right)
+    const int rowTop = body.top() + big + 14;
+    const int rowH = body.bottom() - rowTop;
+    const QRect hoursR(body.left(), rowTop, body.width() * 3 / 5 - 8, rowH);
+    const QRect daysR(hoursR.right() + 16, rowTop, body.right() - hoursR.right() - 16, rowH);
+    auto cell = [&](const QRect &r, const QString &top, int code, bool day, const QString &bottom) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.panel);
+        p.drawRoundedRect(r, 10, 10);
+        f.setPixelSize(qMin(bar * 3 / 10, r.height() / 6));
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.dim);
+        p.drawText(QRect(r.left(), r.top() + 4, r.width(), r.height() / 4), Qt::AlignCenter, top);
+        const int is = qMin(r.width() - 8, r.height() * 2 / 5);
+        drawWeatherIcon(p, QRectF(r.center().x() - is / 2.0, r.top() + r.height() / 4 + 2, is, is), code, day);
+        p.setPen(c.text);
+        f.setPixelSize(qMin(bar * 2 / 5, r.height() / 5));
+        p.setFont(f);
+        p.drawText(QRect(r.left(), r.bottom() - r.height() / 4 - 2, r.width(), r.height() / 4), Qt::AlignCenter, bottom);
+    };
+    const int nh = m_weather.hours.size();
+    for (int i = 0; i < nh; ++i) {
+        const int w = (hoursR.width() - (nh - 1) * 6) / qMax(1, nh);
+        const auto &h = m_weather.hours[i];
+        cell(QRect(hoursR.left() + i * (w + 6), hoursR.top(), w, hoursR.height()), QStringLiteral("%1 Uhr").arg(h.hour),
+             h.code, h.hour >= 7 && h.hour < 19, QString::number(qRound(h.temp)) + QStringLiteral("°"));
+    }
+    static const char *dayNames[] = {"Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"};
+    const int nd = m_weather.days.size();
+    for (int i = 0; i < nd; ++i) {
+        const int w = (daysR.width() - (nd - 1) * 6) / qMax(1, nd);
+        const auto &d = m_weather.days[i];
+        const QString name = i == 0 ? QStringLiteral("Heute") : QString::fromLatin1(dayNames[(d.date.dayOfWeek() + 6) % 7]);
+        cell(QRect(daysR.left() + i * (w + 6), daysR.top(), w, daysR.height()), name, d.code, true,
+             QStringLiteral("%1° / %2°").arg(qRound(d.max)).arg(qRound(d.min)));
+    }
+}
+
+void CarScreen::showLoading(const QString &name, const QImage &icon)
+{
+    m_loadingName = name;
+    m_loadingIcon = icon;
+    m_loadingClock.start();
+}
+
+void CarScreen::drawLoading(QPainter &p)
+{
+    if (m_loadingName.isEmpty()) return;
+    if (m_loadingClock.elapsed() > 15000) {
+        m_loadingName.clear();
+        return;
+    }
+    const Palette c = palette(m_night);
+    const int bar = m_safe.height() / 8;
+    const QRect area(m_safe.left(), m_safe.top() + bar, m_safe.width(), m_safe.height() - bar);
+    p.fillRect(area, c.bg);
+    const int is = area.height() / 3;
+    const QRect iconR(area.center().x() - is / 2, area.top() + area.height() / 6, is, is);
+    if (!m_loadingIcon.isNull()) p.drawImage(iconR, m_loadingIcon);
+    // Spinner around the icon
+    const int pad = is / 6;
+    p.setPen(QPen(c.accent, qMax(4, is / 18), Qt::SolidLine, Qt::RoundCap));
+    p.setBrush(Qt::NoBrush);
+    const int start = int((m_loadingClock.elapsed() % 1200) * 360 / 1200);
+    p.drawArc(iconR.adjusted(-pad, -pad, pad, pad), -start * 16, 100 * 16);
+    QFont f = p.font();
+    f.setPixelSize(bar / 2);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(c.text);
+    drawFit(p, QRect(area.left() + 20, iconR.bottom() + pad + 16, area.width() - 40, bar), Qt::AlignCenter,
+            m_loadingName + QStringLiteral(" wird gestartet"));
 }
 
 void CarScreen::setApps(const QVector<CarApp> &apps)
@@ -1137,6 +1354,17 @@ void CarScreen::touch(int action, int x, int y)
             }
         }
         if (callFullScreen()) return; // nothing else is reachable while it rings
+        if (!m_loadingName.isEmpty()) { // tap closes the loading screen
+            m_loadingName.clear();
+            m_pressedTile = -1;
+            return;
+        }
+        if (m_weatherRect.contains(m_touch)) {
+            m_page = WeatherPage;
+            m_pressedTile = -1;
+            emit tapped(QStringLiteral("Wetter"));
+            return;
+        }
         if (!m_banners.isEmpty() && m_bannerRect.contains(m_touch)) {
             m_banners.removeFirst();
             m_bannerClock.start();
@@ -1202,10 +1430,13 @@ void CarScreen::touch(int action, int x, int y)
             else if (m_nextButton.contains(m_touch)) emit mediaCommand(QStringLiteral("next"));
             else if (m_lenMs > 0 && m_progressRect.adjusted(0, -24, 0, 24).contains(m_touch))
                 emit mediaSeek(double(m_touch.x() - m_progressRect.left()) / qMax(1, m_progressRect.width()));
-        } else if (m_page == Music && m_playButton.contains(m_touch)) {
-            // No player on the phone: the button runs the sound test.
-            m_playing = !m_playing;
-            emit tapped(m_playing ? QStringLiteral("Play") : QStringLiteral("Pause"));
+        } else if (m_page == Music && !m_hasPlayer) {
+            // No player: start one of the music apps
+            for (const auto &b : m_musicAppButtons)
+                if (b.first.contains(m_touch)) {
+                    emit launchApp(b.second);
+                    break;
+                }
         }
         m_pressedTile = -1;
     }
@@ -1228,7 +1459,22 @@ void CarScreen::drawTopBar(QPainter &p)
     const QString clock = QTime::currentTime().toString(QStringLiteral("HH:mm"));
     p.drawText(r, Qt::AlignRight | Qt::AlignVCenter, clock);
     const int clockW = QFontMetrics(f).width(clock);
-    drawStatusIcons(p, r.right() - clockW - bar / 3, r.top(), bar);
+    const int iconsLeft = drawStatusIcons(p, r.right() - clockW - bar / 3, r.top(), bar);
+    m_weatherRect = QRect();
+    if (m_weather.valid) {
+        QFont wf = f;
+        wf.setPixelSize(bar * 2 / 5);
+        p.setFont(wf);
+        const QString t = QString::number(qRound(m_weather.temp)) + QStringLiteral("°");
+        const int tw = QFontMetrics(wf).width(t);
+        const int is = bar * 3 / 5;
+        const int x0 = iconsLeft - tw - is - 6;
+        drawWeatherIcon(p, QRectF(x0, r.top() + (bar - is) / 2.0, is, is), m_weather.code, m_weather.day);
+        p.setPen(c.text);
+        p.drawText(QRect(x0 + is + 4, r.top(), tw + 2, bar), Qt::AlignLeft | Qt::AlignVCenter, t);
+        m_weatherRect = QRect(x0 - 6, r.top(), is + tw + 16, bar);
+        p.setFont(f);
+    }
     p.setPen(c.accent);
     p.setFont(f);
     if (m_nav.running && m_page != Navigation) {
@@ -1433,11 +1679,53 @@ void CarScreen::drawPage(QPainter &p)
         }
         m_listButton = QRect();
         if (!m_hasPlayer) {
+            // Friendly empty state: note, short text, the music apps to start.
+            m_musicAppButtons.clear();
+            const int note = body.height() / 4;
+            QFont g = p.font();
+            g.setPixelSize(note);
+            p.setFont(g);
+            p.setPen(c.accent);
+            p.drawText(QRect(body.left(), body.top(), body.width(), note + 10), Qt::AlignCenter, QString::fromUtf8("\u266B"));
+            g.setPixelSize(bar / 2);
+            g.setBold(true);
+            p.setFont(g);
             p.setPen(c.text);
-            p.drawText(body.adjusted(0, 0, 0, -m_playButton.height()), Qt::AlignCenter | Qt::TextWordWrap,
-                       QStringLiteral("Kein Musik-Player aktiv.\nMusik am Telefon starten.\n(Knopf: Tontest)"));
-            drawRound(m_playButton, true);
-            drawPlayPause(m_playButton, m_playing);
+            p.drawText(QRect(body.left(), body.top() + note + 10, body.width(), bar * 2 / 3), Qt::AlignCenter,
+                       QStringLiteral("Gerade läuft keine Musik"));
+            QVector<CarApp> media;
+            for (const CarApp &a : m_apps)
+                if (a.media && media.size() < 4) media.append(a);
+            g.setPixelSize(bar * 2 / 5);
+            g.setBold(false);
+            p.setFont(g);
+            p.setPen(c.dim);
+            const int textBottom = body.top() + note + 10 + bar * 2 / 3;
+            p.drawText(QRect(body.left(), textBottom, body.width(), bar / 2), Qt::AlignCenter,
+                       media.isEmpty() ? QStringLiteral("Starte eine Musik- oder Podcast-App am Telefon")
+                                       : QStringLiteral("Antippen startet die App"));
+            if (!media.isEmpty()) {
+                const int gap = 14;
+                const int th = body.bottom() - textBottom - bar / 2 - 12;
+                const int tw = qMin(th, (body.width() - (media.size() - 1) * gap) / media.size());
+                const int x0 = body.center().x() - (media.size() * tw + (media.size() - 1) * gap) / 2;
+                for (int i = 0; i < media.size(); ++i) {
+                    const QRect r(x0 + i * (tw + gap), textBottom + bar / 2 + 8, tw, th);
+                    p.setPen(Qt::NoPen);
+                    p.setBrush(c.panel);
+                    p.drawRoundedRect(r, 14, 14);
+                    const int is = qMin(r.width(), r.height()) * 11 / 20;
+                    const QRect ir(r.center().x() - is / 2, r.top() + r.height() / 10, is, is);
+                    if (!media[i].icon.isNull()) p.drawImage(ir, media[i].icon);
+                    g.setPixelSize(qMin(bar * 2 / 5, r.height() / 6));
+                    g.setBold(true);
+                    p.setFont(g);
+                    p.setPen(c.text);
+                    drawFit(p, QRect(r.left() + 4, ir.bottom() + 2, r.width() - 8, r.bottom() - ir.bottom() - 4),
+                            Qt::AlignCenter, media[i].name);
+                    m_musicAppButtons.append(qMakePair(r, media[i].id));
+                }
+            }
             break;
         }
         // Cover left, text right, progress, buttons.
@@ -1587,6 +1875,9 @@ void CarScreen::drawPage(QPainter &p)
     case Phone:
         drawPhonePage(p, body);
         break;
+    case WeatherPage:
+        drawWeatherPage(p, body);
+        break;
     case Info: {
         p.setPen(c.text);
         f.setPixelSize(bar / 2);
@@ -1621,6 +1912,7 @@ const QImage &CarScreen::render()
     if (m_page == Home) drawHome(p);
     else drawPage(p);
 
+    drawLoading(p);
     drawBanner(p);
     drawCall(p);
 

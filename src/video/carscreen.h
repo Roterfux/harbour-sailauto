@@ -13,6 +13,8 @@
 #include "../phone/phonestatus.h"
 #include "../nav/puremaps.h"
 #include "../nav/mapview.h"
+#include "../nav/geosearch.h"
+#include "../weather/weather.h"
 #include "../phone/callmonitor.h"
 #include "../phone/phonebook.h"
 
@@ -38,6 +40,14 @@ public:
     void setNav(const NavState &s, const QImage &icon);
     // Live map behind the navigation page (nullptr = off)
     void setMap(MapView *map) { m_map = map; m_navChoosing = false; }
+    // Weather (top bar + weather page)
+    void setWeather(const WeatherData &w) { m_weather = w; }
+    // Destination search results (searching = still waiting; note = shown when empty)
+    void setSearchResults(const QVector<GeoResult> &r, bool searching, const QString &note)
+    { m_results = r; m_searching = searching; m_resultNote = note; m_resultPage = 0; }
+    // Loading screen while a phone app starts (hidden by hideLoading or after 15 s)
+    void showLoading(const QString &name, const QImage &icon);
+    void hideLoading() { m_loadingName.clear(); }
     // Destinations for the navigation page (home/work from the phone settings).
     // Music page list (playlists/tracks of the player), shown after "Liste".
     struct ListItem { QString title, sub; bool playlist; };
@@ -76,12 +86,13 @@ signals:
     // Navigation page: search this destination in Pure Maps / start the route
     void navSearch(const QString &text);
     void navStart();
+    void navPick(int index); // a search result
     // Music page: "Liste" tapped / an entry picked
     void musicListRequested();
     void musicListPicked(int index);
 
 private:
-    enum Page { Home, Navigation, Music, Apps, Phone, Info };
+    enum Page { Home, Navigation, Music, Apps, Phone, Info, WeatherPage };
     struct Tile { QRect rect; Page page; QString title; QString glyph; };
 
     void layout();
@@ -121,7 +132,11 @@ private:
     // Destination entry (navigation page without a running route)
     struct NavButton { QRect rect; QString kind, value; };
     QVector<NavButton> m_navButtons;
-    int m_navView = 0;           // 0 choose, 1 keyboard, 2 contacts with address
+    int m_navView = 0;           // 0 choose, 1 keyboard, 2 contacts with address, 3 search results
+    QVector<GeoResult> m_results;
+    bool m_searching = false;
+    QString m_resultNote;
+    int m_resultPage = 0;
     QString m_navInput;
     int m_navContactPage = 0;
     QString m_home, m_work;
@@ -137,6 +152,15 @@ private:
     QRect m_listButton, m_mlUp, m_mlDown;
     QVector<QPair<QRect, int>> m_musicRows;
     void drawMusicList(QPainter &p, const QRect &body);
+    WeatherData m_weather;
+    QRect m_weatherRect;
+    void drawWeatherIcon(QPainter &p, const QRectF &r, int code, bool day) const;
+    void drawWeatherPage(QPainter &p, const QRect &body);
+    QString m_loadingName;
+    QImage m_loadingIcon;
+    QElapsedTimer m_loadingClock;
+    void drawLoading(QPainter &p);
+    QVector<QPair<QRect, QString>> m_musicAppButtons; // empty music page: start an app
     void navButtonTapped(const NavButton &b);
     void drawManeuver(QPainter &p, const QRect &r, bool small);
     // Call
