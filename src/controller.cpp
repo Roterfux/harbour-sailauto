@@ -52,11 +52,20 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_screen, &CarScreen::launchApp, this, [this](const QString &id) {
         QString err;
         const AppEntry *a = m_apps.find(id);
-        if (!m_apps.launch(id, &err)) {
+        const QString name = a ? a->name : id;
+        switch (m_apps.launch(id, &err)) {
+        case AppCatalog::Failed:
             appendLog(QStringLiteral("App: ") + err);
             return;
+        case AppCatalog::TooSoon:
+            return;
+        case AppCatalog::AlreadyRunning:
+            appendLog(QStringLiteral("App: \"%1\" läuft schon, starte nicht nochmal").arg(name));
+            break;
+        case AppCatalog::Started:
+            appendLog(QStringLiteral("App: starte \"%1\" vom Auto aus").arg(name));
+            break;
         }
-        appendLog(QStringLiteral("App: starte \"%1\" vom Auto aus").arg(a ? a->name : id));
         if (a && a->media) m_mpris.setPreferred(id);
     });
     connect(&m_calls, &CallMonitor::log, this, &Controller::appendLog);

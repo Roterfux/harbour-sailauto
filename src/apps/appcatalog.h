@@ -9,6 +9,7 @@
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
+#include <QHash>
 #include <QVector>
 
 struct AppEntry {
@@ -33,7 +34,10 @@ public:
     // For QML: [{id, name, icon, selected, media}]
     QVariantList model() const;
     const AppEntry *find(const QString &id) const;
-    bool launch(const QString &id, QString *error);
+    enum LaunchResult { Started, AlreadyRunning, TooSoon, Failed };
+    // Starts the app unless it already runs (or was started < 3 s ago).
+    LaunchResult launch(const QString &id, QString *error);
+    bool isRunning(const AppEntry &a) const;
 
 signals:
     void selectionChanged();
@@ -41,4 +45,5 @@ signals:
 private:
     QVector<AppEntry> m_apps;
     QStringList m_selected;
+    QHash<QString, qint64> m_lastLaunch; // id -> ms since epoch
 };

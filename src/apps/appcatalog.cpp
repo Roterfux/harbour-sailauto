@@ -1,5 +1,7 @@
 #include "appcatalog.h"
 
+#include <QCoreApplication>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -159,20 +161,56 @@ const AppEntry *AppCatalog::find(const QString &id) const
     return nullptr;
 }
 
-bool AppCatalog::launch(const QString &id, QString *error)
+bool AppCatalog::isRunning(const AppEntry &a) const
+{
+    // The app's binary: absolute paths in the Exec line that are not
+    // launchers (invoker, sailjail, sh), else /usr/bin/<desktop id>.
+    QStringList bins;
+    for (const QString &t : a.exec.split(QLatin1Char(' '), QString::SkipEmptyParts)) {
+        const QString tok = QString(t).remove(QLatin1Char('"'));
+        if (!tok.startsWith(QLatin1Char('/'))) continue;
+        const QString base = tok.section(QLatin1Char('/'), -1);
+        if (base == QLatin1String("invoker") || base == QLatin1String("sailjail") || base == QLatin1String("sh")
+            || base.endsWith(QLatin1String(".desktop")))
+            continue;
+        bins << base;
+    }
+    if (bins.isEmpty()) bins << a.id;
+    const qint64 self = QCoreApplication::applicationPid();
+    const QDir proc(QStringLiteral("/proc"));
+    for (const QString &pid : proc.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+        bool num = false;
+        const qint64 n = pid.toLongLong(&num);
+        if (!num || n == self) continue;
+        QFile f(proc.filePath(pid + QStringLiteral("/cmdline")));
+        if (!f.open(QIODevice::ReadOnly)) continue;
+        // Any argument: sailjail/invoker/python wrappers carry the program path later.
+        for (const QByteArray &arg : f.readAll().split('\0')) {
+            const QString base = QString::fromLocal8Bit(arg).section(QLatin1Char('/'), -1);
+            if (bins.contains(base)) return true;
+        }
+    }
+    return false;
+}
+
+AppCatalog::LaunchResult AppCatalog::launch(const QString &id, QString *error)
 {
     const AppEntry *a = find(id);
     if (!a) {
         if (error) *error = QStringLiteral("App %1 nicht gefunden").arg(id);
-        return false;
+        return Failed;
     }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - m_lastLaunch.value(id, 0) < 3000) return TooSoon; // double tap
+    if (isRunning(*a)) return AlreadyRunning;
     // Drop the field codes (%u %F ...), keep the rest of the Exec line as is.
     QString cmd = a->exec;
     cmd.remove(QRegularExpression(QStringLiteral("\\s%[fFuUdDnNickvm]")));
     cmd.replace(QStringLiteral("%%"), QStringLiteral("%"));
     if (!QProcess::startDetached(QStringLiteral("/bin/sh"), QStringList() << QStringLiteral("-c") << cmd)) {
         if (error) *error = QStringLiteral("Start fehlgeschlagen: %1").arg(cmd);
-        return false;
+        return Failed;
     }
-    return true;
+    m_lastLaunch.insert(id, now);
+    return Started;
 }

@@ -124,6 +124,7 @@ private:
     bool m_dragMoved = false;
     QVector<int> phoneVisible() const;
     int phoneRowHeight() const { return qMax(48, m_phoneList.height() / 5); }
+    int m_favPage = 0;           // favorites: big tiles, 6 per page
     void drawPhonePage(QPainter &p, const QRect &body);
     void phoneTap(const QPoint &pt);
     bool m_hasPlayer = false, m_mediaPlaying = false;

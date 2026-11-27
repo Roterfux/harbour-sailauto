@@ -227,7 +227,9 @@ Ab 0.8.0.
   oder mit den Pfeilen. Kontakt antippen → alle Nummern als große Knöpfe
   „Anrufen · Mobil/Privat/Arbeit“; „Zurück“ führt erst zur Liste. Gewählt wird
   über den voicecall-Dienst (erste SIM); unten erscheint „Wählt: Name“ mit
-  „Auflegen“. Favoriten = in „Personen“ am Telefon als Favorit markiert.
+  „Auflegen“. Favoriten = in „Personen“ am Telefon als Favorit markiert;
+  ab 0.9.2 als große Kacheln (3×2, blättern mit Pfeilen), eine Nummer = Antippen
+  ruft sofort an. Apps aus der Kachel „Apps“ werden nur einmal gestartet.
   Im Log nur Anzahlen, keine Namen/Nummern.
 - **Wo steht mein Auto?** Die App fragt die GPS-Position des Autos ab (Sensor
   LOCATION) und merkt sich die letzte beim Trennen. Am Telefon: Abschnitt

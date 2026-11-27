@@ -506,6 +506,51 @@ void CarScreen::drawPhonePage(QPainter &p, const QRect &body)
     m_phoneDown = QRect(m_phoneList.right() + 10, body.center().y() + 5, btnW, body.height() / 2 - 5);
 
     const QVector<int> vis = phoneVisible();
+    if (m_phoneTab == 0 && !vis.isEmpty()) {
+        // Favorites: big tiles (3 x 2), one tap = call (one number) or numbers.
+        const int perPage = 6;
+        const int pages = (vis.size() + perPage - 1) / perPage;
+        m_favPage = qBound(0, m_favPage, pages - 1);
+        const int gap = 10;
+        const int tw = (m_phoneList.width() - 2 * gap) / 3;
+        const int th = (m_phoneList.height() - gap) / 2;
+        for (int k = 0; k < perPage && m_favPage * perPage + k < vis.size(); ++k) {
+            const int ci = vis[m_favPage * perPage + k];
+            const PhoneContact &ct = m_contacts[ci];
+            const QRect r(m_phoneList.left() + (k % 3) * (tw + gap), m_phoneList.top() + (k / 3) * (th + gap), tw, th);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.panel);
+            p.drawRoundedRect(r, 14, 14);
+            const int as = qMin(tw - 20, th * 13 / 20);
+            avatar(QRect(r.center().x() - as / 2, r.top() + 8, as, as), ct);
+            f.setPixelSize(qMin(bar * 2 / 5, th / 6));
+            f.setBold(true);
+            p.setFont(f);
+            p.setPen(c.text);
+            const QRect nr(r.left() + 6, r.top() + 8 + as, r.width() - 12, r.bottom() - (r.top() + 8 + as));
+            // Full name if it fits, else the first name (more useful than "Anna Ber…").
+            const QFontMetrics fm(f);
+            const QString shown = fm.width(ct.name) <= nr.width() ? ct.name
+                                  : ct.name.section(QLatin1Char(' '), 0, 0, QString::SectionSkipEmpty);
+            p.drawText(nr, Qt::AlignCenter, fm.elidedText(shown, Qt::ElideRight, nr.width()));
+            m_phoneRows.append({r, ci});
+        }
+        for (const QRect &ar : {m_phoneUp, m_phoneDown}) {
+            const bool up = ar == m_phoneUp;
+            const bool enabled = up ? m_favPage > 0 : m_favPage + 1 < pages;
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.panel);
+            p.drawRoundedRect(ar, 12, 12);
+            p.setBrush(enabled ? c.text : c.dim);
+            const QPoint o = ar.center();
+            const int k = ar.width() / 4;
+            QPolygon tri;
+            if (up) tri << QPoint(o.x() - k, o.y() + k / 2) << QPoint(o.x() + k, o.y() + k / 2) << QPoint(o.x(), o.y() - k / 2);
+            else tri << QPoint(o.x() - k, o.y() - k / 2) << QPoint(o.x() + k, o.y() - k / 2) << QPoint(o.x(), o.y() + k / 2);
+            p.drawPolygon(tri);
+        }
+        return;
+    }
     const int rh = phoneRowHeight();
     const int maxScroll = qMax(0, vis.size() * rh - m_phoneList.height());
     m_phoneScroll = qBound(0, m_phoneScroll, maxScroll);
@@ -578,14 +623,20 @@ void CarScreen::phoneTap(const QPoint &pt)
         if (m_phoneTabs[i].contains(pt)) {
             m_phoneTab = i;
             m_phoneScroll = 0;
+            m_favPage = 0;
             return;
         }
+    const bool favGrid = m_phoneTab == 0;
     const int page = m_phoneList.height() - phoneRowHeight();
-    if (m_phoneUp.contains(pt)) { m_phoneScroll -= page; return; }
-    if (m_phoneDown.contains(pt)) { m_phoneScroll += page; return; }
+    if (m_phoneUp.contains(pt)) { if (favGrid) --m_favPage; else m_phoneScroll -= page; return; }
+    if (m_phoneDown.contains(pt)) { if (favGrid) ++m_favPage; else m_phoneScroll += page; return; }
     for (const Row &r : m_phoneRows)
         if (r.rect.contains(pt)) {
-            m_phoneDetail = r.contact;
+            const PhoneContact &ct = m_contacts[r.contact];
+            if (favGrid && ct.numbers.size() == 1)
+                emit dial(ct.numbers.first(), ct.name, ct.photo); // favorite with one number: call right away
+            else
+                m_phoneDetail = r.contact;
             return;
         }
 }
