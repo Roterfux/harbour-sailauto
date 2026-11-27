@@ -1375,6 +1375,7 @@ void CarScreen::touch(int action, int x, int y)
         if (m_page == Home) {
             if (m_pressedTile >= 0 && m_tiles[m_pressedTile].rect.contains(m_touch)) {
                 m_page = m_tiles[m_pressedTile].page;
+                if (m_page == Navigation) { m_navChoosing = false; m_navView = 0; } // map first
                 emit tapped(m_tiles[m_pressedTile].title);
             }
         } else if (m_backButton.contains(m_touch)) {

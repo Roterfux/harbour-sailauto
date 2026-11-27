@@ -121,7 +121,36 @@ void MprisClient::poll()
     const QVariant tid = md.value(QStringLiteral("mpris:trackid"));
     m_trackId = tid.canConvert<QDBusObjectPath>() ? tid.value<QDBusObjectPath>().path() : tid.toString();
     const bool playing = getProperty(m_service, kPlayerIface, "PlaybackStatus").toString() == QLatin1String("Playing");
-    const qint64 posMs = getProperty(m_service, kPlayerIface, "Position").toLongLong() / 1000;
+    qint64 posMs = getProperty(m_service, kPlayerIface, "Position").toLongLong() / 1000;
+    // Some players (e.g. TuneBridge) never update Position. Then keep our own
+    // clock: from the track start, running while playing.
+    {
+        const bool newTrack = title != m_title || artist != m_artist;
+        if (newTrack || !m_ownClock.isValid()) {
+            m_ownBaseMs = 0;
+            m_ownClock.start();
+            m_reportedLast = posMs;
+            m_stuckPolls = 0;
+        } else if (!playing && m_playing) {
+            m_ownBaseMs += m_ownClock.elapsed(); // pause: freeze
+        } else if (playing && !m_playing) {
+            m_ownClock.start();                   // resume
+        }
+        if (playing && posMs == m_reportedLast) ++m_stuckPolls;
+        else if (posMs != m_reportedLast) m_stuckPolls = 0;
+        m_reportedLast = posMs;
+        if (m_stuckPolls >= 2) {
+            const qint64 own = m_ownBaseMs + (playing ? m_ownClock.elapsed() : 0);
+            posMs = lenMs > 0 ? qMin(own, lenMs) : own;
+            if (!m_posWarned) {
+                m_posWarned = true;
+                emit log(QStringLiteral("Musik: %1 meldet keine Position, SailAuto zählt selbst").arg(playerName()));
+            }
+        } else if (playing && m_stuckPolls == 0) {
+            m_ownBaseMs = posMs;                  // follow the player while it reports
+            m_ownClock.start();
+        }
+    }
 
     if (artUrl != m_artUrl) {
         m_artUrl = artUrl;
@@ -177,6 +206,7 @@ void MprisClient::seek(qint64 offsetMs)
                      .arg(offsetMs / 1000).arg(playerName(), r.errorMessage()));
     // Show the new position right away (the next poll corrects it).
     m_positionMs = qBound<qint64>(0, m_positionMs + offsetMs, m_lengthMs > 0 ? m_lengthMs : m_positionMs + offsetMs);
+    m_ownBaseMs = qMax<qint64>(0, m_ownBaseMs + offsetMs);
     emit changed();
     QTimer::singleShot(150, this, &MprisClient::poll);
 }

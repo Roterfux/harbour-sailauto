@@ -67,4 +67,9 @@ private:
     QImage m_art;
     bool m_playing = false;
     qint64 m_positionMs = 0, m_lengthMs = 0;
+    // own position clock for players that do not report Position
+    QElapsedTimer m_ownClock;
+    qint64 m_ownBaseMs = 0, m_reportedLast = -1;
+    int m_stuckPolls = 0;
+    bool m_posWarned = false;
 };
