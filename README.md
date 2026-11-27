@@ -263,6 +263,22 @@ Ab 0.8.0.
   „Auto geparkt“ mit Uhrzeit, „Auf Karte zeigen“ (geo:-Link → Pure Maps /
   OSM Scout) und „Kopieren“. Koordinaten stehen nicht im Log.
 
+## Eigener Player: Radio & Musik
+
+Ab 0.13.0. Die Musik-Apps geben keine Listen heraus, deshalb hat SailAuto einen
+eigenen Player (GStreamer, erscheint als MPRIS-Player „SailAuto Radio & Musik“,
+also mit Lenkradtasten, Fortschritt usw.). Im Auto: Musik → „Liste“ (oder
+„Radio & Musik“ ohne Player):
+
+- Radio: Favoriten, Beliebt (meistgehörte Sender des Landes), Radio suchen
+  (Tastatur, nur im Stand). Quelle: Radio-Browser-Verzeichnis (online).
+  Beim Hören: Liste → „★ Sender merken“. ⏮/⏭ wechseln zwischen Favoriten.
+- Musik: Ordner im Musik-Verzeichnis des Telefons und auf der Speicherkarte,
+  Ordner → Titel, Antippen spielt ab dort der Reihe nach.
+- „Listen von <App>“, falls der aktuelle Player welche anbietet.
+
+Adresssuche ohne OSM Scout Server: online über Photon (wie Pure Maps).
+
 ## Wetter, Ladebildschirm
 
 Ab 0.12.0. **Wetter** oben im Auto (Symbol + Temperatur), antippen: jetzt,

@@ -7,6 +7,7 @@
 #include "audio/audiotest.h"
 #include "audio/audiorouter.h"
 #include "media/mprisclient.h"
+#include "media/ownplayer.h"
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
 #include "phone/callmonitor.h"
@@ -216,6 +217,16 @@ private:
     void onNavSearch(const QString &text);
     void sendToPureMaps(const QString &text);
     QVector<MprisClient::Entry> m_browse;
+    // Music list in the car: own sources (radio, files) + the player's lists
+    OwnPlayer m_own;
+    struct BrowseItem { QString kind, value, title, sub; };
+    QVector<BrowseItem> m_items;                 // shown list
+    QVector<QVector<BrowseItem>> m_itemStack;    // for "Zurück"
+    QVector<RadioStation> m_stations;
+    void showItems(const QVector<BrowseItem> &items, bool push);
+    void showBrowseRoot();
+    void openFolder(const QString &dir);
+    void onBrowsePick(int i);
     // Calls
     CallMonitor m_calls;
     PhoneBook m_phonebook;

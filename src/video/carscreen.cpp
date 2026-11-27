@@ -1383,8 +1383,10 @@ void CarScreen::touch(int action, int x, int y)
                 m_navView = 0;
             } else if (m_page == Navigation && m_map && m_navChoosing) {
                 m_navChoosing = false;
+            } else if (m_page == Music && m_musicKb) {
+                m_musicKb = false;
             } else if (m_page == Music && m_musicListOn) {
-                m_musicListOn = false;
+                emit musicListBack();
             } else if (m_page == Phone && m_phoneDetail >= 0) {
                 m_phoneDetail = -1; // back to the list first
             } else {
@@ -1413,17 +1415,30 @@ void CarScreen::touch(int action, int x, int y)
                 if (a.media) m_page = Music; // its player shows up there
             }
             m_pressedApp = -1;
-        } else if (m_page == Music && m_hasPlayer && m_musicListOn) {
+        } else if (m_page == Music && m_musicKb) {
+            for (const NavButton &b : m_navButtons)
+                if (b.rect.contains(m_touch)) {
+                    if (b.kind == QLatin1String("search")) {
+                        const QString t = m_navInput.trimmed();
+                        if (!t.isEmpty()) { m_musicKb = false; m_navInput.clear(); emit radioSearch(t); }
+                    } else if (b.kind == QLatin1String("cancel")) {
+                        m_musicKb = false;
+                    } else {
+                        navButtonTapped(b); // keys, backspace
+                    }
+                    break;
+                }
+        } else if (m_page == Music && m_musicListOn) {
             if (m_mlUp.contains(m_touch)) --m_musicListPage;
             else if (m_mlDown.contains(m_touch)) ++m_musicListPage;
             else
                 for (const auto &row : m_musicRows)
                     if (row.first.contains(m_touch)) {
+                        m_musicListOn = false;          // the controller may open the next level
                         emit musicListPicked(row.second);
-                        m_musicListOn = false;
                         break;
                     }
-        } else if (m_page == Music && m_hasPlayer && m_listButton.contains(m_touch)) {
+        } else if (m_page == Music && m_listButton.contains(m_touch)) {
             emit musicListRequested();
         } else if (m_page == Music && m_hasPlayer) {
             if (m_playButton.contains(m_touch)) emit mediaCommand(QStringLiteral("playpause"));
@@ -1674,7 +1689,14 @@ void CarScreen::drawPage(QPainter &p)
             }
         };
 
-        if (m_hasPlayer && m_musicListOn) {
+        if (m_musicKb) {
+            const int saved = m_navView;
+            m_navView = 1;
+            drawNavChoose(p, body); // same keyboard as for destinations
+            m_navView = saved;
+            break;
+        }
+        if (m_musicListOn) {
             drawMusicList(p, body);
             break;
         }
@@ -1702,6 +1724,17 @@ void CarScreen::drawPage(QPainter &p)
             p.setFont(g);
             p.setPen(c.dim);
             const int textBottom = body.top() + note + 10 + bar * 2 / 3;
+            // Own sources: radio and music files
+            m_listButton = QRect(body.right() - bar * 4, body.top(), bar * 4, bar);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.accent);
+            p.drawRoundedRect(m_listButton, 12, 12);
+            g.setPixelSize(bar * 2 / 5);
+            g.setBold(true);
+            p.setFont(g);
+            p.setPen(c.bg);
+            p.drawText(m_listButton, Qt::AlignCenter, QStringLiteral("Radio & Musik"));
+            g.setBold(false);
             p.drawText(QRect(body.left(), textBottom, body.width(), bar / 2), Qt::AlignCenter,
                        media.isEmpty() ? QStringLiteral("Starte eine Musik- oder Podcast-App am Telefon")
                                        : QStringLiteral("Antippen startet die App"));

@@ -185,7 +185,7 @@ void MapView::renderLayer(const QSize &size)
         f.setPixelSize(qMax(14, int(h / 16)));
         f.setBold(true);
         p.setFont(f);
-        p.drawText(QRectF(0, 0, w, h), Qt::AlignCenter, QStringLiteral("Warte auf GPS vom Auto …"));
+        p.drawText(QRectF(0, 0, w, h), Qt::AlignCenter, QStringLiteral("Warte auf Position (Auto oder Telefon-GPS)"));
         return;
     }
     // Predicted position: last fix + speed * age along the bearing (max 3 s)

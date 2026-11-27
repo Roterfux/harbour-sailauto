@@ -19,6 +19,8 @@ class GeoSearch : public QObject
 public:
     explicit GeoSearch(QObject *parent = nullptr);
     void setBias(double lat, double lon) { m_lat = lat; m_lon = lon; m_bias = true; }
+    // OSM Scout Server first (offline); if it is not there: Photon (online,
+    // photon.komoot.io, the search Pure Maps uses as well).
     void search(const QString &text);
 
 signals:
@@ -26,6 +28,7 @@ signals:
     void finished(const QString &text, const QVector<GeoResult> &results, const QString &error);
 
 private:
+    void searchPhoton(const QString &text, const QString &firstError);
     QNetworkAccessManager *m_net;
     double m_lat = 0, m_lon = 0;
     bool m_bias = false;

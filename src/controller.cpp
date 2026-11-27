@@ -7,6 +7,7 @@
 #include <QSettings>
 #include <QRegularExpression>
 #include <QFileInfo>
+#include <QLocale>
 #include <QGeoPositionInfoSource>
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -119,9 +120,9 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_geo, &GeoSearch::finished, this, [this](const QString &text, const QVector<GeoResult> &res, const QString &error) {
         m_geoResults = res;
         if (!error.isEmpty()) {
-            appendLog(QStringLiteral("Navigation: Adresssuche (OSM Scout Server) nicht erreichbar, suche in Pure Maps"));
-            m_screen.setSearchResults({}, false, QStringLiteral("Ohne OSM Scout Server: Pure Maps sucht am Telefon.\n"
-                                                               "Dort Ergebnis antippen, dann „Route“."));
+            appendLog(QStringLiteral("Navigation: Adresssuche nicht erreichbar (%1), suche in Pure Maps").arg(error));
+            m_screen.setSearchResults({}, false, QStringLiteral("Adresssuche offline und online nicht erreichbar.\n"
+                                                               "Pure Maps sucht am Telefon: Ergebnis antippen, dann „Route“."));
             sendToPureMaps(text);
             return;
         }
@@ -140,21 +141,28 @@ Controller::Controller(QObject *parent) : QObject(parent)
         if (m_apps.launch(QStringLiteral("harbour-pure-maps"), &err) == AppCatalog::Failed)
             appendLog(QStringLiteral("Navigation: Pure Maps nicht startbar (%1)").arg(err));
     });
-    connect(&m_screen, &CarScreen::musicListRequested, this, [this]() {
-        QString info;
-        m_browse = m_mpris.browse(&info);
-        appendLog(QStringLiteral("Musik: Liste – ") + info);
-        if (m_browse.isEmpty()) {
-            m_screen.showNotification(QStringLiteral("Musik"), QStringLiteral("Keine Liste verfügbar"),
-                                      QStringLiteral("%1 bietet keine Playlists/Titelliste an (MPRIS).").arg(m_mpris.playerName()));
-            return;
-        }
-        QVector<CarScreen::ListItem> items;
-        for (const MprisClient::Entry &e : m_browse) items.append({e.title, e.sub, e.playlist});
-        m_screen.setMusicList(items);
+    connect(&m_screen, &CarScreen::musicListRequested, this, &Controller::showBrowseRoot);
+    connect(&m_screen, &CarScreen::musicListPicked, this, &Controller::onBrowsePick);
+    connect(&m_screen, &CarScreen::musicListBack, this, [this]() {
+        if (m_itemStack.isEmpty()) { m_screen.closeMusicList(); return; }
+        m_items = m_itemStack.takeLast();
+        showItems(m_items, false);
     });
-    connect(&m_screen, &CarScreen::musicListPicked, this, [this](int i) {
-        if (i >= 0 && i < m_browse.size()) m_mpris.activate(m_browse[i]);
+    connect(&m_screen, &CarScreen::radioSearch, this, [this](const QString &t) {
+        showItems({{QStringLiteral("none"), QString(), QStringLiteral("Suche läuft"), QString()}}, true);
+        m_own.searchStations(t);
+    });
+    connect(&m_own, &OwnPlayer::log, this, &Controller::appendLog);
+    connect(&m_own, &OwnPlayer::stationsFound, this, [this](const QVector<RadioStation> &st, const QString &err) {
+        m_stations = st;
+        QVector<BrowseItem> items;
+        if (!err.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Senderliste nicht erreichbar"), err});
+        else if (st.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Sender gefunden"), QString()});
+        for (int i = 0; i < st.size(); ++i)
+            items.append({QStringLiteral("station"), QString::number(i), st[i].name, st[i].info});
+        // replaces the "Suche läuft" entry
+        m_items = items;
+        showItems(items, false);
     });
     connect(&m_screen, &CarScreen::navStart, &m_nav, &PureMapsClient::startNavigation);
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
@@ -747,6 +755,10 @@ void Controller::startPhonePosition()
         return;
     }
     m_phonePos->setUpdateInterval(1000);
+    connect(m_phonePos, static_cast<void (QGeoPositionInfoSource::*)(QGeoPositionInfoSource::Error)>(&QGeoPositionInfoSource::error),
+            this, [this](QGeoPositionInfoSource::Error e) {
+        appendLog(QStringLiteral("Telefon-GPS: Fehler %1 (Ortung in den Einstellungen an?)").arg(int(e)));
+    });
     connect(m_phonePos, &QGeoPositionInfoSource::positionUpdated, this, [this](const QGeoPositionInfo &info) {
         if (!info.isValid()) return;
         if (!m_phonePosLogged) {
@@ -762,6 +774,17 @@ void Controller::startPhonePosition()
         if (m_weatherEnabled) m_weather.setPosition(c.latitude(), c.longitude());
     });
     m_phonePos->startUpdates();
+    // Use what the phone already knows right away (a fix can take a while).
+    const QGeoPositionInfo last = m_phonePos->lastKnownPosition(false);
+    if (last.isValid()) {
+        const QGeoCoordinate c = last.coordinate();
+        appendLog(QStringLiteral("Telefon-GPS: letzte bekannte Position genutzt"));
+        if (m_mapEnabled && !(m_carFixClock.isValid() && m_carFixClock.elapsed() < 3000))
+            m_map.updateFix(c.latitude(), c.longitude(), -1, -1);
+        if (m_weatherEnabled) m_weather.setPosition(c.latitude(), c.longitude());
+    } else if (m_parked.valid && m_mapEnabled && !m_carFix.valid) {
+        m_map.updateFix(m_parked.lat, m_parked.lon, -1, -1); // better than nothing until a fix
+    }
 }
 
 void Controller::stopPhonePosition()
@@ -861,6 +884,123 @@ void Controller::sendToPureMaps(const QString &text)
         appendLog(QStringLiteral("Navigation: Pure Maps nicht startbar (%1)").arg(err));
     else
         appendLog(QStringLiteral("Navigation: starte Pure Maps für die Zielsuche"));
+}
+
+void Controller::showItems(const QVector<BrowseItem> &items, bool push)
+{
+    if (push && !m_items.isEmpty()) m_itemStack.append(m_items);
+    m_items = items;
+    QVector<CarScreen::ListItem> list;
+    for (const BrowseItem &b : items)
+        list.append({b.title, b.sub, b.kind == QLatin1String("folder") || b.kind == QLatin1String("menu")
+                                     || b.kind == QLatin1String("favs") || b.kind == QLatin1String("top")
+                                     || b.kind == QLatin1String("mprislists")});
+    m_screen.setMusicList(list);
+}
+
+void Controller::showBrowseRoot()
+{
+    m_itemStack.clear();
+    m_items.clear();
+    QVector<BrowseItem> root;
+    if (m_own.playingRadio() && m_mpris.playerName().contains(QStringLiteral("SailAuto")))
+        root.append({QStringLiteral("fav"), QString(),
+                     m_own.isFavorite(m_own.currentStationUrl()) ? QStringLiteral("★ Sender aus Favoriten") : QStringLiteral("★ Sender merken"),
+                     QString()});
+    root.append({QStringLiteral("favs"), QString(), QStringLiteral("Radio: Favoriten"), QStringLiteral("%1 Sender").arg(m_own.favorites().size())});
+    const QString cc = QLocale().name().section(QLatin1Char('_'), 1, 1);
+    root.append({QStringLiteral("top"), cc.isEmpty() ? QStringLiteral("DE") : cc, QStringLiteral("Radio: Beliebt"),
+                 QStringLiteral("meistgehörte Sender (%1)").arg(cc.isEmpty() ? QStringLiteral("DE") : cc)});
+    root.append({QStringLiteral("rsearch"), QString(), QStringLiteral("Radio suchen"),
+                 m_drivingStatus == 0 || m_gear == 101 ? QStringLiteral("Tastatur") : QStringLiteral("nur im Stand")});
+    for (const QString &r : OwnPlayer::musicRoots())
+        root.append({QStringLiteral("folder"), r, QStringLiteral("Musik: ") + QFileInfo(r).fileName(),
+                     r.startsWith(QStringLiteral("/run/media")) ? QStringLiteral("Speicherkarte") : QStringLiteral("Telefon")});
+    // Lists of the current player, if it offers some
+    if (m_mpris.hasPlayer() && !m_mpris.playerName().contains(QStringLiteral("SailAuto"))) {
+        QString info;
+        m_browse = m_mpris.browse(&info);
+        appendLog(QStringLiteral("Musik: Liste – ") + info);
+        if (!m_browse.isEmpty())
+            root.append({QStringLiteral("mprislists"), QString(), QStringLiteral("Listen von ") + m_mpris.playerName(),
+                         QStringLiteral("%1 Einträge").arg(m_browse.size())});
+    }
+    showItems(root, false);
+}
+
+void Controller::openFolder(const QString &dir)
+{
+    static const QStringList exts = {QStringLiteral("mp3"), QStringLiteral("ogg"), QStringLiteral("oga"), QStringLiteral("opus"),
+                                     QStringLiteral("flac"), QStringLiteral("m4a"), QStringLiteral("aac"), QStringLiteral("wav")};
+    QVector<BrowseItem> items;
+    const QDir d(dir);
+    for (const QFileInfo &fi : d.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name | QDir::IgnoreCase))
+        items.append({QStringLiteral("folder"), fi.absoluteFilePath(), fi.fileName(), QString()});
+    for (const QFileInfo &fi : d.entryInfoList(QDir::Files, QDir::Name | QDir::IgnoreCase))
+        if (exts.contains(fi.suffix().toLower()))
+            items.append({QStringLiteral("file"), fi.absoluteFilePath(), fi.completeBaseName(), QString()});
+    if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Musik in diesem Ordner"), dir});
+    showItems(items, true);
+}
+
+void Controller::onBrowsePick(int i)
+{
+    if (i < 0 || i >= m_items.size()) return;
+    const BrowseItem b = m_items[i];
+    if (b.kind == QLatin1String("favs")) {
+        m_stations = m_own.favorites();
+        QVector<BrowseItem> items;
+        for (int k = 0; k < m_stations.size(); ++k)
+            items.append({QStringLiteral("station"), QString::number(k), m_stations[k].name, m_stations[k].info});
+        if (items.isEmpty())
+            items.append({QStringLiteral("none"), QString(), QStringLiteral("Noch keine Favoriten"),
+                          QStringLiteral("Sender spielen, dann Liste → ★ Sender merken")});
+        showItems(items, true);
+    } else if (b.kind == QLatin1String("top")) {
+        showItems({{QStringLiteral("none"), QString(), QStringLiteral("Lade Sender"), QString()}}, true);
+        m_own.topStations(b.value);
+    } else if (b.kind == QLatin1String("rsearch")) {
+        if (!(m_drivingStatus == 0 || m_gear == 101)) {
+            m_screen.showNotification(QStringLiteral("Radio"), QStringLiteral("Suchen nur im Stand"), QStringLiteral("Gang P einlegen"));
+            showItems(m_items, false);
+            return;
+        }
+        m_screen.openMusicKeyboard();
+    } else if (b.kind == QLatin1String("folder")) {
+        openFolder(b.value);
+    } else if (b.kind == QLatin1String("file")) {
+        QStringList files;
+        int start = 0;
+        for (const BrowseItem &x : m_items)
+            if (x.kind == QLatin1String("file")) {
+                if (x.value == b.value) start = files.size();
+                files << x.value;
+            }
+        m_mpris.setPreferred(QStringLiteral("harbour-sailauto"));
+        m_own.playFiles(files, start);
+        m_screen.closeMusicList();
+    } else if (b.kind == QLatin1String("station")) {
+        const int k = b.value.toInt();
+        if (k >= 0 && k < m_stations.size()) {
+            m_mpris.setPreferred(QStringLiteral("harbour-sailauto"));
+            m_own.playStation(m_stations[k]);
+        }
+        m_screen.closeMusicList();
+    } else if (b.kind == QLatin1String("fav")) {
+        m_own.toggleFavorite();
+        m_screen.closeMusicList();
+    } else if (b.kind == QLatin1String("mprislists")) {
+        QVector<BrowseItem> items;
+        for (int k = 0; k < m_browse.size(); ++k)
+            items.append({QStringLiteral("mprisitem"), QString::number(k), m_browse[k].title, m_browse[k].sub});
+        showItems(items, true);
+    } else if (b.kind == QLatin1String("mprisitem")) {
+        const int k = b.value.toInt();
+        if (k >= 0 && k < m_browse.size()) m_mpris.activate(m_browse[k]);
+        m_screen.closeMusicList();
+    } else {
+        showItems(m_items, false); // "none": stay
+    }
 }
 
 void Controller::startedByCar()

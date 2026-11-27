@@ -51,7 +51,10 @@ public:
     // Destinations for the navigation page (home/work from the phone settings).
     // Music page list (playlists/tracks of the player), shown after "Liste".
     struct ListItem { QString title, sub; bool playlist; };
-    void setMusicList(const QVector<ListItem> &items) { m_musicList = items; m_musicListOn = true; m_musicListPage = 0; }
+    void setMusicList(const QVector<ListItem> &items) { m_musicList = items; m_musicListOn = true; m_musicListPage = 0; m_musicKb = false; }
+    void closeMusicList() { m_musicListOn = false; m_musicKb = false; }
+    // Keyboard on the music page (radio search), parked only
+    void openMusicKeyboard() { m_musicKb = true; m_navInput.clear(); }
     void setDestinations(const QString &home, const QString &work, const QStringList &recent)
     { m_home = home; m_work = work; m_recentDest = recent; }
     // Phone call: ringing = full screen with 4 buttons; silenced/active = strip at the bottom.
@@ -90,6 +93,8 @@ signals:
     // Music page: "Liste" tapped / an entry picked
     void musicListRequested();
     void musicListPicked(int index);
+    void musicListBack();                 // "Zurück" inside the list
+    void radioSearch(const QString &text);
 
 private:
     enum Page { Home, Navigation, Music, Apps, Phone, Info, WeatherPage };
@@ -148,6 +153,7 @@ private:
     void drawNavChoose(QPainter &p, const QRect &body);
     QVector<ListItem> m_musicList;
     bool m_musicListOn = false;
+    bool m_musicKb = false;
     int m_musicListPage = 0;
     QRect m_listButton, m_mlUp, m_mlDown;
     QVector<QPair<QRect, int>> m_musicRows;
