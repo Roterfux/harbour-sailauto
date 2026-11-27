@@ -41,6 +41,9 @@ public:
     // Music files
     static QStringList musicRoots();
     void playFiles(const QStringList &files, int index);
+    // Podcast episodes (stream URLs, seekable), queue for next/previous
+    void playEpisodes(const QStringList &urls, const QStringList &titles, int index,
+                      const QString &podcast, const QString &imageUrl);
 
     // Transport (also via MPRIS)
     void play();
@@ -72,7 +75,9 @@ private:
     QNetworkAccessManager *m_net = nullptr;
     bool m_isRadio = false;
     RadioStation m_station;
-    QStringList m_files;
+    QStringList m_files;         // local files or http URLs (episodes)
+    QStringList m_titles;        // episode titles (empty for files)
+    QString m_queueAlbum, m_queueImage;
     int m_index = -1;
     QString m_title, m_artist, m_album, m_artFile;
     QString m_state = QStringLiteral("Stopped");

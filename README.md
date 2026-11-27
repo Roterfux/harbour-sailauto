@@ -276,6 +276,9 @@ also mit Lenkradtasten, Fortschritt usw.). Im Auto: Musik → „Liste“ (oder
 - Musik: Ordner im Musik-Verzeichnis des Telefons und auf der Speicherkarte,
   Ordner → Titel, Antippen spielt ab dort der Reihe nach.
 - „Listen von <App>“, falls der aktuelle Player welche anbietet.
+- Ab 0.14.0: **SailWave: Sender** (aus SailWaves Datenbank) und **Sailcast:
+  Podcasts** (Abos aus Sailcasts Datenbank, Folgen aus den Feeds) – gespielt vom
+  eigenen Player.
 
 Adresssuche ohne OSM Scout Server: online über Photon (wie Pure Maps).
 

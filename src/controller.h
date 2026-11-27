@@ -8,6 +8,7 @@
 #include "audio/audiorouter.h"
 #include "media/mprisclient.h"
 #include "media/ownplayer.h"
+#include "media/appsources.h"
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
 #include "phone/callmonitor.h"
@@ -202,6 +203,8 @@ private:
     class QGeoPositionInfoSource *m_phonePos = nullptr;
     QElapsedTimer m_carFixClock;
     bool m_phonePosLogged = false;
+    int m_posSourceIndex = 0;     // 0 = default source, then availableSources()[i-1]
+    QTimer m_posSilence;
     void startPhonePosition();
     void stopPhonePosition();
     QVector<GeoResult> m_geoResults;
@@ -219,6 +222,7 @@ private:
     QVector<MprisClient::Entry> m_browse;
     // Music list in the car: own sources (radio, files) + the player's lists
     OwnPlayer m_own;
+    AppSources m_appSources;
     struct BrowseItem { QString kind, value, title, sub; };
     QVector<BrowseItem> m_items;                 // shown list
     QVector<QVector<BrowseItem>> m_itemStack;    // for "Zurück"

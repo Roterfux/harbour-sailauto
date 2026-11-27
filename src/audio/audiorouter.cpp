@@ -393,7 +393,8 @@ void AudioRouter::restoreAll()
 
 int AudioRouter::repairSilentStreams()
 {
-    if (m_running) return 0;
+    // Uses the same members as start(): never while the router is (being) started.
+    if (m_running || m_loop || m_ctx) return 0;
     pa_threaded_mainloop *loop = pa_threaded_mainloop_new();
     pa_context *ctx = pa_context_new(pa_threaded_mainloop_get_api(loop), "SailAuto");
     pa_context_set_state_callback(ctx, contextState, loop);

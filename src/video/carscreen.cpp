@@ -72,16 +72,21 @@ void CarScreen::layout()
     const QRect area = m_safe.adjusted(m_safe.width() / 40, bar + m_safe.height() / 30,
                                        -m_safe.width() / 40, -m_safe.height() / 30);
     const int gap = area.width() / 40;
-    const int n = 5;
-    const int w = (area.width() - (n - 1) * gap) / n;
-    const int h = area.height();
-    const struct { Page p; const char *t; const char *g; } defs[] = {
-        {Navigation, "Navigation", "⮝"}, {Music, "Musik", "♫"}, {Apps, "Apps", ""},
-        {Phone, "Telefon", "☎"}, {Info, "Info", "i"},
+    // Navigation, Musik, Telefon big; Info narrow on the right.
+    const struct { Page p; const char *t; const char *g; double weight; } defs[] = {
+        {Navigation, "Navigation", "⮝", 1.0}, {Music, "Musik", "♫", 1.0}, {Phone, "Telefon", "☎", 1.0}, {Info, "Info", "i", 0.4},
     };
-    for (int i = 0; i < n; ++i)
-        m_tiles.append({QRect(area.left() + i * (w + gap), area.top(), w, h), defs[i].p,
-                        QString::fromUtf8(defs[i].t), QString::fromUtf8(defs[i].g)});
+    const int n = 4;
+    double total = 0;
+    for (const auto &d : defs) total += d.weight;
+    const double unit = (area.width() - (n - 1) * gap) / total;
+    const int h = area.height();
+    double x = area.left();
+    for (int i = 0; i < n; ++i) {
+        const int w = int(unit * defs[i].weight);
+        m_tiles.append({QRect(int(x), area.top(), w, h), defs[i].p, QString::fromUtf8(defs[i].t), QString::fromUtf8(defs[i].g)});
+        x += w + gap;
+    }
     m_backButton = QRect(m_safe.left() + m_safe.width() / 40, m_safe.top() + bar / 8, bar * 3, bar * 3 / 4);
     // Music page: transport buttons in a row at the bottom.
     const int pb = m_safe.height() / 5;
@@ -230,6 +235,18 @@ void CarScreen::drawNavPage(QPainter &p, const QRect &body)
     if (!m_nav.running) {
         drawNavChoose(p, body);
         return;
+    }
+    {
+        const QRect stopR(body.right() - bar * 3, body.top(), bar * 3, bar);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(200, 60, 50));
+        p.drawRoundedRect(stopR, 12, 12);
+        f.setPixelSize(bar * 2 / 5);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(Qt::white);
+        p.drawText(stopR, Qt::AlignCenter, QStringLiteral("Beenden"));
+        m_navButtons.append({stopR, QStringLiteral("stopnav"), QString()});
     }
     // Left: maneuver icon + distance. Right: street, instruction. Bottom: destination.
     const int iconSize = qMin(body.height() * 5 / 10, body.width() / 3);
@@ -808,6 +825,8 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
             p.drawText(QRect(cardR.left(), cardR.bottom() + 4, cardR.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
                        QStringLiteral("Abseits der Route"));
         }
+        button(QRect(area.right() - bar * 3 - 10, area.top() + 10, bar * 3, bar), QStringLiteral("stopnav"),
+               QStringLiteral("Beenden"), QColor(200, 60, 50), Qt::white);
         return;
     }
     // No route: "Ziel" (choose destination) and, if Pure Maps has one, start.
@@ -994,6 +1013,10 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
 
 void CarScreen::navButtonTapped(const NavButton &b)
 {
+    if (b.kind == QLatin1String("stopnav")) {
+        emit navStop();
+        return;
+    }
     if (b.kind == QLatin1String("choose")) {
         m_navChoosing = true;
         m_navView = 0;
@@ -1518,35 +1541,27 @@ int CarScreen::drawStatusIcons(QPainter &p, int right, int top, int height)
     const QFontMetrics fm(small);
     p.setFont(small);
 
-    // Battery: outline, fill by level (red < 20 %, green while charging), percent left of it.
+    // Battery, compact: percent inside the outline (green = charging, red < 20 %).
     if (m_phone.battery >= 0) {
-        const int w = h * 2;
+        const QString pct = QString::number(m_phone.battery);
+        QFont bf = small;
+        bf.setPixelSize(h * 7 / 10);
+        const int w = QFontMetrics(bf).width(QStringLiteral("100")) + 8;
         const QRect body(x - w - 3, cy - h / 2, w, h);
-        p.setPen(QPen(c.text, 2));
-        p.setBrush(Qt::NoBrush);
-        p.drawRoundedRect(body, 3, 3);
-        p.setPen(Qt::NoPen);
-        p.setBrush(c.text);
-        p.drawRect(QRect(body.right() + 1, cy - h / 5, 3, h * 2 / 5));
         const QColor fill = m_phone.charging ? QColor(60, 200, 90)
-                            : m_phone.battery < 20 ? QColor(230, 60, 50) : c.text;
+                            : m_phone.battery < 20 ? QColor(230, 60, 50) : c.panelPressed;
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.panel);
+        p.drawRoundedRect(body, 3, 3);
         p.setBrush(fill);
-        const QRect inner = body.adjusted(3, 3, -3, -3);
-        p.drawRect(QRect(inner.left(), inner.top(), inner.width() * m_phone.battery / 100, inner.height()));
-        if (m_phone.charging) { // lightning bolt
-            p.setBrush(c.bg);
-            const QPoint o = body.center();
-            QPolygon bolt;
-            bolt << QPoint(o.x() + 2, o.y() - h / 2 + 2) << QPoint(o.x() - 5, o.y() + 1) << QPoint(o.x(), o.y() + 1)
-                 << QPoint(o.x() - 2, o.y() + h / 2 - 2) << QPoint(o.x() + 5, o.y() - 1) << QPoint(o.x(), o.y() - 1);
-            p.drawPolygon(bolt);
-        }
-        const QString pct = QString::number(m_phone.battery) + QLatin1Char('%');
-        const int tw = fm.width(pct);
-        x = body.left() - 4 - tw;
+        p.drawRoundedRect(QRect(body.left(), body.top(), body.width() * m_phone.battery / 100, body.height()), 3, 3);
+        p.setBrush(c.text);
+        p.drawRect(QRect(body.right() + 1, cy - h / 5, 2, h * 2 / 5));
+        p.setFont(bf);
         p.setPen(c.text);
-        p.drawText(QRect(x, top, tw, height), Qt::AlignVCenter | Qt::AlignLeft, pct);
-        x -= gap;
+        p.drawText(body, Qt::AlignCenter, pct);
+        p.setFont(small);
+        x = body.left() - gap;
     }
 
     // Mobile: 4 bars + technology, dimmed bars when no signal.
@@ -1572,37 +1587,6 @@ int CarScreen::drawStatusIcons(QPainter &p, int right, int top, int height)
         x -= gap;
     }
 
-    // Wi-Fi: three arcs above a dot, lit by strength.
-    if (m_phone.wifi) {
-        const int w = h + 4;
-        const QPoint o(x - w / 2, cy + h / 2);
-        const int lit = m_phone.wifiStrength >= 60 ? 3 : m_phone.wifiStrength >= 30 ? 2 : 1;
-        p.setBrush(Qt::NoBrush);
-        for (int i = 1; i <= 3; ++i) {
-            const int rad = h * i / 3;
-            p.setPen(QPen(i <= lit ? c.text : c.panel, qMax(2, h / 8), Qt::SolidLine, Qt::RoundCap));
-            p.drawArc(QRect(o.x() - rad, o.y() - rad, 2 * rad, 2 * rad), 45 * 16, 90 * 16);
-        }
-        p.setPen(Qt::NoPen);
-        p.setBrush(c.text);
-        p.drawEllipse(o, 2, 2);
-        x -= w + gap;
-    }
-
-    // Bluetooth rune, accent when a device is connected (e.g. the car).
-    if (m_phone.btOn) {
-        const int w = h / 2 + 2;
-        const int l = x - w;
-        const QColor col = m_phone.btConnected ? c.accent : c.dim;
-        p.setPen(QPen(col, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-        p.setBrush(Qt::NoBrush);
-        const int t = cy - h / 2, b = cy + h / 2, mx = l + w / 2;
-        QPolygon rune;
-        rune << QPoint(l, cy - h / 4) << QPoint(l + w, cy + h / 4) << QPoint(mx, b) << QPoint(mx, t)
-             << QPoint(l + w, cy - h / 4) << QPoint(l, cy + h / 4);
-        p.drawPolyline(rune);
-        x = l - gap;
-    }
     return x;
 }
 

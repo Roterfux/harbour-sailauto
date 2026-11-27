@@ -90,6 +90,7 @@ signals:
     void navSearch(const QString &text);
     void navStart();
     void navPick(int index); // a search result
+    void navStop();
     // Music page: "Liste" tapped / an entry picked
     void musicListRequested();
     void musicListPicked(int index);

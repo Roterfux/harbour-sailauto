@@ -65,6 +65,7 @@ HEADERS += \
     src/audio/audiorouter.h \
     src/media/mprisclient.h \
     src/media/ownplayer.h \
+    src/media/appsources.h \
     src/phone/phonestatus.h \
     src/phone/notificationwatcher.h \
     src/phone/callmonitor.h \
@@ -90,6 +91,7 @@ SOURCES += \
     src/audio/audiorouter.cpp \
     src/media/mprisclient.cpp \
     src/media/ownplayer.cpp \
+    src/media/appsources.cpp \
     src/phone/phonestatus.cpp \
     src/phone/notificationwatcher.cpp \
     src/phone/callmonitor.cpp \

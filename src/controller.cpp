@@ -93,6 +93,21 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_map, &MapView::log, this, &Controller::appendLog);
     m_weatherEnabled = QSettings().value(QStringLiteral("weather/enabled"), true).toBool();
     m_closeIdle = QSettings().value(QStringLiteral("music/closeIdle"), true).toBool();
+    // Phone position source silent for 25 s: ask once more, then try the next source.
+    m_posSilence.setSingleShot(true);
+    connect(&m_posSilence, &QTimer::timeout, this, [this]() {
+        if (m_phonePosLogged || !m_session) return;
+        const int tried = m_posSourceIndex;
+        if (m_phonePos) {
+            appendLog(QStringLiteral("Telefon-GPS: Quelle \"%1\" liefert nichts").arg(m_phonePos->sourceName()));
+            m_phonePos->stopUpdates();
+            m_phonePos->deleteLater();
+            m_phonePos = nullptr;
+        }
+        m_posSourceIndex = tried + 1;
+        if (m_posSourceIndex <= QGeoPositionInfoSource::availableSources().size()) startPhonePosition();
+        else appendLog(QStringLiteral("Telefon-GPS: keine Quelle liefert eine Position (Ortung an? Draußen?)"));
+    });
     // Music apps not playing for 2 min while in the car: close them (saves battery).
     m_idleTimer.setInterval(qEnvironmentVariableIsSet("SAILAUTO_IDLE_MS") ? 2000 : 15000);
     connect(&m_idleTimer, &QTimer::timeout, this, [this]() {
@@ -153,6 +168,17 @@ Controller::Controller(QObject *parent) : QObject(parent)
         m_own.searchStations(t);
     });
     connect(&m_own, &OwnPlayer::log, this, &Controller::appendLog);
+    connect(&m_appSources, &AppSources::log, this, &Controller::appendLog);
+    connect(&m_appSources, &AppSources::podcastsLoaded, this, [this]() {
+        QVector<BrowseItem> items;
+        const QVector<Podcast> &pcs = m_appSources.podcasts();
+        for (int k = 0; k < pcs.size(); ++k)
+            items.append({QStringLiteral("podcast"), QString::number(k), pcs[k].title,
+                          pcs[k].error.isEmpty() ? QStringLiteral("%1 Folgen").arg(pcs[k].episodes.size()) : pcs[k].error});
+        if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Abos in Sailcast"), QString()});
+        m_items = items;
+        showItems(items, false);
+    });
     connect(&m_own, &OwnPlayer::stationsFound, this, [this](const QVector<RadioStation> &st, const QString &err) {
         m_stations = st;
         QVector<BrowseItem> items;
@@ -165,6 +191,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
         showItems(items, false);
     });
     connect(&m_screen, &CarScreen::navStart, &m_nav, &PureMapsClient::startNavigation);
+    connect(&m_screen, &CarScreen::navStop, &m_nav, &PureMapsClient::stopNavigation);
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
         m_screen.setNav(n, m_nav.icon(n.icon, 256));
@@ -193,7 +220,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     m_autostart = QSettings().value(QStringLiteral("autostart"), false).toBool();
     m_notifyToCar = QSettings().value(QStringLiteral("notifyToCar"), true).toBool();
     // Repair a phone left silent by an older version or a crash.
-    QTimer::singleShot(1500, this, [this]() { if (!m_router.running()) m_router.repairSilentStreams(); });
+    QTimer::singleShot(1500, this, [this]() { if (!m_router.running() && !m_session) m_router.repairSilentStreams(); });
     {
         QSettings st;
         m_parked.valid = st.value(QStringLiteral("parked/valid"), false).toBool();
@@ -749,7 +776,14 @@ void Controller::repairAudio()
 void Controller::startPhonePosition()
 {
     if (m_phonePos || (!m_mapEnabled && !m_weatherEnabled)) return;
-    m_phonePos = QGeoPositionInfoSource::createDefaultSource(this);
+    const QStringList sources = QGeoPositionInfoSource::availableSources();
+    if (m_posSourceIndex == 0) appendLog(QStringLiteral("Telefon-GPS: Quellen %1").arg(sources.join(QStringLiteral(", "))));
+    // First the default source; if it stays silent, the others one by one.
+    m_phonePos = m_posSourceIndex == 0 ? QGeoPositionInfoSource::createDefaultSource(this)
+                 : m_posSourceIndex - 1 < sources.size() ? QGeoPositionInfoSource::createSource(sources[m_posSourceIndex - 1], this)
+                                                         : nullptr;
+    if (m_phonePos) appendLog(QStringLiteral("Telefon-GPS: nutze Quelle \"%1\"").arg(m_phonePos->sourceName()));
+    m_posSilence.start(25000);
     if (!m_phonePos) {
         appendLog(QStringLiteral("Telefon-GPS: keine Positionsquelle (Ortung aus?)"));
         return;
@@ -761,9 +795,12 @@ void Controller::startPhonePosition()
     });
     connect(m_phonePos, &QGeoPositionInfoSource::positionUpdated, this, [this](const QGeoPositionInfo &info) {
         if (!info.isValid()) return;
+        m_posSilence.stop();
         if (!m_phonePosLogged) {
             m_phonePosLogged = true;
-            appendLog(QStringLiteral("Telefon-GPS: Position da"));
+            appendLog(QStringLiteral("Telefon-GPS: Position da (Genauigkeit %1 m)")
+                          .arg(info.hasAttribute(QGeoPositionInfo::HorizontalAccuracy)
+                                   ? QString::number(qRound(info.attribute(QGeoPositionInfo::HorizontalAccuracy))) : QStringLiteral("?")));
         }
         // The car's GPS wins while it is fresh.
         if (m_carFixClock.isValid() && m_carFixClock.elapsed() < 3000) return;
@@ -789,6 +826,8 @@ void Controller::startPhonePosition()
 
 void Controller::stopPhonePosition()
 {
+    m_posSilence.stop();
+    m_posSourceIndex = 0;
     if (!m_phonePos) return;
     m_phonePos->stopUpdates();
     m_phonePos->deleteLater();
@@ -893,6 +932,8 @@ void Controller::showItems(const QVector<BrowseItem> &items, bool push)
     QVector<CarScreen::ListItem> list;
     for (const BrowseItem &b : items)
         list.append({b.title, b.sub, b.kind == QLatin1String("folder") || b.kind == QLatin1String("menu")
+                                     || b.kind == QLatin1String("sailwave") || b.kind == QLatin1String("sailcast")
+                                     || b.kind == QLatin1String("podcast")
                                      || b.kind == QLatin1String("favs") || b.kind == QLatin1String("top")
                                      || b.kind == QLatin1String("mprislists")});
     m_screen.setMusicList(list);
@@ -913,6 +954,11 @@ void Controller::showBrowseRoot()
                  QStringLiteral("meistgehörte Sender (%1)").arg(cc.isEmpty() ? QStringLiteral("DE") : cc)});
     root.append({QStringLiteral("rsearch"), QString(), QStringLiteral("Radio suchen"),
                  m_drivingStatus == 0 || m_gear == 101 ? QStringLiteral("Tastatur") : QStringLiteral("nur im Stand")});
+    // Other apps' own lists (read from their databases)
+    if (!AppSources::findLocalStorage(QStringLiteral("sailwave")).isEmpty())
+        root.append({QStringLiteral("sailwave"), QString(), QStringLiteral("SailWave: Sender"), QStringLiteral("deine Sender aus SailWave")});
+    if (!AppSources::findLocalStorage(QStringLiteral("SailcastDatabase")).isEmpty())
+        root.append({QStringLiteral("sailcast"), QString(), QStringLiteral("Sailcast: Podcasts"), QStringLiteral("deine Abos mit Folgen")});
     for (const QString &r : OwnPlayer::musicRoots())
         root.append({QStringLiteral("folder"), r, QStringLiteral("Musik: ") + QFileInfo(r).fileName(),
                      r.startsWith(QStringLiteral("/run/media")) ? QStringLiteral("Speicherkarte") : QStringLiteral("Telefon")});
@@ -985,6 +1031,36 @@ void Controller::onBrowsePick(int i)
             m_mpris.setPreferred(QStringLiteral("harbour-sailauto"));
             m_own.playStation(m_stations[k]);
         }
+        m_screen.closeMusicList();
+    } else if (b.kind == QLatin1String("sailwave")) {
+        QString err;
+        m_stations = AppSources::sailwaveStations(&err);
+        QVector<BrowseItem> items;
+        for (int k = 0; k < m_stations.size(); ++k)
+            items.append({QStringLiteral("station"), QString::number(k), m_stations[k].name, QString()});
+        if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Sender in SailWave"), err});
+        showItems(items, true);
+    } else if (b.kind == QLatin1String("sailcast")) {
+        showItems({{QStringLiteral("none"), QString(), QStringLiteral("Lade Podcasts"), QString()}}, true);
+        m_appSources.loadPodcasts();
+    } else if (b.kind == QLatin1String("podcast")) {
+        const int k = b.value.toInt();
+        const QVector<Podcast> &pcs = m_appSources.podcasts();
+        if (k < 0 || k >= pcs.size()) return;
+        QVector<BrowseItem> items;
+        for (int e = 0; e < pcs[k].episodes.size(); ++e)
+            items.append({QStringLiteral("episode"), QStringLiteral("%1:%2").arg(k).arg(e), pcs[k].episodes[e].title,
+                          (pcs[k].episodes[e].date + QStringLiteral("  ") + pcs[k].episodes[e].duration).trimmed()});
+        if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Folgen"), pcs[k].error});
+        showItems(items, true);
+    } else if (b.kind == QLatin1String("episode")) {
+        const int k = b.value.section(QLatin1Char(':'), 0, 0).toInt(), e = b.value.section(QLatin1Char(':'), 1, 1).toInt();
+        const QVector<Podcast> &pcs = m_appSources.podcasts();
+        if (k < 0 || k >= pcs.size()) return;
+        QStringList urls, titles;
+        for (const Episode &ep : pcs[k].episodes) { urls << ep.url; titles << ep.title; }
+        m_mpris.setPreferred(QStringLiteral("harbour-sailauto"));
+        m_own.playEpisodes(urls, titles, e, pcs[k].title, pcs[k].image);
         m_screen.closeMusicList();
     } else if (b.kind == QLatin1String("fav")) {
         m_own.toggleFavorite();
