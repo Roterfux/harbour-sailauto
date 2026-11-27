@@ -1,5 +1,6 @@
 #include "controller.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -704,7 +705,28 @@ void Controller::tryOpenUsb()
         static QString lastError;
         if (dev->errorString() != lastError) {
             lastError = dev->errorString();
-            appendLog(QStringLiteral("USB: /dev/usb_accessory nicht offen (%1). Ist aoa-gadget.sh on gelaufen?").arg(lastError));
+            QString who;
+            if (dev->errorString().contains(QStringLiteral("busy"), Qt::CaseInsensitive)) {
+                // Who holds it? (only our own user's processes are visible)
+                const QDir proc(QStringLiteral("/proc"));
+                for (const QString &pid : proc.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+                    bool num = false;
+                    pid.toInt(&num);
+                    if (!num || pid.toLongLong() == QCoreApplication::applicationPid()) continue;
+                    const QDir fds(proc.filePath(pid + QStringLiteral("/fd")));
+                    for (const QString &fd : fds.entryList(QDir::System | QDir::NoDotAndDotDot)) {
+                        if (QFile::symLinkTarget(fds.filePath(fd)) != path) continue;
+                        QFile cmd(proc.filePath(pid + QStringLiteral("/cmdline")));
+                        cmd.open(QIODevice::ReadOnly);
+                        who += QStringLiteral(" PID %1 (%2)").arg(pid, QString::fromLocal8Bit(cmd.readAll()).replace(QLatin1Char('\0'), QLatin1Char(' ')).trimmed());
+                    }
+                }
+                if (who.isEmpty()) who = QStringLiteral(" (unbekannt; Root- oder fremder Prozess, oder alte Instanz hängt)");
+            }
+            appendLog(who.isEmpty()
+                          ? QStringLiteral("USB: /dev/usb_accessory nicht offen (%1). Ist aoa-gadget.sh on gelaufen?").arg(lastError)
+                          : QStringLiteral("USB: /dev/usb_accessory ist belegt von%1. Andere SailAuto-Instanz schließen "
+                                           "oder Telefon neu starten.").arg(who));
         }
         delete dev;
         m_usbRetry.start();
