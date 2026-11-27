@@ -10,6 +10,7 @@
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
 #include "phone/callmonitor.h"
+#include "phone/phonebook.h"
 #include "apps/appcatalog.h"
 #include "nav/puremaps.h"
 #include "video/carscreen.h"
@@ -168,6 +169,7 @@ private:
     PureMapsClient m_nav;
     // Calls
     CallMonitor m_calls;
+    PhoneBook m_phonebook;
     CallInfo m_lastCall;
     bool m_callSilenced = false;
     bool m_pausedForCall = false;   // we paused the player; resume when the call is over

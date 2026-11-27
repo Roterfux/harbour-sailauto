@@ -67,6 +67,7 @@ HEADERS += \
     src/phone/phonestatus.h \
     src/phone/notificationwatcher.h \
     src/phone/callmonitor.h \
+    src/phone/phonebook.h \
     src/apps/appcatalog.h \
     src/nav/puremaps.h \
     src/controller.h
@@ -87,6 +88,7 @@ SOURCES += \
     src/phone/phonestatus.cpp \
     src/phone/notificationwatcher.cpp \
     src/phone/callmonitor.cpp \
+    src/phone/phonebook.cpp \
     src/apps/appcatalog.cpp \
     src/nav/puremaps.cpp \
     src/controller.cpp

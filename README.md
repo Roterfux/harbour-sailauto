@@ -222,6 +222,13 @@ Ab 0.8.0.
   Der Gesprächston läuft wie bisher über Bluetooth (Freisprechen des Autos).
   Technik: Sailfish-voicecall-Dienst (D-Bus), Adressbuch über QtContacts.
   Im Log steht nur der Zustand, nicht die Nummer.
+- **Telefonbuch** (ab 0.9.0, Kachel „Telefon“ im Auto): Reiter „Favoriten“
+  und „Alle“ mit Bild (sonst Initialen), Name und Nummer; blättern per Wischen
+  oder mit den Pfeilen. Kontakt antippen → alle Nummern als große Knöpfe
+  „Anrufen · Mobil/Privat/Arbeit“; „Zurück“ führt erst zur Liste. Gewählt wird
+  über den voicecall-Dienst (erste SIM); unten erscheint „Wählt: Name“ mit
+  „Auflegen“. Favoriten = in „Personen“ am Telefon als Favorit markiert.
+  Im Log nur Anzahlen, keine Namen/Nummern.
 - **Wo steht mein Auto?** Die App fragt die GPS-Position des Autos ab (Sensor
   LOCATION) und merkt sich die letzte beim Trennen. Am Telefon: Abschnitt
   „Auto geparkt“ mit Uhrzeit, „Auf Karte zeigen“ (geo:-Link → Pure Maps /

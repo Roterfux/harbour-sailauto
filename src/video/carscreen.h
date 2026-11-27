@@ -13,6 +13,7 @@
 #include "../phone/phonestatus.h"
 #include "../nav/puremaps.h"
 #include "../phone/callmonitor.h"
+#include "../phone/phonebook.h"
 
 class CarScreen : public QObject
 {
@@ -36,6 +37,8 @@ public:
     void setNav(const NavState &s, const QImage &icon);
     // Phone call: ringing = full screen with 4 buttons; silenced/active = strip at the bottom.
     void setCall(const CallInfo &c, bool silenced);
+    // Address book for the phone page.
+    void setContacts(const QVector<PhoneContact> &contacts);
 
     QSize size() const { return m_image.size(); }
     // Draws the next frame and returns it (RGB32).
@@ -58,6 +61,8 @@ signals:
     void launchApp(const QString &id);
     // "answer", "decline", "silence", "silence_music", "hangup"
     void callAction(const QString &action);
+    // Phone page: call this number
+    void dial(const QString &number, const QString &name, const QImage &photo);
 
 private:
     enum Page { Home, Navigation, Music, Apps, Phone, Info };
@@ -105,6 +110,22 @@ private:
     QVector<CallButton> m_callButtons;
     void drawCall(QPainter &p);
     bool callFullScreen() const { return m_call.state == CallInfo::Incoming && !m_callSilenced; }
+    // Phone page (address book)
+    QVector<PhoneContact> m_contacts;
+    int m_phoneTab = 0;          // 0 favorites, 1 all
+    int m_phoneScroll = 0;       // pixels
+    int m_phoneDetail = -1;      // index into m_contacts, -1 = list
+    struct Row { QRect rect; int contact; };
+    QVector<Row> m_phoneRows;
+    QRect m_phoneTabs[2], m_phoneUp, m_phoneDown, m_phoneList;
+    struct DialButton { QRect rect; QString number; };
+    QVector<DialButton> m_dialButtons;
+    int m_dragStartY = 0, m_dragStartScroll = 0;
+    bool m_dragMoved = false;
+    QVector<int> phoneVisible() const;
+    int phoneRowHeight() const { return qMax(48, m_phoneList.height() / 5); }
+    void drawPhonePage(QPainter &p, const QRect &body);
+    void phoneTap(const QPoint &pt);
     bool m_hasPlayer = false, m_mediaPlaying = false;
     QString m_player, m_title, m_artist, m_album;
     QImage m_art;

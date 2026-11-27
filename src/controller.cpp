@@ -60,6 +60,12 @@ Controller::Controller(QObject *parent) : QObject(parent)
         if (a && a->media) m_mpris.setPreferred(id);
     });
     connect(&m_calls, &CallMonitor::log, this, &Controller::appendLog);
+    connect(&m_phonebook, &PhoneBook::log, this, &Controller::appendLog);
+    connect(&m_phonebook, &PhoneBook::loaded, this, [this]() { m_screen.setContacts(m_phonebook.contacts()); });
+    connect(&m_screen, &CarScreen::dial, this, [this](const QString &number, const QString &name, const QImage &photo) {
+        appendLog(QStringLiteral("Telefonbuch: Anruf vom Auto aus"));
+        m_calls.dial(number, name, photo);
+    });
     connect(&m_calls, &CallMonitor::changed, this, &Controller::onCallChanged);
     connect(&m_screen, &CarScreen::callAction, this, &Controller::onCallAction);
     connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
@@ -969,6 +975,7 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     m_phoneStatus.start();
     m_nav.start();
     m_calls.start();
+    QTimer::singleShot(2000, &m_phonebook, &PhoneBook::load); // after the picture is up
     if (m_notifyToCar) m_notify.start();
     setStatus(QStringLiteral("Projiziert auf %1").arg(m_session ? m_session->headUnitName() : QStringLiteral("Head Unit")));
 }

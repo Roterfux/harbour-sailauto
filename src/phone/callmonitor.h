@@ -37,6 +37,8 @@ public:
     bool answer();
     bool hangup();
     bool silenceRingtone();
+    // Outgoing call over the first cellular provider (SIM).
+    bool dial(const QString &number, const QString &name = QString(), const QImage &photo = QImage());
 
 signals:
     void changed();
@@ -51,4 +53,7 @@ private:
     QHash<QString, QPair<QString, QImage>> m_contactCache;
     bool m_contactErrorLogged = false;
     bool m_serviceErrorLogged = false;
+    // Name/photo of the number we dialed (the line id may be formatted differently)
+    QString m_dialKey, m_dialName;
+    QImage m_dialPhoto;
 };

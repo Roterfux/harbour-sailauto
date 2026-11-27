@@ -395,6 +395,201 @@ void CarScreen::drawCall(QPainter &p)
                QFontMetrics(f).elidedText(status + QStringLiteral(": ") + who, Qt::ElideRight, textR.width()));
 }
 
+void CarScreen::setContacts(const QVector<PhoneContact> &contacts)
+{
+    m_contacts = contacts;
+    m_phoneDetail = -1;
+    m_phoneScroll = 0;
+    // No favorites: start on the full list.
+    bool fav = false;
+    for (const PhoneContact &c : m_contacts) fav |= c.favorite;
+    m_phoneTab = fav ? 0 : 1;
+}
+
+QVector<int> CarScreen::phoneVisible() const
+{
+    QVector<int> out;
+    for (int i = 0; i < m_contacts.size(); ++i)
+        if (m_phoneTab == 1 || m_contacts[i].favorite) out.append(i);
+    return out;
+}
+
+void CarScreen::drawPhonePage(QPainter &p, const QRect &body)
+{
+    const Palette c = palette(m_night);
+    const int bar = m_safe.height() / 8;
+    QFont f = p.font();
+    m_phoneRows.clear();
+    m_dialButtons.clear();
+    auto avatar = [&](const QRect &r, const PhoneContact &k) {
+        if (!k.photo.isNull()) {
+            QPainterPath clip;
+            clip.addEllipse(r);
+            p.save();
+            p.setClipPath(clip);
+            p.drawImage(r, k.photo);
+            p.restore();
+            return;
+        }
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.panelPressed);
+        p.drawEllipse(r);
+        QFont af = f;
+        af.setPixelSize(r.height() * 2 / 5);
+        af.setBold(true);
+        p.setFont(af);
+        p.setPen(c.text);
+        const QStringList parts = k.name.split(QLatin1Char(' '), QString::SkipEmptyParts);
+        p.drawText(r, Qt::AlignCenter, (parts.value(0).left(1) + parts.value(1).left(1)).toUpper());
+    };
+
+    if (m_contacts.isEmpty()) {
+        f.setPixelSize(bar / 2);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.text);
+        p.drawText(body, Qt::AlignCenter | Qt::TextWordWrap,
+                   QStringLiteral("Kein Kontakt mit Telefonnummer.\n(Adressbuch leer oder nicht lesbar – siehe Protokoll)"));
+        return;
+    }
+
+    if (m_phoneDetail >= 0 && m_phoneDetail < m_contacts.size()) {
+        const PhoneContact &k = m_contacts[m_phoneDetail];
+        const int ph = qMin(body.height() / 2, body.width() / 4);
+        const QRect photoR(body.left(), body.top() + 10, ph, ph);
+        avatar(photoR, k);
+        f.setPixelSize(bar * 3 / 5);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.text);
+        p.drawText(QRect(body.left(), photoR.bottom() + 10, ph + 40, bar * 2), Qt::AlignLeft | Qt::AlignTop | Qt::TextWordWrap, k.name);
+        // One big button per number.
+        const QRect nums(photoR.right() + bar / 2, body.top() + 10, body.right() - photoR.right() - bar / 2, body.height() - 20);
+        const int bh = qMin(bar * 3 / 2, (nums.height() - 10 * 3) / qMax(1, qMin(4, k.numbers.size())));
+        for (int i = 0; i < k.numbers.size() && i < 4; ++i) {
+            const QRect r(nums.left(), nums.top() + i * (bh + 10), nums.width(), bh);
+            p.setPen(Qt::NoPen);
+            p.setBrush(QColor(40, 170, 80));
+            p.drawRoundedRect(r, 14, 14);
+            f.setPixelSize(bar * 2 / 5);
+            f.setBold(true);
+            p.setFont(f);
+            p.setPen(Qt::white);
+            const QRect inner = r.adjusted(bar / 3, 0, -bar / 3, 0);
+            p.drawText(inner, Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Anrufen  ·  ") + k.labels.value(i));
+            f.setBold(false);
+            p.setFont(f);
+            p.drawText(inner, Qt::AlignRight | Qt::AlignVCenter, k.numbers[i]);
+            m_dialButtons.append({r, k.numbers[i]});
+        }
+        return;
+    }
+
+    // Tabs left, list middle, page buttons right.
+    const int tabW = body.width() / 5;
+    const int tabH = bar * 3 / 2;
+    const char *tabNames[] = {"Favoriten", "Alle"};
+    for (int i = 0; i < 2; ++i) {
+        m_phoneTabs[i] = QRect(body.left(), body.top() + i * (tabH + 10), tabW, tabH);
+        p.setPen(Qt::NoPen);
+        p.setBrush(i == m_phoneTab ? c.accent : c.panel);
+        p.drawRoundedRect(m_phoneTabs[i], 12, 12);
+        f.setPixelSize(bar * 2 / 5);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(i == m_phoneTab ? c.bg : c.text);
+        p.drawText(m_phoneTabs[i], Qt::AlignCenter, QString::fromUtf8(tabNames[i]));
+    }
+    const int btnW = bar + 10;
+    m_phoneList = QRect(body.left() + tabW + 15, body.top(), body.width() - tabW - 15 - btnW - 10, body.height());
+    m_phoneUp = QRect(m_phoneList.right() + 10, body.top(), btnW, body.height() / 2 - 5);
+    m_phoneDown = QRect(m_phoneList.right() + 10, body.center().y() + 5, btnW, body.height() / 2 - 5);
+
+    const QVector<int> vis = phoneVisible();
+    const int rh = phoneRowHeight();
+    const int maxScroll = qMax(0, vis.size() * rh - m_phoneList.height());
+    m_phoneScroll = qBound(0, m_phoneScroll, maxScroll);
+    if (vis.isEmpty()) {
+        f.setPixelSize(bar * 2 / 5);
+        f.setBold(false);
+        p.setFont(f);
+        p.setPen(c.dim);
+        p.drawText(m_phoneList, Qt::AlignCenter | Qt::TextWordWrap,
+                   QStringLiteral("Keine Favoriten.\nIn „Personen“ am Telefon einen Kontakt als Favorit markieren."));
+    }
+    p.save();
+    p.setClipRect(m_phoneList);
+    const int first = m_phoneScroll / rh;
+    for (int k = first; k < vis.size(); ++k) {
+        const QRect r(m_phoneList.left(), m_phoneList.top() + k * rh - m_phoneScroll, m_phoneList.width(), rh - 6);
+        if (r.top() > m_phoneList.bottom()) break;
+        const PhoneContact &ct = m_contacts[vis[k]];
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.panel);
+        p.drawRoundedRect(r, 12, 12);
+        const int as = r.height() - 12;
+        avatar(QRect(r.left() + 8, r.top() + 6, as, as), ct);
+        const QRect tr(r.left() + as + 24, r.top(), r.width() - as - 32, r.height());
+        f.setPixelSize(qMin(bar * 2 / 5, r.height() * 2 / 5));
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.text);
+        p.drawText(tr.adjusted(0, 0, 0, -r.height() / 3), Qt::AlignLeft | Qt::AlignBottom,
+                   QFontMetrics(f).elidedText(ct.name, Qt::ElideRight, tr.width()));
+        f.setBold(false);
+        f.setPixelSize(qMin(bar * 3 / 10, r.height() * 3 / 10));
+        p.setFont(f);
+        p.setPen(c.dim);
+        const QString sub = ct.labels.value(0) + QStringLiteral(" ") + ct.numbers.value(0)
+                            + (ct.numbers.size() > 1 ? QStringLiteral("  (+%1)").arg(ct.numbers.size() - 1) : QString());
+        p.drawText(tr.adjusted(0, r.height() * 2 / 3 - 4, 0, 0), Qt::AlignLeft | Qt::AlignTop,
+                   QFontMetrics(f).elidedText(sub, Qt::ElideRight, tr.width()));
+        m_phoneRows.append({r.intersected(m_phoneList), vis[k]});
+    }
+    p.restore();
+    // Page buttons
+    for (const QRect &ar : {m_phoneUp, m_phoneDown}) {
+        const bool up = ar == m_phoneUp;
+        const bool enabled = up ? m_phoneScroll > 0 : m_phoneScroll < maxScroll;
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.panel);
+        p.drawRoundedRect(ar, 12, 12);
+        p.setBrush(enabled ? c.text : c.dim);
+        const QPoint o = ar.center();
+        const int k = ar.width() / 4;
+        QPolygon tri;
+        if (up) tri << QPoint(o.x() - k, o.y() + k / 2) << QPoint(o.x() + k, o.y() + k / 2) << QPoint(o.x(), o.y() - k / 2);
+        else tri << QPoint(o.x() - k, o.y() - k / 2) << QPoint(o.x() + k, o.y() - k / 2) << QPoint(o.x(), o.y() + k / 2);
+        p.drawPolygon(tri);
+    }
+}
+
+void CarScreen::phoneTap(const QPoint &pt)
+{
+    if (m_phoneDetail >= 0) {
+        for (const DialButton &b : m_dialButtons)
+            if (b.rect.contains(pt)) {
+                emit dial(b.number, m_contacts.value(m_phoneDetail).name, m_contacts.value(m_phoneDetail).photo);
+                return;
+            }
+        return;
+    }
+    for (int i = 0; i < 2; ++i)
+        if (m_phoneTabs[i].contains(pt)) {
+            m_phoneTab = i;
+            m_phoneScroll = 0;
+            return;
+        }
+    const int page = m_phoneList.height() - phoneRowHeight();
+    if (m_phoneUp.contains(pt)) { m_phoneScroll -= page; return; }
+    if (m_phoneDown.contains(pt)) { m_phoneScroll += page; return; }
+    for (const Row &r : m_phoneRows)
+        if (r.rect.contains(pt)) {
+            m_phoneDetail = r.contact;
+            return;
+        }
+}
+
 void CarScreen::setApps(const QVector<CarApp> &apps)
 {
     m_apps = apps;
@@ -447,6 +642,16 @@ void CarScreen::setNowPlaying(bool hasPlayer, const QString &player, const QStri
 void CarScreen::touch(int action, int x, int y)
 {
     m_touch = QPoint(x, y);
+    if (m_page == Phone && m_phoneDetail < 0 && !callFullScreen()) {
+        if (action == 0) {
+            m_dragStartY = y;
+            m_dragStartScroll = m_phoneScroll;
+            m_dragMoved = false;
+        } else if (action == 2 && m_phoneList.contains(QPoint(x, m_dragStartY))) {
+            if (qAbs(y - m_dragStartY) > 12) m_dragMoved = true;
+            if (m_dragMoved) m_phoneScroll = m_dragStartScroll - (y - m_dragStartY);
+        }
+    }
     if (action == 0) { // press
         m_pressed = true;
         m_trail.clear();
@@ -482,8 +687,15 @@ void CarScreen::touch(int action, int x, int y)
                 emit tapped(m_tiles[m_pressedTile].title);
             }
         } else if (m_backButton.contains(m_touch)) {
-            m_page = Home;
-            emit tapped(QStringLiteral("Zurück"));
+            if (m_page == Phone && m_phoneDetail >= 0) {
+                m_phoneDetail = -1; // back to the list first
+            } else {
+                m_page = Home;
+                emit tapped(QStringLiteral("Zurück"));
+            }
+        } else if (m_page == Phone) {
+            if (!m_dragMoved) phoneTap(m_touch);
+            m_dragMoved = false;
         } else if (m_page == Navigation && m_navStartButton.contains(m_touch)) {
             emit launchApp(QStringLiteral("harbour-pure-maps"));
         } else if (m_page == Apps) {
@@ -847,8 +1059,7 @@ void CarScreen::drawPage(QPainter &p)
         break;
     }
     case Phone:
-        p.setPen(c.text);
-        p.drawText(body, Qt::AlignCenter, QStringLiteral("Telefon (Platzhalter)"));
+        drawPhonePage(p, body);
         break;
     case Info: {
         p.setPen(c.text);

@@ -19,6 +19,14 @@ QTCONTACTS_USE_NAMESPACE
 #endif
 
 namespace {
+QString numberKey(const QString &n)
+{
+    QString d;
+    for (const QChar ch : n)
+        if (ch.isDigit()) d += ch;
+    return d.right(8); // ignores +49 / 0 prefixes
+}
+
 const char kService[] = "org.nemomobile.voicecall";
 const char kManagerIface[] = "org.nemomobile.voicecall.VoiceCallManager";
 const char kCallIface[] = "org.nemomobile.voicecall.VoiceCall";
@@ -116,6 +124,9 @@ void CallMonitor::poll()
         if (best.number == m_call.number && best.id == m_call.id) {
             best.name = m_call.name;
             best.photo = m_call.photo;
+        } else if (!m_dialKey.isEmpty() && numberKey(best.number) == m_dialKey) {
+            best.name = m_dialName;
+            best.photo = m_dialPhoto;
         } else {
             lookupContact(best.number, &best.name, &best.photo);
         }
@@ -153,6 +164,34 @@ bool CallMonitor::silenceRingtone()
     QString err;
     const bool ok = callMethod(QStringLiteral("/"), kManagerIface, "silenceRingtone", &err);
     emit log(ok ? QStringLiteral("Anruf: Klingelton stumm") : QStringLiteral("Anruf: Stumm fehlgeschlagen (%1)").arg(err));
+    return ok;
+}
+
+bool CallMonitor::dial(const QString &number, const QString &name, const QImage &photo)
+{
+    m_dialKey = numberKey(number);
+    m_dialName = name;
+    m_dialPhoto = photo;
+    QString err;
+    const QVariantMap mgr = getAll(QStringLiteral("/"), kManagerIface, &err);
+    // providers: "providerId:providerType", e.g. "ril_0:cellular"
+    const QStringList providers = mgr.value(QStringLiteral("providers")).toStringList();
+    QString provider;
+    for (const QString &pr : providers)
+        if (pr.endsWith(QLatin1String(":cellular"))) { provider = pr.section(QLatin1Char(':'), 0, -2); break; }
+    if (provider.isEmpty() && !providers.isEmpty()) provider = providers.first().section(QLatin1Char(':'), 0, -2);
+    if (provider.isEmpty()) {
+        emit log(QStringLiteral("Anruf: kein Anbieter/SIM gefunden (%1)").arg(err.isEmpty() ? providers.join(QLatin1Char(',')) : err));
+        return false;
+    }
+    QDBusMessage m = QDBusMessage::createMethodCall(QLatin1String(kService), QStringLiteral("/"),
+                                                    QLatin1String(kManagerIface), QStringLiteral("dial"));
+    m << provider << number;
+    const QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 5000);
+    const bool ok = r.type() == QDBusMessage::ReplyMessage && (r.arguments().isEmpty() || r.arguments().first().toBool());
+    emit log(ok ? QStringLiteral("Anruf: wähle (über %1)").arg(provider)
+                : QStringLiteral("Anruf: Wählen fehlgeschlagen (%1)").arg(r.errorMessage().isEmpty() ? QStringLiteral("abgelehnt") : r.errorMessage()));
+    QTimer::singleShot(300, this, &CallMonitor::poll);
     return ok;
 }
 
