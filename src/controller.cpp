@@ -91,6 +91,14 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
     connect(&m_map, &MapView::log, this, &Controller::appendLog);
     m_weatherEnabled = QSettings().value(QStringLiteral("weather/enabled"), true).toBool();
+    m_closeIdle = QSettings().value(QStringLiteral("music/closeIdle"), true).toBool();
+    // Music apps not playing for 2 min while in the car: close them (saves battery).
+    m_idleTimer.setInterval(qEnvironmentVariableIsSet("SAILAUTO_IDLE_MS") ? 2000 : 15000);
+    connect(&m_idleTimer, &QTimer::timeout, this, [this]() {
+        if (!m_closeIdle || !m_session || m_pausedForCall || m_calls.call().state != CallInfo::None) return;
+        const int idle = qEnvironmentVariableIsSet("SAILAUTO_IDLE_MS") ? qgetenv("SAILAUTO_IDLE_MS").toInt() : 120000;
+        for (const QString &d : m_mpris.quitIdle(idle)) appendLog(QStringLiteral("Musik: ") + d + QStringLiteral(" (2 min Pause)"));
+    });
     connect(&m_weather, &WeatherClient::log, this, &Controller::appendLog);
     connect(&m_weather, &WeatherClient::changed, this, [this]() { m_screen.setWeather(m_weather.data()); });
     {
@@ -765,6 +773,14 @@ void Controller::stopPhonePosition()
     m_phonePosLogged = false;
 }
 
+void Controller::setCloseIdlePlayers(bool on)
+{
+    if (on == m_closeIdle) return;
+    m_closeIdle = on;
+    QSettings().setValue(QStringLiteral("music/closeIdle"), on);
+    emit closeIdleChanged();
+}
+
 void Controller::setWeatherEnabled(bool on)
 {
     if (on == m_weatherEnabled) return;
@@ -1201,6 +1217,7 @@ void Controller::onVideoStart(const aap::VideoConfig &cfg)
     startRouter();
     m_mpris.start();
     m_phoneStatus.start();
+    m_idleTimer.start();
     startPhonePosition();
     if (m_weatherEnabled && m_parked.valid) m_weather.setPosition(m_parked.lat, m_parked.lon);
     m_nav.start();
@@ -1264,6 +1281,7 @@ void Controller::onSessionClosed(const QString &reason)
     stopRouter();
     m_mpris.stop();
     m_phoneStatus.stop();
+    m_idleTimer.stop();
     stopPhonePosition();
     m_nav.stop();
     m_calls.stop();

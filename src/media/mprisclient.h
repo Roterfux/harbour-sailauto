@@ -6,6 +6,7 @@
 
 #include <QElapsedTimer>
 #include <QHash>
+#include <QSet>
 #include <QVector>
 #include <QImage>
 #include <QObject>
@@ -48,6 +49,9 @@ public slots:
     void setPreferred(const QString &desktopId);
     // The player of the app started from the car is now the shown one.
     bool showingPreferred() const { return m_showingPreferred; }
+    // Close players that have not played for idleMs (Quit, else SIGTERM).
+    // Returns "Name beendet/gestoppt" per closed player.
+    QStringList quitIdle(qint64 idleMs);
 
 signals:
     void changed();
@@ -72,4 +76,6 @@ private:
     qint64 m_ownBaseMs = 0, m_reportedLast = -1;
     int m_stuckPolls = 0;
     bool m_posWarned = false;
+    QHash<QString, qint64> m_lastActive; // player -> last time seen playing (ms)
+    QSet<QString> m_reportLogged;
 };

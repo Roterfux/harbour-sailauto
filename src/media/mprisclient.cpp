@@ -7,6 +7,9 @@
 #include <QDBusObjectPath>
 #include <QDBusReply>
 #include <QDBusVariant>
+#include <QDateTime>
+#include <csignal>
+#include <sys/types.h>
 #include <QDBusMetaType>
 #include <QUrl>
 #include <QVariantMap>
@@ -79,6 +82,7 @@ void MprisClient::poll()
         if (!m_desktopOf.contains(p))
             m_desktopOf.insert(p, getProperty(p, kRootIface, "DesktopEntry").toString());
         const bool playing = getProperty(p, kPlayerIface, "PlaybackStatus").toString() == QLatin1String("Playing");
+        if (playing || !m_lastActive.contains(p)) m_lastActive.insert(p, QDateTime::currentMSecsSinceEpoch());
         if (playing && playingOne.isEmpty()) playingOne = p;
         if (!m_preferred.isEmpty()
             && (m_desktopOf.value(p) == m_preferred
@@ -94,6 +98,8 @@ void MprisClient::poll()
         if (!preferredOne.isEmpty()) m_preferred.clear(); // user went back to another player
         chosen = playingOne;
     }
+    for (auto it = m_lastActive.begin(); it != m_lastActive.end();) // forget closed players
+        it = players.contains(it.key()) ? it + 1 : m_lastActive.erase(it);
     if (chosen.isEmpty() && players.contains(m_service)) chosen = m_service;
     if (chosen.isEmpty() && !players.isEmpty()) chosen = players.first();
 
@@ -117,11 +123,26 @@ void MprisClient::poll()
     const QString artist = joinList(md.value(QStringLiteral("xesam:artist")));
     const QString album = md.value(QStringLiteral("xesam:album")).toString();
     const QString artUrl = md.value(QStringLiteral("mpris:artUrl")).toString();
-    const qint64 lenMs = md.value(QStringLiteral("mpris:length")).toLongLong() / 1000;
+    // mpris:length is µs. Some players send ms (a 4 min song would read as
+    // 240 ms): anything under 1 s with a raw value >= 1000 is taken as ms.
+    const qint64 rawLen = md.value(QStringLiteral("mpris:length")).toLongLong();
+    qint64 lenMs = rawLen / 1000;
+    if (lenMs < 1000 && rawLen >= 1000) lenMs = rawLen;
     const QVariant tid = md.value(QStringLiteral("mpris:trackid"));
     m_trackId = tid.canConvert<QDBusObjectPath>() ? tid.value<QDBusObjectPath>().path() : tid.toString();
     const bool playing = getProperty(m_service, kPlayerIface, "PlaybackStatus").toString() == QLatin1String("Playing");
-    qint64 posMs = getProperty(m_service, kPlayerIface, "Position").toLongLong() / 1000;
+    const QVariant rawPosV = getProperty(m_service, kPlayerIface, "Position");
+    const qint64 rawPos = rawPosV.toLongLong();
+    qint64 posMs = rawPos / 1000;
+    // Same unit mix-up for Position (ms instead of µs): far below the length
+    // although the song runs for a while -> take as ms.
+    if (lenMs > 10000 && rawPos > 0 && posMs < 50 && rawPos <= lenMs) posMs = rawPos;
+    if (!m_reportLogged.contains(m_service)) {
+        m_reportLogged.insert(m_service);
+        emit log(QStringLiteral("Musik: %1 meldet Länge %2, Position %3").arg(playerName())
+                     .arg(lenMs > 0 ? QStringLiteral("ja") : QStringLiteral("nein"))
+                     .arg(rawPosV.isValid() ? QStringLiteral("ja") : QStringLiteral("nein")));
+    }
     // Some players (e.g. TuneBridge) never update Position. Then keep our own
     // clock: from the track start, running while playing.
     {
@@ -320,4 +341,33 @@ void MprisClient::activate(const Entry &e)
                  ? QStringLiteral("Musik: Auswahl fehlgeschlagen (%1)").arg(r.errorMessage())
                  : QStringLiteral("Musik: %1 gewählt").arg(e.playlist ? QStringLiteral("Playlist") : QStringLiteral("Titel")));
     QTimer::singleShot(300, this, &MprisClient::poll);
+}
+
+QStringList MprisClient::quitIdle(qint64 idleMs)
+{
+    QStringList done;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    for (auto it = m_lastActive.begin(); it != m_lastActive.end(); ++it) {
+        if (now - it.value() < idleMs) continue;
+        const QString svc = it.key();
+        const QString name = getProperty(svc, kRootIface, "Identity").toString();
+        QString how;
+        if (getProperty(svc, kRootIface, "CanQuit").toBool()) {
+            QDBusMessage m = QDBusMessage::createMethodCall(svc, QLatin1String(kPath), QLatin1String(kRootIface), QStringLiteral("Quit"));
+            if (QDBusConnection::sessionBus().call(m, QDBus::Block, 2000).type() != QDBusMessage::ErrorMessage)
+                how = QStringLiteral("beendet");
+        }
+        if (how.isEmpty()) {
+            // No Quit: end the process that owns the bus name (same user only).
+            const QDBusReply<uint> pid = QDBusConnection::sessionBus().interface()->servicePid(svc);
+            if (pid.isValid() && pid.value() > 1 && ::kill(static_cast<pid_t>(pid.value()), SIGTERM) == 0)
+                how = QStringLiteral("gestoppt");
+        }
+        if (!how.isEmpty()) {
+            done << QStringLiteral("%1 %2").arg(name.isEmpty() ? svc : name, how);
+            it.value() = now; // do not repeat right away
+        }
+    }
+    if (!done.isEmpty()) QTimer::singleShot(500, this, &MprisClient::poll);
+    return done;
 }

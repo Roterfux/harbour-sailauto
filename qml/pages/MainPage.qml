@@ -105,6 +105,13 @@ Page {
             }
 
             TextSwitch {
+                text: qsTr("Musik-App nach 2 min Pause beenden")
+                description: qsTr("Im Auto: ein Player, der 2 Minuten nicht spielt, wird geschlossen (nicht während eines Anrufs).")
+                checked: controller.closeIdlePlayers
+                onCheckedChanged: controller.closeIdlePlayers = checked
+            }
+
+            TextSwitch {
                 text: qsTr("Wetter im Auto")
                 description: qsTr("Oben im Auto-Bildschirm, antippen für die Vorhersage. Quelle: Open-Meteo; "
                                   + "dafür geht die ungefähre Position (auf ~10 km gerundet) ins Internet.")

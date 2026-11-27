@@ -64,6 +64,7 @@ class Controller : public QObject
     Q_PROPERTY(bool mapEnabled READ mapEnabled WRITE setMapEnabled NOTIFY mapChanged)
     Q_PROPERTY(QString mapUrl READ mapUrl WRITE setMapUrl NOTIFY mapChanged)
     Q_PROPERTY(bool weatherEnabled READ weatherEnabled WRITE setWeatherEnabled NOTIFY weatherChanged)
+    Q_PROPERTY(bool closeIdlePlayers READ closeIdlePlayers WRITE setCloseIdlePlayers NOTIFY closeIdleChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -113,6 +114,8 @@ public:
     void setMapUrl(const QString &u);
     bool weatherEnabled() const { return m_weatherEnabled; }
     void setWeatherEnabled(bool on);
+    bool closeIdlePlayers() const { return m_closeIdle; }
+    void setCloseIdlePlayers(bool on);
     void setNotifyToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
@@ -138,6 +141,7 @@ signals:
     void destinationsChanged();
     void mapChanged();
     void weatherChanged();
+    void closeIdleChanged();
 
 private:
     void onNewConnection();
@@ -202,6 +206,8 @@ private:
     QVector<GeoResult> m_geoResults;
     GeoResult m_pendingPoi;
     WeatherClient m_weather;
+    bool m_closeIdle = true;
+    QTimer m_idleTimer;
     bool m_weatherEnabled = true;
     bool m_mapEnabled = false;
     QString m_home, m_work, m_pendingSearch;
