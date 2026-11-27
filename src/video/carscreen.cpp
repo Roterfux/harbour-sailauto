@@ -528,11 +528,16 @@ void CarScreen::drawPhonePage(QPainter &p, const QRect &body)
             p.setFont(f);
             p.setPen(c.text);
             const QRect nr(r.left() + 6, r.top() + 8 + as, r.width() - 12, r.bottom() - (r.top() + 8 + as));
-            // Full name if it fits, else the first name (more useful than "Anna Ber…").
-            const QFontMetrics fm(f);
-            const QString shown = fm.width(ct.name) <= nr.width() ? ct.name
-                                  : ct.name.section(QLatin1Char(' '), 0, 0, QString::SectionSkipEmpty);
-            p.drawText(nr, Qt::AlignCenter, fm.elidedText(shown, Qt::ElideRight, nr.width()));
+            // Whole name, never cut: two lines, smaller font if needed.
+            int px = qMin(bar * 2 / 5, th / 6);
+            QRect need;
+            for (; px > 10; --px) {
+                f.setPixelSize(px);
+                need = QFontMetrics(f).boundingRect(nr, Qt::AlignCenter | Qt::TextWordWrap, ct.name);
+                if (need.width() <= nr.width() && need.height() <= nr.height()) break;
+            }
+            p.setFont(f);
+            p.drawText(nr, Qt::AlignCenter | Qt::TextWordWrap, ct.name);
             m_phoneRows.append({r, ci});
         }
         for (const QRect &ar : {m_phoneUp, m_phoneDown}) {
@@ -1035,17 +1040,39 @@ void CarScreen::drawPage(QPainter &p)
         p.drawText(textRect.adjusted(0, artSize * 2 / 3, 0, 0), Qt::AlignLeft | Qt::AlignVCenter,
                    fm.elidedText(m_album.isEmpty() ? m_player : m_album + QStringLiteral(" · ") + m_player,
                                  Qt::ElideRight, textRect.width()));
-        // Progress bar (position extrapolated between polls while playing).
-        if (m_lenMs > 0) {
+        // Progress bar (position extrapolated between polls while playing) and
+        // time. Some players (podcasts) give no length: then only the time.
+        {
             qint64 pos = m_posMs + (m_mediaPlaying && m_posClock.isValid() ? m_posClock.elapsed() : 0);
-            pos = qMin(pos, m_lenMs);
+            if (m_lenMs > 0) pos = qMin(pos, m_lenMs);
+            auto fmt = [](qint64 ms) {
+                const qint64 sec = ms / 1000;
+                return sec >= 3600 ? QStringLiteral("%1:%2:%3").arg(sec / 3600).arg((sec / 60) % 60, 2, 10, QLatin1Char('0'))
+                                         .arg(sec % 60, 2, 10, QLatin1Char('0'))
+                                   : QStringLiteral("%1:%2").arg(sec / 60).arg(sec % 60, 2, 10, QLatin1Char('0'));
+            };
             const QRect bar2(body.left(), artRect.bottom() + 12, body.width(), 6);
-            m_progressRect = bar2;
-            p.setPen(Qt::NoPen);
-            p.setBrush(c.panel);
-            p.drawRoundedRect(bar2, 3, 3);
-            p.setBrush(c.accent);
-            p.drawRoundedRect(QRect(bar2.left(), bar2.top(), int(bar2.width() * pos / m_lenMs), bar2.height()), 3, 3);
+            if (m_lenMs > 0) {
+                m_progressRect = bar2;
+                p.setPen(Qt::NoPen);
+                p.setBrush(c.panel);
+                p.drawRoundedRect(bar2, 3, 3);
+                p.setBrush(c.accent);
+                p.drawRoundedRect(QRect(bar2.left(), bar2.top(), int(bar2.width() * pos / m_lenMs), bar2.height()), 3, 3);
+            } else {
+                m_progressRect = QRect();
+            }
+            if (pos > 0 || m_lenMs > 0) {
+                QFont tf = p.font();
+                tf.setPixelSize(bar * 3 / 10);
+                tf.setBold(false);
+                p.setFont(tf);
+                p.setPen(c.dim);
+                const QRect tr(bar2.left(), bar2.bottom() + 4, bar2.width(), bar / 2);
+                p.drawText(tr, Qt::AlignLeft | Qt::AlignTop, fmt(pos));
+                if (m_lenMs > 0)
+                    p.drawText(tr, Qt::AlignRight | Qt::AlignTop, QStringLiteral("-") + fmt(m_lenMs - pos));
+            }
         }
         drawRound(m_prevButton, false);
         drawSkip(m_prevButton, false);

@@ -83,5 +83,7 @@ private:
     QElapsedTimer m_readClock;
     qint64 m_bytesOut = 0;      // read + silence filled in
     bool m_filling = false;
+    bool m_fillLogged = false;
+    QSet<QString> m_loggedApps;
     QByteArray m_pending;
 };

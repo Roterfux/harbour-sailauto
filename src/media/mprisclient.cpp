@@ -131,7 +131,9 @@ void MprisClient::poll()
     const bool trackChanged = title != m_title || artist != m_artist;
     if (trackChanged || playing != m_playing || album != m_album || lenMs != m_lengthMs || posMs != m_positionMs) {
         if (trackChanged && !title.isEmpty())
-            emit log(QStringLiteral("Musik: %1 – %2").arg(artist, title));
+            emit log(QStringLiteral("Musik: %1 – %2%3").arg(artist, title)
+                         .arg(lenMs > 0 ? QString() : posMs > 0 ? QStringLiteral(" (Player meldet keine Länge)")
+                                                                : QStringLiteral(" (Player meldet weder Länge noch Position)")));
         m_title = title; m_artist = artist; m_album = album;
         m_lengthMs = lenMs; m_positionMs = posMs; m_playing = playing;
         emit changed();

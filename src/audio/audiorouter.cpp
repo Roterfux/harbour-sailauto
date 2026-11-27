@@ -192,8 +192,11 @@ void AudioRouter::onSinkInput(uint32_t index, uint32_t sink, const QString &name
     if (sink == m_carSink) {
         if (!m_seen.contains(index)) {
             m_seen.insert(index);
-            paLog(QStringLiteral("Ton: \"%1\" (%2, Rolle %3) spielt im Auto")
-                      .arg(app, name, role.isEmpty() ? QStringLiteral("-") : role));
+            // Once per app and connection; format probes are noise.
+            if (role != QLatin1String("format-probe") && !m_loggedApps.contains(app)) {
+                m_loggedApps.insert(app);
+                paLog(QStringLiteral("Ton: \"%1\" spielt im Auto").arg(app));
+            }
         }
         return;
     }
@@ -207,8 +210,10 @@ void AudioRouter::onSinkInput(uint32_t index, uint32_t sink, const QString &name
                       .arg(app, name, role));
         return;
     }
-    paLog(QStringLiteral("Ton: %1 \"%2\" (%3, Rolle %4) -> Auto")
-              .arg(isNew ? QStringLiteral("leite") : QStringLiteral("erneut"), app, name, role.isEmpty() ? QStringLiteral("-") : role));
+    if (n > 1)
+        paLog(QStringLiteral("Ton: \"%1\" (%2, Rolle %3) wurde zurückgeholt, leite erneut ins Auto")
+                  .arg(app, name, role.isEmpty() ? QStringLiteral("-") : role));
+    Q_UNUSED(isNew)
     moveToCar(index);
 }
 
@@ -298,7 +303,10 @@ void AudioRouter::readPipe()
         m_bytesOut += fill;
         if (!m_filling) {
             m_filling = true;
-            emit log(QStringLiteral("Ton: Pipe liefert nichts, fülle mit Stille"));
+            if (!m_fillLogged) { // once per connection (every pause would log it)
+                m_fillLogged = true;
+                emit log(QStringLiteral("Ton: Pausen werden mit Stille gefüllt"));
+            }
         }
     } else if (m_filling && gotData) {
         m_filling = false; // PulseAudio delivers again; log the next gap once more
@@ -502,4 +510,6 @@ void AudioRouter::stop()
     m_origSink.clear();
     m_moveCount.clear();
     m_seen.clear();
+    m_loggedApps.clear();
+    m_fillLogged = false;
 }
