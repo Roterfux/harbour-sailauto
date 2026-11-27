@@ -52,6 +52,9 @@ public slots:
     // Close players that have not played for idleMs (Quit, else SIGTERM).
     // Returns "Name beendet/gestoppt" per closed player.
     QStringList quitIdle(qint64 idleMs);
+    // End the shown player (Quit, else SIGTERM). Returns its name or empty.
+    QString quitCurrent();
+    QString currentDesktopEntry() const { return m_desktopOf.value(m_service); }
 
 signals:
     void changed();

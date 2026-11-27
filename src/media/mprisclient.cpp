@@ -371,3 +371,12 @@ QStringList MprisClient::quitIdle(qint64 idleMs)
     if (!done.isEmpty()) QTimer::singleShot(500, this, &MprisClient::poll);
     return done;
 }
+
+QString MprisClient::quitCurrent()
+{
+    if (m_service.isEmpty()) return QString();
+    const QString name = playerName();
+    m_lastActive.insert(m_service, 0); // older than any idle limit
+    const QStringList done = quitIdle(1);
+    return done.isEmpty() ? QString() : name;
+}

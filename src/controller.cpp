@@ -959,6 +959,14 @@ void Controller::showBrowseRoot()
         root.append({QStringLiteral("fav"), QString(),
                      m_own.isFavorite(m_own.currentStationUrl()) ? QStringLiteral("★ Sender aus Favoriten") : QStringLiteral("★ Sender merken"),
                      QString()});
+    // Switch app: end the current one, start/show another
+    if (m_mpris.hasPlayer())
+        root.append({QStringLiteral("quitapp"), QString(), QStringLiteral("„%1“ beenden").arg(m_mpris.playerName()), QStringLiteral("App schließen")});
+    for (const AppEntry &a : m_apps.selected()) {
+        if (!a.media || a.id == QLatin1String("harbour-sailauto") || a.id == m_mpris.currentDesktopEntry()) continue;
+        root.append({QStringLiteral("switchapp"), a.id, QStringLiteral("Wechseln zu ") + a.name,
+                     m_apps.isRunning(a) ? QStringLiteral("läuft") : QStringLiteral("starten")});
+    }
     root.append({QStringLiteral("favs"), QString(), QStringLiteral("Radio: Favoriten"), QStringLiteral("%1 Sender").arg(m_own.favorites().size())});
     const QString cc = QLocale().name().section(QLatin1Char('_'), 1, 1);
     root.append({QStringLiteral("top"), cc.isEmpty() ? QStringLiteral("DE") : cc, QStringLiteral("Radio: Beliebt"),
@@ -1043,6 +1051,33 @@ void Controller::onBrowsePick(int i)
             m_own.playStation(m_stations[k]);
         }
         m_screen.closeMusicList();
+    } else if (b.kind == QLatin1String("quitapp")) {
+        const QString n = m_mpris.playerName().contains(QStringLiteral("SailAuto")) ? (m_own.stop(), m_mpris.playerName())
+                                                                                   : m_mpris.quitCurrent();
+        appendLog(n.isEmpty() ? QStringLiteral("Musik: App ließ sich nicht beenden") : QStringLiteral("Musik: %1 beendet").arg(n));
+        m_screen.closeMusicList();
+    } else if (b.kind == QLatin1String("switchapp")) {
+        if (m_mpris.playing()) m_mpris.pause();
+        if (m_own.playingRadio() || m_own.status() == QLatin1String("Playing")) m_own.pause();
+        m_screen.closeMusicList();
+        m_mpris.setPreferred(b.value);
+        QString err;
+        const AppEntry *a = m_apps.find(b.value);
+        switch (m_apps.launch(b.value, &err)) {
+        case AppCatalog::Started: {
+            QImage icon;
+            if (a && !a->iconPath.isEmpty()) icon.load(a->iconPath);
+            m_screen.showLoading(a ? a->name : b.value, icon);
+            appendLog(QStringLiteral("Musik: wechsle zu %1").arg(a ? a->name : b.value));
+            break;
+        }
+        case AppCatalog::Failed:
+            appendLog(QStringLiteral("App: ") + err);
+            break;
+        default:
+            appendLog(QStringLiteral("Musik: wechsle zu %1 (läuft schon)").arg(a ? a->name : b.value));
+            break;
+        }
     } else if (b.kind == QLatin1String("sailwave")) {
         QString err;
         m_stations = AppSources::sailwaveStations(&err);
