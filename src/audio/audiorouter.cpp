@@ -252,7 +252,7 @@ void AudioRouter::onSubscription(int facility, int type, uint32_t index)
 
 bool AudioRouter::startCapture(QString *error)
 {
-    m_fd = ::open(m_fifoPath.toLocal8Bit().constData(), O_RDONLY | O_NONBLOCK);
+    m_fd = ::open(m_fifoPath.toLocal8Bit().constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     if (m_fd < 0) {
         if (error) *error = QStringLiteral("Ton-Pipe %1 nicht lesbar: %2").arg(m_fifoPath, QString::fromLocal8Bit(strerror(errno)));
         return false;

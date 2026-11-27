@@ -46,7 +46,8 @@ UsbAccessoryDevice::~UsbAccessoryDevice()
 
 bool UsbAccessoryDevice::open(OpenMode mode)
 {
-    m_fd = ::open(m_path.toLocal8Bit().constData(), O_RDWR);
+    // O_CLOEXEC: apps started from the car must not inherit (and so block) the device.
+    m_fd = ::open(m_path.toLocal8Bit().constData(), O_RDWR | O_CLOEXEC);
     if (m_fd < 0) {
         setErrorString(QString::fromLocal8Bit(strerror(errno)));
         return false;

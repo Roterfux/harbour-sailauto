@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <csignal>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <QDateTime>
 #include <QDir>
@@ -225,6 +226,18 @@ AppCatalog::LaunchResult AppCatalog::launch(const QString &id, QString *error)
     QString cmd = a->exec;
     cmd.remove(QRegularExpression(QStringLiteral("\\s%[fFuUdDnNickvm]")));
     cmd.replace(QStringLiteral("%%"), QStringLiteral("%"));
+    // Apps must not inherit our files (USB accessory, sockets): they would keep
+    // them open and block the next car connection.
+    {
+        const QDir fds(QStringLiteral("/proc/self/fd"));
+        for (const QString &e : fds.entryList(QDir::System | QDir::NoDotAndDotDot)) {
+            bool ok = false;
+            const int fd = e.toInt(&ok);
+            if (!ok || fd <= 2) continue;
+            const int flags = ::fcntl(fd, F_GETFD);
+            if (flags >= 0) ::fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+        }
+    }
     if (!QProcess::startDetached(QStringLiteral("/bin/sh"), QStringList() << QStringLiteral("-c") << cmd)) {
         if (error) *error = QStringLiteral("Start fehlgeschlagen: %1").arg(cmd);
         return Failed;
