@@ -316,6 +316,8 @@ class HeadUnit:
                 self.send(ch, SENSOR_EVENT, f_bytes(13, f_varint(1, 0)))
             elif f[1][0] == 10:
                 self.send(ch, SENSOR_EVENT, f_bytes(10, f_varint(1, 1 if self.args.night else 0)))
+            elif f[1][0] == 1 and self.args.drive:
+                self.drive_at = time.time()
             elif f[1][0] == 1:
                 # LocationData: Wolfsburg, 8 m accuracy (int32 as varint)
                 loc = (f_varint(1, int(time.time() * 1000)) + f_varint(2, 524229000) + f_varint(3, 107865000)
@@ -409,6 +411,7 @@ def main():
     ap.add_argument("--out", help="write the received H.264 stream here")
     ap.add_argument("--ping", type=float, default=2.0, help="ping interval (OpenAuto: 5 s)")
     ap.add_argument("--night", action="store_true")
+    ap.add_argument("--drive", action="store_true", help="send car GPS once a second, driving 50 km/h with turns")
     ap.add_argument("--key", action="append", default=[],
                     help="steering wheel key code[@seconds[:hold]], e.g. 87@4 (next), 85@5 (play/pause), "
                     "87@4:3 (hold next 3 s = spool)")
@@ -446,6 +449,17 @@ def main():
             else:
                 hu.log("tap", x, y)
                 hu.tap(x, y)
+        if args.drive and getattr(hu, "drive_at", None) and time.time() - getattr(hu, "drive_last", 0) >= 1.0:
+            hu.drive_last = time.time()
+            t = time.time() - hu.drive_at
+            import math
+            bearing = (t * 6) % 360           # slow curve
+            lat = 52.4229 + 0.00012 * t * math.cos(math.radians(bearing))
+            lon = 10.7865 + 0.0002 * t * math.sin(math.radians(bearing))
+            def i32(v): return int(v) & 0xffffffffffffffff
+            loc = (f_varint(1, int(time.time() * 1000)) + f_varint(2, i32(lat * 1e7)) + f_varint(3, i32(lon * 1e7))
+                   + f_varint(4, 5000) + f_varint(6, 13900) + f_varint(7, i32(bearing * 1e6)))
+            hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(1, loc))
         time.sleep(0.02)
 
     elapsed = time.time() - (hu.focus_at or time.time())

@@ -13,6 +13,7 @@
 #include "phone/phonebook.h"
 #include "apps/appcatalog.h"
 #include "nav/puremaps.h"
+#include "nav/mapview.h"
 #include "video/carscreen.h"
 #include "video/h264encoder.h"
 
@@ -57,6 +58,9 @@ class Controller : public QObject
     // Navigation destinations (phone page "Ziele")
     Q_PROPERTY(QString homeAddress READ homeAddress WRITE setHomeAddress NOTIFY destinationsChanged)
     Q_PROPERTY(QString workAddress READ workAddress WRITE setWorkAddress NOTIFY destinationsChanged)
+    // Live map on the car's navigation page (optional, experimental)
+    Q_PROPERTY(bool mapEnabled READ mapEnabled WRITE setMapEnabled NOTIFY mapChanged)
+    Q_PROPERTY(QString mapUrl READ mapUrl WRITE setMapUrl NOTIFY mapChanged)
 
 public:
     explicit Controller(QObject *parent = nullptr);
@@ -100,6 +104,10 @@ public:
     QString workAddress() const { return m_work; }
     void setHomeAddress(const QString &a);
     void setWorkAddress(const QString &a);
+    bool mapEnabled() const { return m_mapEnabled; }
+    void setMapEnabled(bool on);
+    QString mapUrl() const { return m_map.tileUrl(); }
+    void setMapUrl(const QString &u);
     void setNotifyToCar(bool on);
     bool connected() const { return m_session != nullptr; }
     bool streaming() const { return m_encoder.running(); }
@@ -123,6 +131,7 @@ signals:
     void notifyToCarChanged();
     void parkedChanged();
     void destinationsChanged();
+    void mapChanged();
 
 private:
     void onNewConnection();
@@ -175,6 +184,8 @@ private:
     AppCatalog m_apps;
     NotificationWatcher m_notify;
     PureMapsClient m_nav;
+    MapView m_map;
+    bool m_mapEnabled = false;
     QString m_home, m_work, m_pendingSearch;
     QStringList m_recentDest;
     void pushDestinations();
@@ -199,7 +210,7 @@ private:
     Fix m_carFix;           // latest from the car this session
     Fix m_parked;           // saved (QSettings "parked/...")
     QElapsedTimer m_fixSaved;
-    void onCarLocation(double lat, double lon, double acc);
+    void onCarLocation(double lat, double lon, double acc, double bearing, double speed);
     void saveParked(const Fix &f, bool final);
     void pushAppsToScreen();
     void onCarKey(int code, bool pressed, bool longPress);

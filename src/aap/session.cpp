@@ -742,7 +742,10 @@ void Session::handleSensor(quint16 id, const QByteArray &payload)
         const double lon = static_cast<int32_t>(static_cast<int64_t>(l.number(3))) / 1e7;
         const double acc = l.has(4) ? static_cast<int32_t>(static_cast<int64_t>(l.number(4))) / 1e3 : -1;
         if (lat == 0 && lon == 0) continue;
-        emit locationChanged(lat, lon, acc);
+        // speed_e3 = 6 (m/s * 1e3), bearing_e6 = 7 (degrees * 1e6)
+        const double speed = l.has(6) ? static_cast<int32_t>(static_cast<int64_t>(l.number(6))) / 1e3 : -1;
+        const double bearing = l.has(7) ? static_cast<int32_t>(static_cast<int64_t>(l.number(7))) / 1e6 : -1;
+        emit locationChanged(lat, lon, acc, bearing, speed);
     }
 }
 

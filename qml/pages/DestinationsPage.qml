@@ -34,6 +34,25 @@ Page {
                 EnterKey.onClicked: focus = false
                 onActiveFocusChanged: if (!activeFocus) controller.workAddress = text
             }
+            SectionHeader { text: qsTr("Karte im Auto") }
+            TextSwitch {
+                text: qsTr("Live-Karte (experimentell)")
+                description: qsTr("Zeigt auf der Seite Navigation eine Karte, geneigt, Fahrtrichtung oben, Auto unten in der Mitte. "
+                                  + "Position vom GPS des Autos. Kacheln von OSM Scout Server (muss laufen, Karten geladen). "
+                                  + "Braucht Rechenleistung.")
+                checked: controller.mapEnabled
+                onCheckedChanged: controller.mapEnabled = checked
+            }
+            TextField {
+                width: parent.width
+                visible: controller.mapEnabled
+                label: qsTr("Kachel-Adresse ({z} {x} {y} {daylight})")
+                text: controller.mapUrl
+                inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoAutoUppercase
+                EnterKey.onClicked: focus = false
+                onActiveFocusChanged: if (!activeFocus) controller.mapUrl = text
+            }
+            SectionHeader { text: qsTr("Hinweis") }
             Label {
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * Theme.horizontalPageMargin

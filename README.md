@@ -212,6 +212,13 @@ Antippen schickt die Adresse an Pure Maps (startet es bei Bedarf). Pure Maps
 erlaubt von außen nur „Suchen“: am Telefon das Ergebnis antippen und „Route“,
 dann im Auto „Route bereit – Navigation starten“.
 
+**Live-Karte (ab 0.11.0, optional, Pull-down „Ziele“ → „Live-Karte“):** Karte
+geneigt (3D), Fahrtrichtung oben, Auto unten in der Mitte, Position vom GPS des
+Autos (zwischen den Messungen weitergerechnet), Zoom nach Tempo. Kacheln von
+OSM Scout Server (`http://127.0.0.1:8553/v1/tile?…`, Adresse änderbar), Tag/Nacht
+folgt dem Auto. Mit Route: Abbiege-Karte oben links, Restweg unten links.
+Gezeichnet mit QPainter (kein OpenGL); braucht spürbar Rechenleistung.
+
 OSM Scout (Karry) bietet keine Navigationsdaten über D-Bus an, nur
 „Seite öffnen“ und „Geo-Link öffnen“ – deshalb Pure Maps.
 

@@ -70,6 +70,7 @@ HEADERS += \
     src/phone/phonebook.h \
     src/apps/appcatalog.h \
     src/nav/puremaps.h \
+    src/nav/mapview.h \
     src/controller.h
 
 SOURCES += \
@@ -91,6 +92,7 @@ SOURCES += \
     src/phone/phonebook.cpp \
     src/apps/appcatalog.cpp \
     src/nav/puremaps.cpp \
+    src/nav/mapview.cpp \
     src/controller.cpp
 
 DISTFILES += \

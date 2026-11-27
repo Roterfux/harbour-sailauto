@@ -12,6 +12,7 @@
 
 #include "../phone/phonestatus.h"
 #include "../nav/puremaps.h"
+#include "../nav/mapview.h"
 #include "../phone/callmonitor.h"
 #include "../phone/phonebook.h"
 
@@ -35,6 +36,8 @@ public:
     void setParked(bool parked) { m_parked = parked; }
     // Pure Maps navigation; icon may be null (own arrow is drawn then).
     void setNav(const NavState &s, const QImage &icon);
+    // Live map behind the navigation page (nullptr = off)
+    void setMap(MapView *map) { m_map = map; m_navChoosing = false; }
     // Destinations for the navigation page (home/work from the phone settings).
     // Music page list (playlists/tracks of the player), shown after "Liste".
     struct ListItem { QString title, sub; bool playlist; };
@@ -124,6 +127,9 @@ private:
     QString m_home, m_work;
     QStringList m_recentDest;
     bool m_navSearchSent = false;
+    MapView *m_map = nullptr;
+    bool m_navChoosing = false;  // map on: destination choice shown instead of the map
+    void drawNavOnMap(QPainter &p, const QRect &body);
     void drawNavChoose(QPainter &p, const QRect &body);
     QVector<ListItem> m_musicList;
     bool m_musicListOn = false;

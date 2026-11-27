@@ -200,7 +200,12 @@ void CarScreen::drawNavPage(QPainter &p, const QRect &body)
     const Palette c = palette(m_night);
     const int bar = m_safe.height() / 8;
     m_navStartButton = QRect();
+    m_navButtons.clear();
     QFont f = p.font();
+    if (m_map && !m_navChoosing) {
+        drawNavOnMap(p, body);
+        return;
+    }
     if (!m_nav.running) {
         drawNavChoose(p, body);
         return;
@@ -725,6 +730,73 @@ void CarScreen::phoneTap(const QPoint &pt)
         }
 }
 
+void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
+{
+    const Palette c = palette(m_night);
+    const int bar = m_safe.height() / 8;
+    // Map uses the whole area below the top bar.
+    const QRect area(m_safe.left(), m_safe.top() + bar, m_safe.width(), m_safe.height() - bar);
+    m_map->paint(p, area);
+    QFont f = p.font();
+    QColor card = c.bg;
+    card.setAlpha(215);
+    auto button = [&](const QRect &r, const QString &kind, const QString &label, const QColor &bg, const QColor &fg) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(bg);
+        p.drawRoundedRect(r, 12, 12);
+        f.setPixelSize(bar * 2 / 5);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(fg);
+        p.drawText(r, Qt::AlignCenter, label);
+        m_navButtons.append({r, kind, QString()});
+    };
+    if (m_nav.running) {
+        // Turn card top left: icon, distance, street
+        const int is = bar * 2;
+        const QRect cardR(area.left() + 10, area.top() + 10, qMin(area.width() / 2, is + bar * 6), is + bar / 2);
+        p.setPen(Qt::NoPen);
+        p.setBrush(card);
+        p.drawRoundedRect(cardR, 14, 14);
+        drawManeuver(p, QRect(cardR.left() + 8, cardR.top() + bar / 4, is, is), false);
+        const QRect tr(cardR.left() + is + 18, cardR.top() + 6, cardR.width() - is - 26, cardR.height() - 12);
+        f.setPixelSize(bar * 3 / 5);
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(c.text);
+        p.drawText(QRect(tr.left(), tr.top(), tr.width(), tr.height() / 2), Qt::AlignLeft | Qt::AlignVCenter, m_nav.manDist);
+        f.setPixelSize(bar * 2 / 5);
+        p.setFont(f);
+        const QString street = m_nav.street.isEmpty() ? m_nav.narrative : m_nav.street;
+        p.drawText(QRect(tr.left(), tr.center().y(), tr.width(), tr.height() / 2), Qt::AlignLeft | Qt::AlignVCenter,
+                   QFontMetrics(f).elidedText(street, Qt::ElideRight, tr.width()));
+        // Destination strip
+        const QRect strip(area.left() + 10, area.bottom() - bar - 6, area.width() * 2 / 5, bar); // leaves the car free
+        p.setBrush(card);
+        p.setPen(Qt::NoPen);
+        p.drawRoundedRect(strip, 12, 12);
+        p.setBrush(c.accent);
+        p.drawRect(QRect(strip.left() + 10, strip.bottom() - 7, (strip.width() - 20) * qBound(0, m_nav.progress, 100) / 100, 4));
+        f.setPixelSize(bar * 2 / 5);
+        p.setFont(f);
+        p.setPen(c.text);
+        p.drawText(strip.adjusted(14, 0, -14, -6), Qt::AlignVCenter | Qt::AlignLeft,
+                   QStringLiteral("%1 · %2 · %3").arg(m_nav.destDist, m_nav.destTime, m_nav.destEta));
+        if (!m_nav.alongRoute) {
+            p.setPen(QColor(240, 170, 40));
+            p.drawText(QRect(cardR.left(), cardR.bottom() + 4, cardR.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
+                       QStringLiteral("Abseits der Route"));
+        }
+        return;
+    }
+    // No route: "Ziel" (choose destination) and, if Pure Maps has one, start.
+    button(QRect(area.right() - bar * 3 - 10, area.top() + 10, bar * 3, bar), QStringLiteral("choose"),
+           QStringLiteral("Ziel"), c.accent, c.bg);
+    if (m_nav.app && m_nav.hasRoute)
+        button(QRect(area.left() + 10, area.top() + 10, bar * 6, bar), QStringLiteral("start"),
+               QStringLiteral("Navigation starten"), QColor(40, 170, 80), Qt::white);
+}
+
 void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
 {
     const Palette c = palette(m_night);
@@ -866,7 +938,10 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
 
 void CarScreen::navButtonTapped(const NavButton &b)
 {
-    if (b.kind == QLatin1String("start")) {
+    if (b.kind == QLatin1String("choose")) {
+        m_navChoosing = true;
+        m_navView = 0;
+    } else if (b.kind == QLatin1String("start")) {
         emit navStart();
     } else if (b.kind == QLatin1String("home") || b.kind == QLatin1String("work") || b.kind == QLatin1String("dest")) {
         if (b.value.isEmpty()) {
@@ -877,6 +952,7 @@ void CarScreen::navButtonTapped(const NavButton &b)
         }
         m_navView = 0;
         m_navSearchSent = true;
+        m_navChoosing = false;
         emit navSearch(b.value);
     } else if (b.kind == QLatin1String("keyboard")) {
         m_navView = 1;
@@ -896,6 +972,7 @@ void CarScreen::navButtonTapped(const NavButton &b)
         if (t.isEmpty()) return;
         m_navView = 0;
         m_navSearchSent = true;
+        m_navChoosing = false;
         m_navInput.clear();
         emit navSearch(t);
     }
@@ -1054,6 +1131,8 @@ void CarScreen::touch(int action, int x, int y)
         } else if (m_backButton.contains(m_touch)) {
             if (m_page == Navigation && m_navView != 0) {
                 m_navView = 0;
+            } else if (m_page == Navigation && m_map && m_navChoosing) {
+                m_navChoosing = false;
             } else if (m_page == Music && m_musicListOn) {
                 m_musicListOn = false;
             } else if (m_page == Phone && m_phoneDetail >= 0) {
@@ -1065,7 +1144,7 @@ void CarScreen::touch(int action, int x, int y)
         } else if (m_page == Phone) {
             if (!m_dragMoved) phoneTap(m_touch);
             m_dragMoved = false;
-        } else if (m_page == Navigation && !m_nav.running) {
+        } else if (m_page == Navigation) {
             for (const NavButton &b : m_navButtons)
                 if (b.rect.contains(m_touch)) {
                     navButtonTapped(b);

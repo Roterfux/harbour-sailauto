@@ -82,6 +82,14 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_calls, &CallMonitor::changed, this, &Controller::onCallChanged);
     connect(&m_screen, &CarScreen::callAction, this, &Controller::onCallAction);
     connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
+    connect(&m_map, &MapView::log, this, &Controller::appendLog);
+    {
+        QSettings st;
+        m_mapEnabled = st.value(QStringLiteral("map/enabled"), false).toBool();
+        const QString u = st.value(QStringLiteral("map/url")).toString();
+        if (!u.isEmpty()) m_map.setTileUrl(u);
+    }
+    m_screen.setMap(m_mapEnabled ? &m_map : nullptr);
     {
         QSettings st;
         m_home = st.value(QStringLiteral("nav/home")).toString();
@@ -566,8 +574,9 @@ QString Controller::parkedTime() const
                                             : t.toString(QStringLiteral("dd.MM. HH:mm"));
 }
 
-void Controller::onCarLocation(double lat, double lon, double acc)
+void Controller::onCarLocation(double lat, double lon, double acc, double bearing, double speed)
 {
+    if (m_mapEnabled) m_map.updateFix(lat, lon, bearing, speed);
     const bool first = !m_carFix.valid;
     m_carFix.valid = true;
     m_carFix.lat = lat;
@@ -677,6 +686,24 @@ void Controller::repairAudio()
     }
     const int n = m_router.repairSilentStreams();
     if (n == 0) appendLog(QStringLiteral("Ton reparieren: keine stumme Wiedergabe gefunden"));
+}
+
+void Controller::setMapEnabled(bool on)
+{
+    if (on == m_mapEnabled) return;
+    m_mapEnabled = on;
+    QSettings().setValue(QStringLiteral("map/enabled"), on);
+    m_screen.setMap(on ? &m_map : nullptr);
+    appendLog(on ? QStringLiteral("Karte im Auto: an") : QStringLiteral("Karte im Auto: aus"));
+    emit mapChanged();
+}
+
+void Controller::setMapUrl(const QString &u)
+{
+    if (u.trimmed().isEmpty() || u == m_map.tileUrl()) return;
+    m_map.setTileUrl(u);
+    QSettings().setValue(QStringLiteral("map/url"), u.trimmed());
+    emit mapChanged();
 }
 
 void Controller::pushDestinations()
@@ -988,6 +1015,7 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     });
     connect(m_session, &aap::Session::nightModeChanged, this, [this](bool n) {
         m_screen.setNight(n);
+        m_map.setNight(n);
         appendLog(n ? QStringLiteral("Nachtmodus an") : QStringLiteral("Nachtmodus aus"));
     });
     connect(m_session, &aap::Session::closed, this, &Controller::onSessionClosed);
