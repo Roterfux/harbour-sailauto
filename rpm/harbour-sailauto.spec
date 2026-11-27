@@ -1,5 +1,5 @@
 Name:       harbour-sailauto
-Version:    0.9.0
+Version:    0.9.1
 Release:    1
 Summary:    Android Auto projection to OpenAuto head units (MVP)
 License:    GPLv3 and BSD
@@ -41,6 +41,10 @@ desktop-file-install --delete-original \
     --dir %{buildroot}%{_datadir}/applications \
     %{buildroot}%{_datadir}/applications/*.desktop
 mv %{buildroot}/usr/lib/tmpfiles.d/harbour-sailauto.tmpfiles %{buildroot}/usr/lib/tmpfiles.d/harbour-sailauto.conf
+# Contacts helper: same binary, setgid "privileged" (the contacts database is
+# only readable for that group). Only this copy gets the group, the app does
+# not (libdbus ignores the session bus address in setgid programs).
+install -D -m 0755 %{buildroot}%{_bindir}/%{name} %{buildroot}/usr/libexec/%{name}/contacts-helper
 
 %post
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/harbour-sailauto.conf || :
@@ -65,6 +69,8 @@ systemctl daemon-reload || :
 %{_datadir}/%{name}/
 %{_datadir}/applications/%{name}.desktop
 %{_datadir}/icons/hicolor/*/apps/%{name}.png
+%dir /usr/libexec/%{name}
+%attr(2755, root, privileged) /usr/libexec/%{name}/contacts-helper
 /usr/lib/systemd/system/harbour-sailauto-aoa.path
 /usr/lib/systemd/system/harbour-sailauto-aoa.service
 /usr/lib/systemd/system/harbour-sailauto-autostart.service

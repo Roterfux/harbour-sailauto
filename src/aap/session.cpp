@@ -614,6 +614,8 @@ void Session::onChannelOpened(quint8 channel, bool ok)
         QList<int> wanted{sensor::DrivingStatus, sensor::NightData};
         // Car GPS for "where is my car" (only if offered: asking for more can upset some cars)
         if (m_sensorTypes.contains(sensor::Location)) wanted << sensor::Location;
+        // Gear P = parked (some cars report driving restrictions even when standing)
+        if (m_sensorTypes.contains(sensor::Gear)) wanted << sensor::Gear;
         for (int type : wanted) {
             pb::Writer w;
             w.varint(1, static_cast<uint64_t>(type)).sint(2, 0);
@@ -730,6 +732,8 @@ void Session::handleSensor(quint16 id, const QByteArray &payload)
         emit nightModeChanged(pb::Reader(v.bytes).boolean(1));
     for (const pb::Value &v : r.all(13))
         emit drivingStatusChanged(static_cast<int>(pb::Reader(v.bytes).number(1)));
+    for (const pb::Value &v : r.all(8))
+        emit gearChanged(static_cast<int>(pb::Reader(v.bytes).number(1)));
     // LocationData { timestamp=1, latitude_e7=2, longitude_e7=3, accuracy_e3=4, ... } (int32 as varint)
     for (const pb::Value &v : r.all(1)) {
         pb::Reader l(v.bytes);

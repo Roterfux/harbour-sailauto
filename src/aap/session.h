@@ -92,6 +92,8 @@ signals:
     void drivingStatusChanged(int status);
     // Car GPS (sensor LOCATION): degrees, accuracy in m (-1 unknown)
     void locationChanged(double lat, double lon, double accuracyM);
+    // GearData: 0 neutral, 1..10 gears, 100 drive, 101 park, 102 reverse
+    void gearChanged(int gear);
     // AudioFocusStateType from the car: 1 GAIN, 2 GAIN_TRANSIENT, 3 LOSS, 4 LOSS_CAN_DUCK, 5 LOSS_TRANSIENT, ...
     void audioFocusChanged(int state);
     // An audio channel finished its setup (streamType: 1 guidance, 2 system, 3 media).

@@ -61,7 +61,10 @@ Controller::Controller(QObject *parent) : QObject(parent)
     });
     connect(&m_calls, &CallMonitor::log, this, &Controller::appendLog);
     connect(&m_phonebook, &PhoneBook::log, this, &Controller::appendLog);
-    connect(&m_phonebook, &PhoneBook::loaded, this, [this]() { m_screen.setContacts(m_phonebook.contacts()); });
+    connect(&m_phonebook, &PhoneBook::loaded, this, [this]() {
+        m_screen.setContacts(m_phonebook.contacts());
+        m_calls.setContacts(m_phonebook.contacts());
+    });
     connect(&m_screen, &CarScreen::dial, this, [this](const QString &number, const QString &name, const QImage &photo) {
         appendLog(QStringLiteral("Telefonbuch: Anruf vom Auto aus"));
         m_calls.dial(number, name, photo);
@@ -509,6 +512,12 @@ void Controller::setNotifyToCar(bool on)
     else if (m_encoder.running()) m_notify.start();
 }
 
+void Controller::updateParked()
+{
+    // Text of notifications etc. only when standing: no restrictions, or gear P.
+    m_screen.setParked(m_drivingStatus == 0 || m_gear == 101);
+}
+
 QString Controller::parkedTime() const
 {
     if (!m_parked.valid) return QString();
@@ -900,9 +909,17 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         // 0 = UNRESTRICTED (parked); any bit set = driving restrictions.
         if (st == m_drivingStatus) return;
         m_drivingStatus = st;
-        m_screen.setParked(st == 0);
         appendLog(st == 0 ? QStringLiteral("Fahrstatus: steht (keine Einschränkungen)")
                           : QStringLiteral("Fahrstatus: fährt (Einschränkungen %1)").arg(st));
+        updateParked();
+    });
+    connect(m_session, &aap::Session::gearChanged, this, [this](int g) {
+        if (g == m_gear) return;
+        m_gear = g;
+        appendLog(QStringLiteral("Gang: %1").arg(g == 101 ? QStringLiteral("P") : g == 102 ? QStringLiteral("R")
+                                                  : g == 100 ? QStringLiteral("D") : g == 0 ? QStringLiteral("N")
+                                                  : QString::number(g)));
+        updateParked();
     });
     connect(m_session, &aap::Session::audioFocusChanged, &m_audioTest, &AudioTest::onFocus);
     connect(m_session, &aap::Session::audioFocusChanged, this, [this](int st) {
@@ -1041,6 +1058,7 @@ void Controller::onSessionClosed(const QString &reason)
     m_pausedForCall = false;
     m_notify.stop();
     m_drivingStatus = -1;
+    m_gear = -1;
     m_screen.setParked(false);
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
     if (m_carFix.valid) saveParked(m_carFix, true);

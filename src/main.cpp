@@ -11,12 +11,21 @@ static void quitOnSignal(int)
         QMetaObject::invokeMethod(QCoreApplication::instance(), "quit", Qt::QueuedConnection);
 }
 
+#include "phone/phonebook.h"
+
+// argv[1] == "--dump-contacts": run as the contacts helper (setgid copy).
+static bool isContactsHelper(int argc, char *argv[])
+{
+    return argc > 1 && qstrcmp(argv[1], "--dump-contacts") == 0;
+}
+
 #ifdef SAILAUTO_DESKTOP
 // Headless desktop build for testing against OpenAuto / tools/hu_sim.py.
 #include <QGuiApplication>
 
 int main(int argc, char *argv[])
 {
+    if (isContactsHelper(argc, argv)) return PhoneBook::dumpMain(argc, argv);
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("harbour-sailauto"));
     app.setApplicationName(QStringLiteral("harbour-sailauto"));
@@ -65,6 +74,7 @@ private:
 
 int main(int argc, char *argv[])
 {
+    if (isContactsHelper(argc, argv)) return PhoneBook::dumpMain(argc, argv);
     const bool byCar = [&]() {
         for (int i = 1; i < argc; ++i)
             if (qstrcmp(argv[i], "--autostart") == 0) return true;

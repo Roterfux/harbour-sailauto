@@ -10,6 +10,9 @@
 #include <QObject>
 #include <QString>
 #include <QTimer>
+#include <QVector>
+
+#include "phonebook.h"
 
 struct CallInfo {
     enum State { None, Incoming, Active, Outgoing, Held };
@@ -39,6 +42,8 @@ public:
     bool silenceRingtone();
     // Outgoing call over the first cellular provider (SIM).
     bool dial(const QString &number, const QString &name = QString(), const QImage &photo = QImage());
+    // Caller name/photo come from the phonebook (loaded by PhoneBook).
+    void setContacts(const QVector<PhoneContact> &contacts);
 
 signals:
     void changed();
@@ -50,8 +55,8 @@ private:
 
     QTimer m_timer;
     CallInfo m_call;
-    QHash<QString, QPair<QString, QImage>> m_contactCache;
-    bool m_contactErrorLogged = false;
+    QHash<QString, int> m_byNumber; // last 8 digits -> index in m_contacts
+    QVector<PhoneContact> m_contacts;
     bool m_serviceErrorLogged = false;
     // Name/photo of the number we dialed (the line id may be formatted differently)
     QString m_dialKey, m_dialName;

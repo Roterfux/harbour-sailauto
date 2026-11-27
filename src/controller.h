@@ -179,6 +179,8 @@ private:
     bool callBlocksAudio() const;
     bool m_notifyToCar = true;
     int m_drivingStatus = -1;
+    int m_gear = -1;
+    void updateParked();
     // Car GPS / parked position
     struct Fix { bool valid = false; double lat = 0, lon = 0, acc = -1; QDateTime time; };
     Fix m_carFix;           // latest from the car this session

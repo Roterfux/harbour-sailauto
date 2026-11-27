@@ -7,16 +7,6 @@
 #include <QUrl>
 #include <QVariantMap>
 
-#ifdef HAVE_QTCONTACTS
-#include <QContactAvatar>
-#include <QContactDetailFilter>
-#include <QContactFilter>
-#include <QContactDisplayLabel>
-#include <QContactManager>
-#include <QContactName>
-#include <QContactPhoneNumber>
-QTCONTACTS_USE_NAMESPACE
-#endif
 
 namespace {
 QString numberKey(const QString &n)
@@ -195,47 +185,21 @@ bool CallMonitor::dial(const QString &number, const QString &name, const QImage 
     return ok;
 }
 
+void CallMonitor::setContacts(const QVector<PhoneContact> &contacts)
+{
+    m_contacts = contacts;
+    m_byNumber.clear();
+    for (int i = 0; i < m_contacts.size(); ++i)
+        for (const QString &n : m_contacts[i].numbers) {
+            const QString k = numberKey(n);
+            if (k.size() >= 6) m_byNumber.insert(k, i);
+        }
+}
+
 void CallMonitor::lookupContact(const QString &number, QString *name, QImage *photo)
 {
-    if (number.isEmpty()) return;
-    auto it = m_contactCache.constFind(number);
-    if (it != m_contactCache.constEnd()) {
-        *name = it->first;
-        *photo = it->second;
-        return;
-    }
-#ifdef HAVE_QTCONTACTS
-    static QContactManager *mgr = nullptr;
-    if (!mgr) mgr = new QContactManager(QStringLiteral("org.nemomobile.contacts.sqlite"));
-    const QList<QContact> found = mgr->contacts(QContactPhoneNumber::match(number));
-    if (mgr->error() != QContactManager::NoError && !m_contactErrorLogged) {
-        m_contactErrorLogged = true;
-        emit log(QStringLiteral("Anrufe: Adressbuch nicht lesbar (Fehler %1) – nur Nummer").arg(mgr->error()));
-    }
-    if (!found.isEmpty()) {
-        const QContact &c = found.first();
-        *name = c.detail<QContactDisplayLabel>().label();
-        if (name->isEmpty()) {
-            const QContactName n = c.detail<QContactName>();
-            *name = (n.firstName() + QLatin1Char(' ') + n.lastName()).trimmed();
-        }
-        for (const QContactAvatar &a : c.details<QContactAvatar>()) {
-            const QUrl u = a.imageUrl();
-            QImage img(u.isLocalFile() ? u.toLocalFile() : u.toString());
-            if (!img.isNull()) {
-                *photo = img.scaled(256, 256, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-                break;
-            }
-        }
-    }
-    emit log(QStringLiteral("Anrufe: Adressbuch %1%2")
-                 .arg(found.isEmpty() ? QStringLiteral("kennt die Nummer nicht") : QStringLiteral("hat den Kontakt"))
-                 .arg(photo->isNull() ? QString() : QStringLiteral(" (mit Bild)")));
-#else
-    if (!m_contactErrorLogged) {
-        m_contactErrorLogged = true;
-        emit log(QStringLiteral("Anrufe: ohne Adressbuch gebaut – nur Nummer"));
-    }
-#endif
-    m_contactCache.insert(number, qMakePair(*name, *photo));
+    const int i = m_byNumber.value(numberKey(number), -1);
+    if (i < 0) return;
+    *name = m_contacts[i].name;
+    *photo = m_contacts[i].photo;
 }
