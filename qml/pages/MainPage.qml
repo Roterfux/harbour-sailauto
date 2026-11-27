@@ -16,6 +16,11 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                visible: !controller.connected
+                text: qsTr("Ton reparieren")
+                onClicked: controller.repairAudio()
+            }
+            MenuItem {
                 text: qsTr("Apps fürs Auto")
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("AppsPage.qml"))
             }

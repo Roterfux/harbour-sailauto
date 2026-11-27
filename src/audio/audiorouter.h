@@ -37,6 +37,9 @@ public:
     bool running() const { return m_running; }
     // Logs all sinks, playing streams and recorders (diagnosis).
     void dumpNow(const QString &when);
+    // Streams stuck on Sailfish's placeholder "sink.null" (silent) go back to
+    // the real output. Works without start(); returns how many were moved.
+    int repairSilentStreams();
 
     static constexpr int Rate = 48000;
     static constexpr int Channels = 2;
@@ -55,6 +58,10 @@ private:
     bool waitOperation(struct pa_operation *op);
     void moveToCar(uint32_t index);
     void restoreAll();
+    // Mainloop locked: sinks by index -> name; the real output to fall back to.
+    QHash<uint32_t, QString> listSinks();
+    uint32_t realSink(const QHash<uint32_t, QString> &sinks) const;
+    int moveStuckStreams(const QHash<uint32_t, QString> &sinks, uint32_t target);
     void dumpState(const QString &when);
 
     pa_threaded_mainloop *m_loop = nullptr;

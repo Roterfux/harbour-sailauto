@@ -79,6 +79,8 @@ Controller::Controller(QObject *parent) : QObject(parent)
     m_soundToCar = QSettings().value(QStringLiteral("soundToCar"), true).toBool();
     m_autostart = QSettings().value(QStringLiteral("autostart"), false).toBool();
     m_notifyToCar = QSettings().value(QStringLiteral("notifyToCar"), true).toBool();
+    // Repair a phone left silent by an older version or a crash.
+    QTimer::singleShot(1500, this, [this]() { if (!m_router.running()) m_router.repairSilentStreams(); });
     {
         QSettings st;
         m_parked.valid = st.value(QStringLiteral("parked/valid"), false).toBool();
@@ -609,6 +611,16 @@ void Controller::onCallAction(const QString &action)
         }
         m_screen.setCall(m_calls.call(), true);
     }
+}
+
+void Controller::repairAudio()
+{
+    if (m_router.running()) {
+        appendLog(QStringLiteral("Ton reparieren: geht erst, wenn das Auto getrennt ist"));
+        return;
+    }
+    const int n = m_router.repairSilentStreams();
+    if (n == 0) appendLog(QStringLiteral("Ton reparieren: keine stumme Wiedergabe gefunden"));
 }
 
 void Controller::startedByCar()

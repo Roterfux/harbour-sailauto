@@ -70,6 +70,8 @@ public:
     Q_INVOKABLE void stopUsb();
     // Like re-plugging the cable (car stays silent on a reused connection).
     Q_INVOKABLE void replugUsb();
+    // Phone silent after SailAuto? Move streams stuck on the silent sink back.
+    Q_INVOKABLE void repairAudio();
     // App was launched by the autostart watcher (argument --autostart).
     void startedByCar();
     // Apps for the car screen (phone page "Apps fürs Auto")

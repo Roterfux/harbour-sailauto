@@ -309,31 +309,118 @@ void AudioRouter::readPipe()
     }
 }
 
+QHash<uint32_t, QString> AudioRouter::listSinks()
+{
+    struct Ctx { QHash<uint32_t, QString> sinks; pa_threaded_mainloop *loop; };
+    Ctx ctx{{}, m_loop};
+    waitOperation(pa_context_get_sink_info_list(m_ctx, [](pa_context *, const pa_sink_info *i, int eol, void *u) {
+        auto *c = static_cast<Ctx *>(u);
+        if (eol) { signalLoop(c->loop); return; }
+        if (i) c->sinks.insert(i->index, QString::fromUtf8(i->name));
+    }, &ctx));
+    return ctx.sinks;
+}
+
+uint32_t AudioRouter::realSink(const QHash<uint32_t, QString> &sinks) const
+{
+    // Sailfish: the default sink is the placeholder "sink.null" (silent); the
+    // sound really comes out of the droid sinks.
+    for (auto it = sinks.constBegin(); it != sinks.constEnd(); ++it)
+        if (it.value() == QLatin1String("sink.primary_output")) return it.key();
+    for (auto it = sinks.constBegin(); it != sinks.constEnd(); ++it)
+        if (it.value() != QLatin1String(kSinkName) && it.value() != QLatin1String("sink.null")
+            && !it.value().endsWith(QLatin1String(".monitor"))) return it.key();
+    return PA_INVALID_INDEX;
+}
+
+int AudioRouter::moveStuckStreams(const QHash<uint32_t, QString> &sinks, uint32_t target)
+{
+    // Mainloop locked. Everything on our sink or on sink.null goes to the
+    // sink it came from (if known and real), else to target.
+    if (target == PA_INVALID_INDEX) return 0;
+    uint32_t nullSink = PA_INVALID_INDEX;
+    for (auto it = sinks.constBegin(); it != sinks.constEnd(); ++it)
+        if (it.value() == QLatin1String("sink.null")) nullSink = it.key();
+    struct Ctx { QList<QPair<uint32_t, uint32_t>> inputs; pa_threaded_mainloop *loop; }; // input, sink
+    Ctx ctx{{}, m_loop};
+    waitOperation(pa_context_get_sink_input_info_list(m_ctx, [](pa_context *, const pa_sink_input_info *i, int eol, void *u) {
+        auto *c = static_cast<Ctx *>(u);
+        if (eol) { signalLoop(c->loop); return; }
+        if (i) c->inputs.append(qMakePair(i->index, i->sink));
+    }, &ctx));
+    int moved = 0;
+    for (const auto &in : ctx.inputs) {
+        if (in.second != m_carSink && in.second != nullSink) continue;
+        uint32_t to = m_origSink.value(in.first, PA_INVALID_INDEX);
+        if (!sinks.contains(to) || to == nullSink || to == m_carSink) to = target;
+        waitOperation(pa_context_move_sink_input_by_index(m_ctx, in.first, to, [](pa_context *, int, void *u) {
+            signalLoop(static_cast<pa_threaded_mainloop *>(u)); }, m_loop));
+        ++moved;
+    }
+    return moved;
+}
+
 void AudioRouter::restoreAll()
 {
-    // Mainloop locked. Everything still on our sink goes back.
+    // Mainloop locked. Default back first, so nothing new lands on our sink.
     if (!m_oldDefault.isEmpty()) {
         const QByteArray old = m_oldDefault.toUtf8();
         waitOperation(pa_context_set_default_sink(m_ctx, old.constData(), [](pa_context *, int, void *u) {
             signalLoop(static_cast<pa_threaded_mainloop *>(u)); }, m_loop));
     }
-    struct BackCb { static void cb(pa_context *c, const pa_sink_input_info *i, int eol, void *u) {
-        auto *s = static_cast<QPair<AudioRouter *, pa_threaded_mainloop *> *>(u);
-        if (eol) { signalLoop(s->second); return; }
-        if (!i || i->sink != s->first->property("_carSink").toUInt()) return;
-        const QByteArray old = s->first->property("_oldDefault").toString().toUtf8();
-        pa_operation *op = pa_context_move_sink_input_by_name(c, i->index, old.constData(), nullptr, nullptr);
-        if (op) pa_operation_unref(op);
-    } };
-    QPair<AudioRouter *, pa_threaded_mainloop *> pair(this, m_loop);
-    if (!m_oldDefault.isEmpty())
-        waitOperation(pa_context_get_sink_input_info_list(m_ctx, BackCb::cb, &pair));
+    // Streams back to where they were, never onto the silent sink.null
+    // (0.8.1 and older did that: phone muted after SailAuto ended).
+    const QHash<uint32_t, QString> sinks = listSinks();
+    const uint32_t target = realSink(sinks);
+    const int moved = moveStuckStreams(sinks, target);
+    if (moved)
+        paLog(QStringLiteral("Ton: %1 Wiedergabe(n) zurück auf %2").arg(moved).arg(sinks.value(target)));
     if (m_module != PA_INVALID_INDEX) {
-        // Unloading also moves remaining streams to the default sink.
         waitOperation(pa_context_unload_module(m_ctx, m_module, [](pa_context *, int, void *u) {
             signalLoop(static_cast<pa_threaded_mainloop *>(u)); }, m_loop));
         m_module = PA_INVALID_INDEX;
     }
+    dumpState(QStringLiteral("nach Rückstellung"));
+}
+
+int AudioRouter::repairSilentStreams()
+{
+    if (m_running) return 0;
+    pa_threaded_mainloop *loop = pa_threaded_mainloop_new();
+    pa_context *ctx = pa_context_new(pa_threaded_mainloop_get_api(loop), "SailAuto");
+    pa_context_set_state_callback(ctx, contextState, loop);
+    int moved = -1;
+    if (pa_context_connect(ctx, nullptr, PA_CONTEXT_NOFLAGS, nullptr) >= 0 && pa_threaded_mainloop_start(loop) >= 0) {
+        pa_threaded_mainloop_lock(loop);
+        for (;;) {
+            const pa_context_state_t st = pa_context_get_state(ctx);
+            if (st == PA_CONTEXT_READY || !PA_CONTEXT_IS_GOOD(st)) break;
+            pa_threaded_mainloop_wait(loop);
+        }
+        if (pa_context_get_state(ctx) == PA_CONTEXT_READY) {
+            m_loop = loop;
+            m_ctx = ctx;
+            const QHash<uint32_t, QString> sinks = listSinks();
+            const uint32_t target = realSink(sinks);
+            // A leftover SailAuto sink (crash) counts as stuck too.
+            m_carSink = PA_INVALID_INDEX;
+            for (auto it = sinks.constBegin(); it != sinks.constEnd(); ++it)
+                if (it.value() == QLatin1String(kSinkName)) m_carSink = it.key();
+            moved = moveStuckStreams(sinks, target);
+            if (moved > 0)
+                paLog(QStringLiteral("Ton repariert: %1 stumme Wiedergabe(n) auf %2 verschoben").arg(moved).arg(sinks.value(target)));
+            m_loop = nullptr;
+            m_ctx = nullptr;
+            m_carSink = PA_INVALID_INDEX;
+        }
+        pa_context_disconnect(ctx);
+        pa_threaded_mainloop_unlock(loop);
+        pa_threaded_mainloop_stop(loop);
+    }
+    pa_context_unref(ctx);
+    pa_threaded_mainloop_free(loop);
+    if (moved < 0) paLog(QStringLiteral("Ton reparieren: PulseAudio nicht erreichbar"));
+    return moved;
 }
 
 void AudioRouter::dumpState(const QString &when)
