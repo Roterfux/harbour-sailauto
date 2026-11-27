@@ -212,6 +212,7 @@ private:
     WeatherClient m_weather;
     bool m_closeIdle = true;
     QTimer m_idleTimer;
+    QElapsedTimer m_navUsed;   // Pure Maps last had a route
     bool m_weatherEnabled = true;
     bool m_mapEnabled = false;
     QString m_home, m_work, m_pendingSearch;

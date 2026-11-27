@@ -1,6 +1,8 @@
 #include "appcatalog.h"
 
 #include <QCoreApplication>
+#include <csignal>
+#include <sys/types.h>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -161,7 +163,7 @@ const AppEntry *AppCatalog::find(const QString &id) const
     return nullptr;
 }
 
-bool AppCatalog::isRunning(const AppEntry &a) const
+QList<qint64> AppCatalog::pidsOf(const AppEntry &a) const
 {
     // The app's binary: absolute paths in the Exec line that are not
     // launchers (invoker, sailjail, sh), else /usr/bin/<desktop id>.
@@ -177,6 +179,7 @@ bool AppCatalog::isRunning(const AppEntry &a) const
     }
     if (bins.isEmpty()) bins << a.id;
     const qint64 self = QCoreApplication::applicationPid();
+    QList<qint64> pids;
     const QDir proc(QStringLiteral("/proc"));
     for (const QString &pid : proc.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
         bool num = false;
@@ -187,10 +190,25 @@ bool AppCatalog::isRunning(const AppEntry &a) const
         // Any argument: sailjail/invoker/python wrappers carry the program path later.
         for (const QByteArray &arg : f.readAll().split('\0')) {
             const QString base = QString::fromLocal8Bit(arg).section(QLatin1Char('/'), -1);
-            if (bins.contains(base)) return true;
+            if (bins.contains(base)) { pids << n; break; }
         }
     }
-    return false;
+    return pids;
+}
+
+bool AppCatalog::isRunning(const AppEntry &a) const
+{
+    return !pidsOf(a).isEmpty();
+}
+
+int AppCatalog::terminate(const QString &id) const
+{
+    const AppEntry *a = find(id);
+    if (!a) return 0;
+    int n = 0;
+    for (qint64 pid : pidsOf(*a))
+        if (::kill(static_cast<pid_t>(pid), SIGTERM) == 0) ++n;
+    return n;
 }
 
 AppCatalog::LaunchResult AppCatalog::launch(const QString &id, QString *error)
@@ -212,5 +230,6 @@ AppCatalog::LaunchResult AppCatalog::launch(const QString &id, QString *error)
         return Failed;
     }
     m_lastLaunch.insert(id, now);
+    if (!m_started.contains(id)) m_started << id;
     return Started;
 }

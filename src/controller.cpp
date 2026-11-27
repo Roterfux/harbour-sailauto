@@ -113,6 +113,17 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_idleTimer, &QTimer::timeout, this, [this]() {
         if (!m_closeIdle || !m_session || m_pausedForCall || m_calls.call().state != CallInfo::None) return;
         const int idle = qEnvironmentVariableIsSet("SAILAUTO_IDLE_MS") ? qgetenv("SAILAUTO_IDLE_MS").toInt() : 120000;
+        // Pure Maps started from the car, no route for 5 min: end it.
+        const NavState &nav = m_nav.state();
+        if (nav.app && (nav.hasRoute || nav.running)) m_navUsed.start();
+        else if (!nav.app) m_navUsed.invalidate();
+        else if (!m_navUsed.isValid()) m_navUsed.start();
+        if (nav.app && !nav.hasRoute && !nav.running && m_navUsed.isValid() && m_navUsed.elapsed() > idle * 5 / 2
+            && m_apps.startedByUs().contains(QStringLiteral("harbour-pure-maps"))
+            && m_apps.terminate(QStringLiteral("harbour-pure-maps")) > 0) {
+            appendLog(QStringLiteral("App: Pure Maps beendet (5 min ohne Route)"));
+            m_navUsed.invalidate();
+        }
         for (const QString &d : m_mpris.quitIdle(idle)) appendLog(QStringLiteral("Musik: ") + d + QStringLiteral(" (2 min Pause)"));
     });
     connect(&m_weather, &WeatherClient::log, this, &Controller::appendLog);
@@ -1509,6 +1520,13 @@ void Controller::onSessionClosed(const QString &reason)
     m_gear = -1;
     m_screen.setParked(false);
     appendLog(QStringLiteral("Sitzung beendet: ") + reason);
+    // Car gone: end what we started for it (music apps, Pure Maps).
+    if (m_closeIdle) {
+        for (const QString &id : m_apps.startedByUs())
+            if (m_apps.terminate(id) > 0) appendLog(QStringLiteral("App: %1 beendet (Auto getrennt)").arg(id));
+        m_apps.clearStarted();
+        m_own.stop();
+    }
     if (m_carFix.valid) saveParked(m_carFix, true);
     m_carFix = Fix();
     if (m_session->receivedBytes() > 0) m_autoReplugs = 0;

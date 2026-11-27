@@ -38,6 +38,11 @@ public:
     // Starts the app unless it already runs (or was started < 3 s ago).
     LaunchResult launch(const QString &id, QString *error);
     bool isRunning(const AppEntry &a) const;
+    // SIGTERM to the app's processes; returns how many were signalled.
+    int terminate(const QString &id) const;
+    // Apps started from the car in this session
+    QStringList startedByUs() const { return m_started; }
+    void clearStarted() { m_started.clear(); }
 
 signals:
     void selectionChanged();
@@ -46,4 +51,6 @@ private:
     QVector<AppEntry> m_apps;
     QStringList m_selected;
     QHash<QString, qint64> m_lastLaunch; // id -> ms since epoch
+    QStringList m_started;
+    QList<qint64> pidsOf(const AppEntry &a) const;
 };

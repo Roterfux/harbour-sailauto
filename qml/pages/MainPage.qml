@@ -105,8 +105,9 @@ Page {
             }
 
             TextSwitch {
-                text: qsTr("Musik-App nach 2 min Pause beenden")
-                description: qsTr("Im Auto: ein Player, der 2 Minuten nicht spielt, wird geschlossen (nicht während eines Anrufs).")
+                text: qsTr("Unbenutzte Apps beenden")
+                description: qsTr("Im Auto: Player, die 2 min nicht spielen, schließen; Pure Maps nach 5 min ohne Route "
+                                  + "(wenn vom Auto gestartet). Beim Trennen: alles, was SailAuto gestartet hat.")
                 checked: controller.closeIdlePlayers
                 onCheckedChanged: controller.closeIdlePlayers = checked
             }
