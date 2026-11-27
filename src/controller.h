@@ -144,6 +144,7 @@ private:
     QTimer m_usbKick;          // car silent after USB open -> replug
     QElapsedTimer m_lastReplug;
     int m_autoReplugs = 0;
+    QString m_lastUdcState;    // /sys/class/udc/*/state seen last
     QDateTime m_usbStartedAt;  // root state older than this is stale
     // Autostart
     bool m_autostart = false;

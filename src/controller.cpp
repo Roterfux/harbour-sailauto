@@ -131,7 +131,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     // The car only starts Android Auto on a freshly enumerated device. After
     // a dropped session it stays silent on the old one, so "re-plug" the cable.
     m_usbKick.setSingleShot(true);
-    m_usbKick.setInterval(15000);
+    m_usbKick.setInterval(12000);
     connect(&m_usbKick, &QTimer::timeout, this, [this]() {
         if (!m_session || !qobject_cast<UsbAccessoryDevice *>(m_socket.data())) return;
         if (m_session->receivedBytes() > 0) return;
@@ -146,7 +146,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
             return;
         }
         ++m_autoReplugs;
-        appendLog(QStringLiteral("USB: Auto sendet seit 15 s nichts -> USB neu verbinden (wie Kabel neu einstecken, %1/3)")
+        appendLog(QStringLiteral("USB: Auto sendet seit 12 s nichts -> USB neu verbinden (wie Kabel neu einstecken, %1/3)")
                       .arg(m_autoReplugs));
         replugUsb();
     });
@@ -712,6 +712,29 @@ void Controller::tryOpenUsb()
     }
     QString path = QString::fromLocal8Bit(qgetenv("SAILAUTO_USB_DEVICE"));
     if (path.isEmpty()) path = QStringLiteral("/dev/usb_accessory");
+    // Open only once the car has (re)configured the USB port. Opening while
+    // the cable is out gives a stale connection the car never talks to
+    // (reconnect took 15+ s). The UDC state is world-readable.
+    if (qEnvironmentVariableIsEmpty("SAILAUTO_USB_DEVICE")) {
+        const QDir udc(QStringLiteral("/sys/class/udc"));
+        const QStringList ctrls = udc.entryList(QDir::Dirs | QDir::NoDotAndDotDot | QDir::System);
+        if (!ctrls.isEmpty()) {
+            QFile st(udc.filePath(ctrls.first() + QStringLiteral("/state")));
+            const QString state = st.open(QIODevice::ReadOnly) ? QString::fromLatin1(st.readAll()).trimmed() : QString();
+            if (!state.isEmpty() && state != QLatin1String("configured")) {
+                if (state != m_lastUdcState) {
+                    m_lastUdcState = state;
+                    appendLog(QStringLiteral("USB: warte auf das Auto (Anschluss: %1)").arg(state));
+                    setStatus(QStringLiteral("Warte auf Kabel/Auto"));
+                }
+                m_usbRetry.start(1000);
+                return;
+            }
+            if (!m_lastUdcState.isEmpty() && state != m_lastUdcState)
+                appendLog(QStringLiteral("USB: Auto verbunden (Anschluss: %1)").arg(state));
+            m_lastUdcState = state;
+        }
+    }
     auto *dev = new UsbAccessoryDevice(path, this);
     if (!dev->open(QIODevice::ReadWrite)) {
         static QString lastError;
