@@ -189,14 +189,25 @@ void MapView::updateFix(double lat, double lon, double bearing, double speed)
     updateZoom(false);
 }
 
+double MapView::targetZoom() const
+{
+    // Continuous zoom by speed: slow = close, fast = far (17.4 standing, 16.5
+    // at 50 km/h, 15.6 at 100, 15 at 130), shifted by the view range setting
+    const double kmh = speedNow() * 3.6;
+    return qBound(14.8, 17.4 - kmh * 0.0185, 17.4) - m_range;
+}
+
 void MapView::updateZoom(bool force)
 {
-    // Zoom by speed (hysteresis via thresholds), shifted by the view range setting
-    const double kmh = m_speed * 3.6;
-    const int z = (kmh > 95 ? 15 : kmh > 45 ? 16 : 17) - m_range;
-    if (z != m_zoom && (force || ((kmh > 100 || kmh < 90) && (kmh > 50 || kmh < 40)))) {
-        m_zoom = z;
-        m_canvasDirty = true;
+    // The canvas is drawn at a whole zoom level; the rest is scaling.
+    // Hysteresis around the level boundaries avoids redrawing back and forth.
+    if (force) m_zoomF = targetZoom();
+    const int z = int(std::floor(m_zoomF));
+    if (force || m_zoomF > m_zoom + 1.12 || m_zoomF < m_zoom - 0.12) {
+        if (z != m_zoom) {
+            m_zoom = z;
+            m_canvasDirty = true;
+        }
     }
 }
 
@@ -470,7 +481,9 @@ void MapView::renderLayer(const QSize &size)
         p.drawText(QRectF(0, 0, w, h), Qt::AlignCenter, QStringLiteral("Warte auf Position (Auto oder Telefon-GPS)"));
         return;
     }
-    // Predicted position: last fix + speed * age along the bearing (max 3 s)
+    // Zoom glides towards the speed's zoom (about 2 s)
+    m_zoomF += (targetZoom() - m_zoomF) * 0.03;
+    updateZoom(false);
     const int z = m_zoom;
     // Estimated position: last fix moved on; in a tunnel along the route
     double heading = m_bearing;
@@ -486,10 +499,12 @@ void MapView::renderLayer(const QSize &size)
     // show the old one (maybe another zoom) at the right place.
     const int cz = m_canvasZ > 0 ? m_canvasZ : z;
     if (cz != z) car *= std::pow(2.0, cz - z);
+    // Fractional zoom: the canvas is enlarged by zs (view shows less canvas)
+    const double zs = qBound(0.8, std::pow(2.0, m_zoomF - cz), 2.5);
 
     // Ground (car-centred, heading up, pixels) -> screen trapezoid (tilted view)
     // Gentle tilt: far edge only a bit narrower than the near edge.
-    const double ahead = 740, behind = 90, half = 510; // small "behind" puts the car low on screen
+    const double ahead = 740 / zs, behind = 90 / zs, half = 510 / zs; // small "behind" puts the car low on screen
     const QPolygonF ground({QPointF(-half, -ahead), QPointF(half, -ahead), QPointF(half, behind), QPointF(-half, behind)});
     const QPolygonF screen({QPointF(w * 0.5 - w * 0.85, horizon), QPointF(w * 0.5 + w * 0.85, horizon),
                             QPointF(w * 0.5 + w * 1.25, h * 1.02), QPointF(w * 0.5 - w * 1.25, h * 1.02)});
@@ -544,11 +559,14 @@ void MapView::renderLayer(const QSize &size)
     // Names upright on top (readable, unlike names baked into tilted tiles)
     if (vectorMode())
         m_vm.drawLabels(p, t * rot * proj, QRectF(0, 0, w, h), horizon,
-                        QVector<QRectF>() << QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2) << m_covered);
+                        QVector<QRectF>() << QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2) << m_covered
+                                          << QRectF(0, h - h * 0.2, w * 0.22, h * 0.2)); // speed
     else
         drawPlaceNames(p, t * rot * proj, cz, w, h, horizon);
+    drawDestination(p, t * rot * proj, cz, h, horizon);
+    drawSpeed(p, w, h);
     if (m_marker == 0) {
-        drawCar(p, proj);
+        drawCar(p, proj, 1.0 / zs);
     } else {
         QPolygonF arrow({QPointF(c.x(), c.y() - s), QPointF(c.x() + s * 0.7, c.y() + s * 0.6),
                          QPointF(c.x(), c.y() + s * 0.25), QPointF(c.x() - s * 0.7, c.y() + s * 0.6)});
@@ -575,13 +593,14 @@ void MapView::renderLayer(const QSize &size)
     }
 }
 
-void MapView::drawCar(QPainter &p, const QTransform &proj)
+void MapView::drawCar(QPainter &p, const QTransform &proj, double scale)
 {
     // Small 3D car seen from behind and above, standing on the tilted map:
     // its footprint goes through the same perspective as the road, heights
     // rise straight up on screen (scaled like the ground at that spot).
-    const double L = 46, W = 23;               // ground pixels (a bit bigger than true size)
-    const double bodyH = 8.5, cabH = 8;        // heights, ground pixels
+    // ground pixels (a bit bigger than true size); scale keeps it the same size on screen at any zoom
+    const double L = 46 * scale, W = 23 * scale;
+    const double bodyH = 8.5 * scale, cabH = 8 * scale;
     const QPointF o = proj.map(QPointF(0, 0));
     const double k = QLineF(o, proj.map(QPointF(1, 0))).length(); // screen px per ground px here
     auto P = [&](double gx, double gy, double hz) {
@@ -598,7 +617,7 @@ void MapView::drawCar(QPainter &p, const QTransform &proj)
     // shadow on the ground
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(0, 0, 0, m_night ? 130 : 80));
-    p.drawPolygon(quad(P(-fx - 2, fy - 1, 0), P(fx + 2, fy - 1, 0), P(fx + 3, ry + 3, 0), P(-fx - 3, ry + 3, 0)));
+    p.drawPolygon(quad(P(-fx - 2 * scale, fy - scale, 0), P(fx + 2 * scale, fy - scale, 0), P(fx + 3 * scale, ry + 3 * scale, 0), P(-fx - 3 * scale, ry + 3 * scale, 0)));
     // lower body: sides, rear, top
     p.setPen(QPen(QColor(255, 255, 255, 200), 1.2));
     p.setBrush(dark);
@@ -622,8 +641,75 @@ void MapView::drawCar(QPainter &p, const QTransform &proj)
     // rear lights
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(235, 40, 40));
-    p.drawPolygon(quad(P(-fx, ry, bodyH * 0.55), P(-fx + 5, ry, bodyH * 0.55), P(-fx + 5, ry, bodyH * 0.9), P(-fx, ry, bodyH * 0.9)));
-    p.drawPolygon(quad(P(fx - 5, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.9), P(fx - 5, ry, bodyH * 0.9)));
+    p.drawPolygon(quad(P(-fx, ry, bodyH * 0.55), P(-fx + 5 * scale, ry, bodyH * 0.55), P(-fx + 5 * scale, ry, bodyH * 0.9), P(-fx, ry, bodyH * 0.9)));
+    p.drawPolygon(quad(P(fx - 5 * scale, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.9), P(fx - 5 * scale, ry, bodyH * 0.9)));
+    p.restore();
+}
+
+void MapView::drawDestination(QPainter &p, const QTransform &canvasToScreen, int z, double h, double horizon)
+{
+    // Destination: upright pin with a chequered flag at the end of the route
+    if (m_route.size() < 2) return;
+    const QPointF origin(m_canvasX * kTile, m_canvasY * kTile);
+    const QPointF sp = canvasToScreen.map(worldPixel(m_route.last().x(), m_route.last().y(), z) - origin);
+    if (sp.y() < horizon + 4 || sp.y() > h + 40 || sp.x() < -40 || sp.x() > p.device()->width() + 40) return;
+    const double depth = 0.6 + 0.6 * qBound(0.0, (sp.y() - horizon) / (h - horizon), 1.0);
+    const double s = h / 9 * depth; // pin height
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+    // shadow on the ground
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, 70));
+    p.drawEllipse(sp, s * 0.22, s * 0.08);
+    // pin: round head, point at the destination
+    QPainterPath pin;
+    const QPointF head(sp.x(), sp.y() - s * 0.68);
+    const double r = s * 0.32;
+    pin.moveTo(sp);
+    pin.cubicTo(QPointF(sp.x() - r * 0.4, sp.y() - s * 0.25), QPointF(head.x() - r, head.y() + r * 0.6), QPointF(head.x() - r, head.y()));
+    pin.arcTo(QRectF(head.x() - r, head.y() - r, 2 * r, 2 * r), 180, -180);
+    pin.cubicTo(QPointF(head.x() + r, head.y() + r * 0.6), QPointF(sp.x() + r * 0.4, sp.y() - s * 0.25), sp);
+    p.setPen(QPen(Qt::white, qMax(1.5, s / 22)));
+    p.setBrush(QColor(215, 40, 40));
+    p.drawPath(pin);
+    // chequered flag in the head
+    const double fw = r * 1.1, fh = r * 0.8;
+    const QRectF flag(head.x() - fw / 2, head.y() - fh / 2, fw, fh);
+    p.setPen(Qt::NoPen);
+    p.setBrush(Qt::white);
+    p.drawRect(flag);
+    p.setBrush(QColor(20, 20, 20));
+    const int nx = 4, ny = 3;
+    for (int i = 0; i < nx; ++i)
+        for (int j = 0; j < ny; ++j)
+            if ((i + j) % 2 == 0) p.drawRect(QRectF(flag.left() + i * fw / nx, flag.top() + j * fh / ny, fw / nx, fh / ny));
+    p.restore();
+}
+
+void MapView::drawSpeed(QPainter &p, double w, double h)
+{
+    // Current speed bottom left (wheel sensor, else GPS)
+    Q_UNUSED(w)
+    if (!m_haveFix) return;
+    const int kmh = int(speedNow() * 3.6 + 0.5);
+    const double bh = h * 0.16, bw = bh * 1.35;
+    const QRectF box(10, h - bh - 10, bw, bh);
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(m_night ? QColor(70, 76, 92) : QColor(200, 204, 214), 2));
+    p.setBrush(m_night ? QColor(20, 24, 34, 225) : QColor(255, 255, 255, 230));
+    p.drawRoundedRect(box, 12, 12);
+    QFont f = p.font();
+    f.setBold(true);
+    f.setPixelSize(int(bh * 0.5));
+    p.setFont(f);
+    p.setPen(m_night ? QColor(230, 234, 242) : QColor(25, 28, 38));
+    p.drawText(QRectF(box.left(), box.top() + bh * 0.04, bw, bh * 0.62), Qt::AlignCenter, QString::number(kmh));
+    f.setBold(false);
+    f.setPixelSize(int(bh * 0.2));
+    p.setFont(f);
+    p.setPen(m_night ? QColor(150, 158, 175) : QColor(100, 106, 120));
+    p.drawText(QRectF(box.left(), box.top() + bh * 0.62, bw, bh * 0.3), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("km/h"));
     p.restore();
 }
 

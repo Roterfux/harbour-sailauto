@@ -133,7 +133,11 @@ private:
     int m_marker = 0, m_range = 0;
     bool m_smooth = true;
     void updateZoom(bool force);
-    void drawCar(QPainter &p, const QTransform &proj);
+    void drawCar(QPainter &p, const QTransform &proj, double scale);
+    double targetZoom() const;
+    double m_zoomF = 16.5;           // smooth zoom (speed), the canvas uses floor()
+    void drawDestination(QPainter &p, const QTransform &canvasToScreen, int z, double h, double horizon);
+    void drawSpeed(QPainter &p, double w, double h);
 
     // Rendered layer (rate limited)
     QImage m_layer;

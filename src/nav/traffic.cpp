@@ -31,7 +31,7 @@ QString monthKey() { return QStringLiteral("traffic/requests/") + QDate::current
 
 TrafficService::TrafficService(QObject *parent) : QObject(parent), m_net(new QNetworkAccessManager(this))
 {
-    m_timer.setInterval(180000); // 3 min: ~20 requests per hour of navigation
+    m_timer.setInterval(300000); // 5 min: ~12 requests per hour of navigation
     connect(&m_timer, &QTimer::timeout, this, &TrafficService::query);
 }
 

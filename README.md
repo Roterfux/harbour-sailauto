@@ -217,6 +217,8 @@ Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
 Karte flüssig (volle Bildrate) und Stromsparen.
 Ab 0.19.1 für Linkslenker: Blättern in Listen, „Liste“, „Radio & Musik“ und „Ziel“
 liegen links, näher am Fahrer; Auto-Symbol kleiner.
+Ab 0.21.1: Zoom stufenlos nach Tempo (langsam = näher, schnell = weiter weg),
+Tempo unten links, Ziel als Stecknadel mit Zielflagge.
 Ab 0.19.2 im Tunnel (kein GPS > 2 s): das Auto fährt mit der Geschwindigkeit
 weiter (Tacho-Sensor des Autos, sonst letzte GPS-Geschwindigkeit), bei aktiver
 Route entlang der Route, sonst geradeaus; die Navigation zählt mit. Wiederholt
@@ -226,8 +228,8 @@ das Auto nur die alte Position, gilt das auch als „kein GPS“. Höchstens 10 
 
 Mit eigenem, kostenlosem TomTom-Schlüssel (developer.tomtom.com, ohne
 Kreditkarte; Einstellungen → „Stau und Unfälle“): während der eigenen
-Navigation alle 3 min die Verkehrsmeldungen für die nächsten 60 km der Route
-(TomTom Traffic Incidents, ~20 Abfragen pro Fahrstunde, Zähler pro Monat in den
+Navigation alle 5 min die Verkehrsmeldungen für die nächsten 60 km der Route
+(TomTom Traffic Incidents, ~12 Abfragen pro Fahrstunde, Zähler pro Monat in den
 Einstellungen). Nur Meldungen auf der Route und in Fahrtrichtung zählen (Stau
 auf der Gegenfahrbahn nicht). Im Auto: Warnkarte unter dem Abbiegehinweis
 („Stau in 2,4 km · 1,8 km lang · +7 min · A1“), Stau orange/rot auf der Route,

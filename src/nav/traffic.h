@@ -1,6 +1,6 @@
 // Traffic warnings on the own route from TomTom (Traffic Incidents API, own
 // free key of the user, set on the phone). Only while navigating: every
-// 3 minutes the stretch ahead (up to ~60 km) is asked for jams, accidents,
+// 5 minutes the stretch ahead (up to ~60 km) is asked for jams, accidents,
 // closures; incidents lying on the route are kept with their distance ahead.
 #pragma once
 

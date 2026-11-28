@@ -107,7 +107,7 @@ Page {
                 wrapMode: Text.Wrap
                 color: Theme.secondaryHighlightColor
                 font.pixelSize: Theme.fontSizeExtraSmall
-                text: qsTr("Nur während der eigenen Navigation, alle 3 min für die nächsten 60 km (~20 Abfragen pro Stunde). "
+                text: qsTr("Nur während der eigenen Navigation, alle 5 min für die nächsten 60 km (~12 Abfragen pro Stunde). "
                            + "Diesen Monat: %1 Abfragen.").arg(controller.trafficRequests())
             }
 
