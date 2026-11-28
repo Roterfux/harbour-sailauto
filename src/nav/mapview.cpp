@@ -37,11 +37,9 @@ MapView::MapView(QObject *parent) : QObject(parent)
 
 QString MapView::tileTemplate() const
 {
-    // Online: CARTO base map from OpenStreetMap data, without labels (the
-    // names are drawn upright as an overlay), real night style.
-    if (m_online)
-        return m_night ? QStringLiteral("https://basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}.png")
-                       : QStringLiteral("https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png");
+    // Online: openstreetmap.org standard tiles (no key needed; names are in the
+    // picture, the upright overlay keeps the important ones readable).
+    if (m_online) return QStringLiteral("https://tile.openstreetmap.org/{z}/{x}/{y}.png");
     return m_url;
 }
 
@@ -142,7 +140,7 @@ void MapView::onReply(QNetworkReply *reply)
             m_online = true;
             m_failed.clear();
             m_canvasDirty = true;
-            emit log(QStringLiteral("Karte: OSM Scout Server nicht erreichbar, nutze Online-Karte (CARTO/OpenStreetMap)"));
+            emit log(QStringLiteral("Karte: OSM Scout Server nicht erreichbar, nutze Online-Karte (openstreetmap.org)"));
             return;
         }
         m_failed.insert(key, QDateTime::currentMSecsSinceEpoch());
@@ -258,6 +256,8 @@ void MapView::renderLayer(const QSize &size)
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
     p.setTransform(t * rot * proj);
     p.drawImage(0, 0, m_canvas);
+    if (m_online && m_night) // OSM tiles have no night style: darken gently
+        p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 70));
     // Route line in canvas coordinates (same transform as the tiles)
     if (m_route.size() > 1) {
         QPolygonF line;
@@ -294,8 +294,7 @@ void MapView::renderLayer(const QSize &size)
     f.setPixelSize(qMax(10, int(h / 34)));
     p.setFont(f);
     p.setPen(m_night ? QColor(200, 200, 200) : QColor(60, 60, 60));
-    p.drawText(QRectF(0, 0, w - 6, h - 4), Qt::AlignRight | Qt::AlignBottom, m_online ? QStringLiteral("© OpenStreetMap-Mitwirkende © CARTO")
-                                                                                            : QStringLiteral("© OpenStreetMap-Mitwirkende"));
+    p.drawText(QRectF(0, 0, w - 6, h - 4), Qt::AlignRight | Qt::AlignBottom, QStringLiteral("© OpenStreetMap-Mitwirkende"));
     if (!m_lastError.isEmpty() && m_tiles.isEmpty()) {
         f.setPixelSize(qMax(12, int(h / 22)));
         f.setBold(true);

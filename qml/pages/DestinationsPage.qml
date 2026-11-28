@@ -55,7 +55,7 @@ Page {
             TextField {
                 width: parent.width
                 visible: controller.mapEnabled
-                label: qsTr("Kachel-Adresse ({z} {x} {y} {daylight})")
+                label: qsTr("Eigene Kartenadresse, z. B. mit Schlüssel ({z} {x} {y})")
                 text: controller.mapUrl
                 inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoAutoUppercase
                 EnterKey.onClicked: focus = false
