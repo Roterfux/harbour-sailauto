@@ -389,6 +389,7 @@ void Session::handleControl(quint16 id, const QByteArray &payload)
         emit log(QStringLiteral("Audio-Fokus vom Auto: %1%2").arg(QLatin1String(st >= 0 && st <= 7 ? names[st] : "?"))
                      .arg(r.boolean(2) ? QStringLiteral(" (unaufgefordert)") : QString()));
         emit audioFocusChanged(st);
+        emit audioFocusNotified(st, r.boolean(2));
         break;
     }
     case ctrl::NavFocusResponse:   // NAV_FOCUS_NOTIFICATION

@@ -48,6 +48,8 @@ public:
     // Loading screen while a phone app starts (hidden by hideLoading or after 15 s)
     void showLoading(const QString &name, const QImage &icon);
     void hideLoading() { m_loadingName.clear(); }
+    // Short volume bar (percent), ~2 s
+    void showVolume(int percent) { m_volume = percent; m_volumeClock.start(); }
     // Destinations for the navigation page (home/work from the phone settings).
     // Music page list (playlists/tracks of the player), shown after "Liste".
     struct ListItem { QString title, sub; bool playlist; QString icon; };
@@ -169,6 +171,9 @@ private:
     QImage m_loadingIcon;
     QElapsedTimer m_loadingClock;
     void drawLoading(QPainter &p);
+    int m_volume = -1;
+    QElapsedTimer m_volumeClock;
+    void drawVolume(QPainter &p);
     QVector<QPair<QRect, QString>> m_musicAppButtons; // empty music page: start an app
     void navButtonTapped(const NavButton &b);
     void drawManeuver(QPainter &p, const QRect &r, bool small);

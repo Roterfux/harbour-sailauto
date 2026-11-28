@@ -253,6 +253,7 @@ private:
     void onCallAction(const QString &action);
     bool callBlocksAudio() const;
     bool m_routerPausedForCall = false;
+    int m_pausedForFocus = 0;      // focus state that made us pause (5 = transient)
     void syncRouterForCall();
     bool m_notifyToCar = true;
     int m_drivingStatus = -1;

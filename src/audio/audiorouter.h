@@ -50,8 +50,14 @@ public:
     void onSubscription(int facility, int type, uint32_t index);
 
 
+    uint32_t carSink() const { return m_carSink; }
+    int lastVolume() const { return m_lastVolume; }
+    void setLastVolume(int v) { m_lastVolume = v; }
+
 signals:
     void log(const QString &line);
+    // Volume (percent) of the stream playing in the car changed
+    void volumeChanged(int percent);
     void chunk(const QByteArray &pcm); // delivered in the main thread
 
 private:
@@ -84,6 +90,7 @@ private:
     qint64 m_bytesOut = 0;      // read + silence filled in
     bool m_filling = false;
     bool m_fillLogged = false;
+    int m_lastVolume = -1;
     QSet<QString> m_loggedApps;
     QByteArray m_pending;
 };

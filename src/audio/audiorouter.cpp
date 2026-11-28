@@ -242,6 +242,15 @@ void AudioRouter::onSubscription(int facility, int type, uint32_t index)
         auto *self = static_cast<AudioRouter *>(u);
         const char *app = pa_proplist_gets(i->proplist, PA_PROP_APPLICATION_NAME);
         const char *role = pa_proplist_gets(i->proplist, PA_PROP_MEDIA_ROLE);
+        // Volume of a stream playing in the car (phone volume keys change it)
+        if (i->sink == self->carSink() && (!role || qstrcmp(role, "format-probe") != 0)) {
+            const int pct = int(qRound(100.0 * pa_cvolume_avg(&i->volume) / PA_VOLUME_NORM));
+            if (pct != self->lastVolume()) {
+                const bool first = self->lastVolume() < 0;
+                self->setLastVolume(pct);
+                if (!first) QMetaObject::invokeMethod(self, "volumeChanged", Qt::QueuedConnection, Q_ARG(int, pct));
+            }
+        }
         self->onSinkInput(i->index, i->sink, QString::fromUtf8(i->name ? i->name : ""),
                           QString::fromUtf8(app ? app : ""), QString::fromUtf8(role ? role : ""), false);
     } };

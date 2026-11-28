@@ -96,6 +96,8 @@ signals:
     void gearChanged(int gear);
     // Streaming, but the car sent nothing for ~20 s (switched off / stale USB)
     void carSilent();
+    // Audio focus from the car; unsolicited = the car decided (not an answer to us)
+    void audioFocusNotified(int state, bool unsolicited);
     // AudioFocusStateType from the car: 1 GAIN, 2 GAIN_TRANSIENT, 3 LOSS, 4 LOSS_CAN_DUCK, 5 LOSS_TRANSIENT, ...
     void audioFocusChanged(int state);
     // An audio channel finished its setup (streamType: 1 guidance, 2 system, 3 media).

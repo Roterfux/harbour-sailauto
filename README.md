@@ -360,6 +360,11 @@ das Radio leiser machen). Ablauf wie bei Android: Audio-Fokus anfragen →
 START → PCM in Echtzeit im ACK-Fenster des Autos → STOP → Fokus freigeben.
 Im Log: `Audio-Fokus vom Auto: …`, `Tontest …`.
 
+Unterbricht das Auto selbst (Verkehrsfunk, eigene Ansage, Radio-Taste), pausiert
+SailAuto den Player; bei einer kurzen Unterbrechung läuft er danach von allein
+weiter. Ändert sich die Lautstärke am Telefon, zeigt der Autobildschirm sie
+2 s lang unten als Balken.
+
 Am PC: `python3 tools/hu_sim.py --sound-test --audio-out snd` schreibt den
 empfangenen Ton als `snd-ch<N>.wav`.
 

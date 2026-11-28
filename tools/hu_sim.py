@@ -417,6 +417,8 @@ def main():
     ap.add_argument("--silent-after", type=float, default=0, help="stop sending anything after N s (car off, link stale)")
     ap.add_argument("--drive", action="store_true", help="send car GPS once a second, driving 50 km/h with turns")
     ap.add_argument("--straight", action="store_true", help="with --drive: straight north instead of curves")
+    ap.add_argument("--focus", action="append", default=[],
+                    help="unsolicited audio focus state@seconds, e.g. 5@6 (car interrupts briefly), 1@9 (gives back)")
     ap.add_argument("--key", action="append", default=[],
                     help="steering wheel key code[@seconds[:hold]], e.g. 87@4 (next), 85@5 (play/pause), "
                     "87@4:3 (hold next 3 s = spool)")
@@ -442,13 +444,19 @@ def main():
         code, _, at = k.partition("@")
         at, _, hold = at.partition(":")
         taps.append((float(at or 3), "key", (int(code), float(hold or 0))))
+    for fo in args.focus:
+        st, _, at = fo.partition("@")
+        taps.append((float(at or 3), "focus", int(st)))
     taps.sort(key=lambda t: t[0])
 
     end = time.time() + args.seconds
     while time.time() < end and not hu.done:
         if taps and hu.touch_ready and hu.focus_at and time.time() - hu.focus_at >= taps[0][0]:
             _, x, y = taps.pop(0)
-            if x == "key":
+            if x == "focus":
+                hu.log("car focus ->", y)
+                hu.send(CH_CONTROL, 0x13, f_varint(1, y) + f_varint(2, 1))
+            elif x == "key":
                 hu.log("key", *y)
                 hu.key(*y)
             else:

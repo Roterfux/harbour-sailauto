@@ -1299,6 +1299,35 @@ void CarScreen::drawWeatherPage(QPainter &p, const QRect &body)
     }
 }
 
+void CarScreen::drawVolume(QPainter &p)
+{
+    if (m_volume < 0 || !m_volumeClock.isValid() || m_volumeClock.elapsed() > 2000) return;
+    const Palette c = palette(m_night);
+    const int bar = m_safe.height() / 8;
+    const QRect box(m_safe.center().x() - m_safe.width() / 4, m_safe.bottom() - bar * 2, m_safe.width() / 2, bar * 3 / 2);
+    QColor bg = c.bg;
+    bg.setAlpha(250);
+    p.setPen(Qt::NoPen);
+    p.setBrush(bg);
+    p.setPen(QPen(c.accent, 2));
+    p.drawRoundedRect(box, 14, 14);
+    p.setPen(Qt::NoPen);
+    const int is = box.height() / 2;
+    drawMdi(p, QRectF(box.left() + 14, box.center().y() - is / 2.0, is, is), QStringLiteral("note"), c.accent);
+    const QRect track(box.left() + 28 + is, box.center().y() - 4, box.width() - 56 - is - bar * 3 / 2, 8);
+    p.setBrush(c.panel);
+    p.drawRoundedRect(track, 4, 4);
+    p.setBrush(c.accent);
+    p.drawRoundedRect(QRect(track.left(), track.top(), track.width() * qBound(0, m_volume, 100) / 100, track.height()), 4, 4);
+    QFont f = p.font();
+    f.setPixelSize(bar * 2 / 5);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(c.text);
+    p.drawText(QRect(track.right() + 10, box.top(), box.right() - track.right() - 14, box.height()), Qt::AlignCenter,
+               QStringLiteral("%1 %").arg(m_volume));
+}
+
 void CarScreen::showLoading(const QString &name, const QImage &icon)
 {
     m_loadingName = name;
@@ -2068,6 +2097,7 @@ const QImage &CarScreen::render()
     else drawPage(p);
 
     drawLoading(p);
+    drawVolume(p);
     drawBanner(p);
     drawCall(p);
 

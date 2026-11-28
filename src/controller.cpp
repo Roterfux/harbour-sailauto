@@ -49,6 +49,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     });
     connect(&m_audioTest, &AudioTest::log, this, &Controller::appendLog);
     connect(&m_router, &AudioRouter::log, this, &Controller::appendLog);
+    connect(&m_router, &AudioRouter::volumeChanged, this, [this](int pct) { m_screen.showVolume(pct); });
     connect(&m_mpris, &MprisClient::log, this, &Controller::appendLog);
     pushAppsToScreen();
     connect(&m_apps, &AppCatalog::selectionChanged, this, &Controller::pushAppsToScreen);
@@ -427,6 +428,7 @@ void Controller::onPhoneAudio(const QByteArray &pcm)
 {
     if (!m_session || m_audioTest.running()) return;
     if (callBlocksAudio()) return; // ringing or talking: the car's phone has the speakers
+    if (m_pausedForFocus == 5) return; // the car interrupts briefly: do not take the speakers back
     const qint16 *s = reinterpret_cast<const qint16 *>(pcm.constData());
     const int samples = pcm.size() / 2;
     int peak = 0;
@@ -1506,6 +1508,24 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     connect(m_session, &aap::Session::audioFocusChanged, &m_audioTest, &AudioTest::onFocus);
     connect(m_session, &aap::Session::audioFocusChanged, this, [this](int st) {
         if (m_carAudioOn && (st == 3 || st == 5)) stopCarAudio(QStringLiteral("Auto nimmt Audio-Fokus weg"));
+    });
+    connect(m_session, &aap::Session::audioFocusNotified, this, [this](int st, bool unsolicited) {
+        // Only the car's own decisions (radio, its announcements, ...), not its
+        // answers to our requests. 3 LOSS, 5 LOSS_TRANSIENT (comes back),
+        // 4 LOSS_TRANSIENT_CAN_DUCK: keep playing quieter.
+        if (!unsolicited) return;
+        if ((st == 3 || st == 5) && m_mpris.playing()) {
+            m_mpris.pause();
+            m_pausedForFocus = st;
+            appendLog(st == 5 ? QStringLiteral("Musik: pausiert (Auto unterbricht kurz)")
+                              : QStringLiteral("Musik: pausiert (Auto hat übernommen)"));
+        } else if (st == 1 && m_pausedForFocus == 5) { // back after the short interruption
+            m_pausedForFocus = 0;
+            m_mpris.play();
+            appendLog(QStringLiteral("Musik: läuft weiter (Auto gibt Ton zurück)"));
+        } else if (st == 1) {
+            m_pausedForFocus = 0;
+        }
     });
     connect(m_session, &aap::Session::silent, this, [this]() {
         if (auto *usb = qobject_cast<UsbAccessoryDevice *>(m_socket.data())) {
