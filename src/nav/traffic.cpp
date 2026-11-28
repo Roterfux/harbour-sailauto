@@ -134,10 +134,10 @@ void TrafficService::query()
     // Bounding box of the route from here up to kAheadM (TomTom: max 10,000 km²)
     double minLat = 90, maxLat = -90, minLon = 180, maxLon = -180;
     for (int i = m_posSeg; i < m_route.size() && m_cum[i] - m_posAlong <= kAheadM; ++i) {
-        minLat = qMin(minLat, m_route[i].x());
-        maxLat = qMax(maxLat, m_route[i].x());
-        minLon = qMin(minLon, m_route[i].y());
-        maxLon = qMax(maxLon, m_route[i].y());
+        minLat = qMin<double>(minLat, m_route[i].x());
+        maxLat = qMax<double>(maxLat, m_route[i].x());
+        minLon = qMin<double>(minLon, m_route[i].y());
+        maxLon = qMax<double>(maxLon, m_route[i].y());
     }
     if (minLat > maxLat) return;
     const double pad = 0.01;
