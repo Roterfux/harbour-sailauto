@@ -515,6 +515,20 @@ void MapView::renderLayer(const QSize &size)
         p.setPen(QPen(QColor(30, 120, 230), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         p.drawPolyline(line);
     }
+    // Traffic on the route: jam stretches in red/orange, single spots as a dot
+    for (const Mark &m : m_traffic) {
+        const QPointF origin(m_canvasX * kTile, m_canvasY * kTile);
+        QPolygonF line;
+        for (const QPointF &ll : m.line) line << worldPixel(ll.x(), ll.y(), cz) - origin;
+        if (line.size() > 1) {
+            p.setPen(QPen(m.color, 9, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            p.drawPolyline(line);
+        } else if (line.size() == 1) {
+            p.setPen(QPen(Qt::white, 3));
+            p.setBrush(m.color);
+            p.drawEllipse(line.first(), 11, 11);
+        }
+    }
     p.restore();
     // Haze towards the horizon
     QLinearGradient haze(0, horizon, 0, horizon + h * 0.06);

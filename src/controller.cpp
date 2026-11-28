@@ -250,7 +250,13 @@ Controller::Controller(QObject *parent) : QObject(parent)
     m_ownNavEnabled = QSettings().value(QStringLiteral("nav/own"), true).toBool();
     connect(&m_ownNav, &Navigator::log, this, &Controller::appendLog);
     connect(&m_ownNav, &Navigator::changed, this, &Controller::pushNav);
-    connect(&m_ownNav, &Navigator::routeChanged, this, [this]() { m_map.setRoute(m_ownNav.shape()); });
+    connect(&m_ownNav, &Navigator::routeChanged, this, [this]() {
+        m_map.setRoute(m_ownNav.shape());
+        m_traffic.setRoute(m_ownNav.active() ? m_ownNav.shape() : QVector<QPointF>());
+        if (!m_ownNav.active()) m_trafficAnnounced.clear();
+    });
+    connect(&m_traffic, &TrafficService::changed, this, &Controller::pushTraffic);
+    connect(&m_traffic, &TrafficService::log, this, &Controller::appendLog);
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
         if (!m_ownNav.active()) m_screen.setNav(n, m_nav.icon(n.icon, 256));
@@ -938,6 +944,44 @@ void Controller::stopPhonePosition()
 void Controller::positionForNav(double lat, double lon, double bearing, double speed)
 {
     m_ownNav.updatePosition(lat, lon, bearing, speed);
+    if (m_ownNav.active()) m_traffic.updatePosition(lat, lon);
+}
+
+void Controller::pushTraffic()
+{
+    auto dist = [](double m) {
+        if (m < 1000) return QStringLiteral("%1 m").arg(qMax(50, int(m / 50 + 0.5) * 50));
+        return m < 10000 ? QStringLiteral("%1 km").arg(QLocale().toString(m / 1000, 'f', 1))
+                         : QStringLiteral("%1 km").arg(int(m / 1000 + 0.5));
+    };
+    QVector<MapView::Mark> marks;
+    const QVector<TrafficIncident> &ahead = m_traffic.ahead();
+    for (const TrafficIncident &in : ahead)
+        marks.append({in.line, in.category == 6 && in.magnitude < 3 ? QColor(240, 140, 20) : QColor(215, 40, 35)});
+    m_map.setTraffic(marks);
+    if (ahead.isEmpty()) {
+        m_screen.setTrafficWarning(QString(), QString(), false);
+        return;
+    }
+    const TrafficIncident &n = ahead.first();
+    const QString what = TrafficService::categoryName(n.category);
+    const QString title = n.aheadM < 100 ? what + QStringLiteral(" hier") : QStringLiteral("%1 in %2").arg(what, dist(n.aheadM));
+    QStringList sub;
+    if (n.category == 6 && n.lengthM > 0) sub << QStringLiteral("%1 lang").arg(dist(n.lengthM));
+    if (n.delayS >= 60) sub << QStringLiteral("+%1 min").arg(int(n.delayS / 60 + 0.5));
+    if (!n.roads.isEmpty()) sub << n.roads;
+    if (sub.isEmpty() && n.text != what) sub << n.text;
+    const bool severe = n.category == 1 || n.category == 8 || n.magnitude >= 3;
+    m_screen.setTrafficWarning(title, sub.join(QStringLiteral(" · ")), severe);
+    // A banner once per new incident on the route
+    const QString id = QStringLiteral("%1|%2|%3").arg(n.category).arg(n.text).arg(int(n.startAlong / 500));
+    if (!m_trafficAnnounced.contains(id)) {
+        m_trafficAnnounced.insert(id);
+        // the map page has the warning card already; elsewhere a banner
+        if (m_screen.currentPage() != CarScreen::Navigation)
+            m_screen.showNotification(QStringLiteral("Verkehr"), title, sub.join(QStringLiteral(" · ")));
+        appendLog(QStringLiteral("Verkehr: %1 (%2)").arg(title, n.text));
+    }
 }
 
 void Controller::pushNav()
@@ -991,6 +1035,7 @@ void Controller::applySettings()
     m_map.setSmooth(st.value(QStringLiteral("map/smooth"), true).toBool());
     m_powerSave = st.value(QStringLiteral("power/save"), true).toBool();
     m_screen.setTheme(st.value(QStringLiteral("ui/theme"), 0).toInt());
+    m_traffic.setKey(st.value(QStringLiteral("traffic/key")).toString());
 }
 
 void Controller::setWeatherEnabled(bool on)

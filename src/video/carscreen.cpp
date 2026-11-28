@@ -798,7 +798,7 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         // Where the cards/buttons go (map coordinates), names stay clear of them
         QVector<QRectF> covered;
         if (m_nav.running) {
-            covered << QRectF(0, 0, area.width() * 9 / 25 + 30, bar * 13 / 10 + bar * 2 / 3 + 20)
+            covered << QRectF(0, 0, area.width() * 9 / 25 + 30, bar * 13 / 10 + bar * 2 / 3 + 20 + (m_trafficTitle.isEmpty() ? 0 : bar + 10))
                     << QRectF(area.width() - area.width() * 3 / 10 - bar - 40, 0, area.width() * 3 / 10 + bar + 40, bar + 24);
         } else {
             covered << QRectF(0, 0, bar * 3 + 30, bar + 24);
@@ -866,6 +866,26 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         p.setPen(Qt::NoPen);
         p.setBrush(c.accent);
         p.drawRoundedRect(QRect(strip.left() + 10, strip.bottom() - 5, (strip.width() - 20) * qBound(0, m_nav.progress, 100) / 100, 3), 1, 1);
+        // Traffic warning below the turn card
+        if (!m_trafficTitle.isEmpty()) {
+            const QRect wr(cardR.left(), cardR.bottom() + 8 + (m_nav.alongRoute ? 0 : bar / 2), cardR.width(), bar);
+            p.setPen(Qt::NoPen);
+            p.setBrush(m_trafficSevere ? QColor(205, 45, 40) : QColor(235, 140, 20));
+            p.drawRoundedRect(wr, 12, 12);
+            const int is = wr.height() * 3 / 5;
+            drawMdi(p, QRectF(wr.left() + 10, wr.center().y() - is / 2.0, is, is), QStringLiteral("alert"), Qt::white);
+            const QRect tr2 = wr.adjusted(is + 20, 3, -10, -4);
+            f.setPixelSize(wr.height() * 2 / 5);
+            f.setBold(true);
+            p.setFont(f);
+            p.setPen(Qt::white);
+            drawFit(p, QRect(tr2.left(), tr2.top(), tr2.width(), tr2.height() * 11 / 20), Qt::AlignLeft | Qt::AlignVCenter, m_trafficTitle);
+            f.setPixelSize(wr.height() * 3 / 10);
+            f.setBold(false);
+            p.setFont(f);
+            drawFit(p, QRect(tr2.left(), tr2.top() + tr2.height() * 11 / 20, tr2.width(), tr2.height() * 9 / 20),
+                    Qt::AlignLeft | Qt::AlignVCenter, m_trafficSub);
+        }
         if (!m_nav.alongRoute) {
             f.setBold(true);
             p.setFont(f);
@@ -1786,6 +1806,7 @@ static void drawMdi(QPainter &p, const QRectF &r, const QString &name, const QCo
         {QStringLiteral("folder"), "M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z"},
         {QStringLiteral("note"), "M12,3V13.55C11.41,13.21 10.73,13 10,13C7.79,13 6,14.79 6,17C6,19.21 7.79,21 10,21C12.21,21 14,19.21 14,17V7H18V3H12Z"},
         {QStringLiteral("play"), "M8,5.14V19.14L19,12.14L8,5.14Z"},
+        {QStringLiteral("alert"), "M13,14H11V9H13M13,18H11V16H13M1,21H23L12,2L1,21Z"},
         {QStringLiteral("podcast"), "M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"},
         {QStringLiteral("apps"), "M16,20H20V16H16M16,14H20V10H16M10,8H14V4H10M16,8H20V4H16M10,14H14V10H10M4,14H8V10H4M4,20H8V16H4M10,20H14V16H10M4,8H8V4H4V8Z"},
         {QStringLiteral("close"), "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"},

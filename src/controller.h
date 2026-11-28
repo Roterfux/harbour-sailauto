@@ -10,6 +10,7 @@
 #include "media/ownplayer.h"
 #include "media/appsources.h"
 #include "media/tunebridge.h"
+#include "nav/traffic.h"
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
 #include "phone/callmonitor.h"
@@ -27,6 +28,7 @@
 #include <QElapsedTimer>
 #include <QImage>
 #include <QObject>
+#include <QSet>
 #include <QVariant>
 #include <QPointer>
 #include <QQueue>
@@ -86,6 +88,7 @@ public:
     // map/marker 0 car 1 arrow, map/range -1 near 0 normal 1 far, map/smooth, power/save
     Q_INVOKABLE QVariant setting(const QString &key, const QVariant &fallback) const;
     Q_INVOKABLE void setSetting(const QString &key, const QVariant &value);
+    Q_INVOKABLE int trafficRequests() const { return m_traffic.requestsThisMonth(); }
     // Sound test: "media" (melody, 60 s or until stopped) or "guidance" (3 beeps).
     Q_INVOKABLE void soundTest(const QString &kind);
     Q_INVOKABLE void stopSoundTest();
@@ -314,6 +317,9 @@ private:
     int m_staticTicks = 0, m_skipTicks = 0;
     bool m_powerSave = true;
     QTimer *m_drTimer = nullptr;
+    TrafficService m_traffic;
+    QSet<QString> m_trafficAnnounced; // incidents already shown as a banner
+    void pushTraffic();
     void applySettings();
     qint64 m_statBytes = 0;
     QElapsedTimer m_statClock;

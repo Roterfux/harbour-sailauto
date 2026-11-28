@@ -222,6 +222,17 @@ weiter (Tacho-Sensor des Autos, sonst letzte GPS-Geschwindigkeit), bei aktiver
 Route entlang der Route, sonst geradeaus; die Navigation zählt mit. Wiederholt
 das Auto nur die alte Position, gilt das auch als „kein GPS“. Höchstens 10 min.
 
+### Stau und Unfälle (ab 0.21.0)
+
+Mit eigenem, kostenlosem TomTom-Schlüssel (developer.tomtom.com, ohne
+Kreditkarte; Einstellungen → „Stau und Unfälle“): während der eigenen
+Navigation alle 3 min die Verkehrsmeldungen für die nächsten 60 km der Route
+(TomTom Traffic Incidents, ~20 Abfragen pro Fahrstunde, Zähler pro Monat in den
+Einstellungen). Nur Meldungen auf der Route und in Fahrtrichtung zählen (Stau
+auf der Gegenfahrbahn nicht). Im Auto: Warnkarte unter dem Abbiegehinweis
+(„Stau in 2,4 km · 1,8 km lang · +7 min · A1“), Stau orange/rot auf der Route,
+Unfälle als roter Punkt; auf anderen Seiten einmal als Banner.
+
 ## Navigation mit Pure Maps
 
 Ab 0.7.0. Die Seite „Navigation“ im Auto zeigt, was Pure Maps am Telefon
@@ -487,4 +498,4 @@ GPLv3 (Protokollwissen aus aasdk/OpenAuto, beide GPLv3).
 
 - openh264 (BSD-2-Clause), `third_party/openh264`
 - Kachel-Symbole im Auto: Material Design Icons (Apache License 2.0)
-- Karte: © OpenStreetMap-Mitwirkende (ODbL), © OpenMapTiles (Vektorschema); Vektorkacheln von OSM Scout Server oder OpenFreeMap, Bildkacheln von openstreetmap.org, Ortsnamen dort über Overpass; Routen: Valhalla (OSM Scout Server / FOSSGIS)
+- Karte: © OpenStreetMap-Mitwirkende (ODbL), © OpenMapTiles (Vektorschema); Vektorkacheln von OSM Scout Server oder OpenFreeMap, Bildkacheln von openstreetmap.org, Ortsnamen dort über Overpass; Routen: Valhalla (OSM Scout Server / FOSSGIS); Verkehrsmeldungen: TomTom (eigener Schlüssel)

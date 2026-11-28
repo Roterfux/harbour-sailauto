@@ -7,6 +7,7 @@
 // Drawn with QPainter (projective transform), no OpenGL needed.
 #pragma once
 
+#include <QColor>
 #include <QElapsedTimer>
 #include <QHash>
 #include <QImage>
@@ -46,6 +47,9 @@ public:
     void paint(QPainter &p, const QRect &r);
     // Route line (lat, lon); empty = none
     void setRoute(const QVector<QPointF> &latlon);
+    // Traffic on the route: lines (lat, lon) with colour; one point = warning sign
+    struct Mark { QVector<QPointF> line; QColor color; };
+    void setTraffic(const QVector<Mark> &marks) { m_traffic = marks; }
     // Settings: marker 0 = car, 1 = arrow; range -1 near, 0 normal, 1 far;
     // smooth: redraw every video frame (else ~15/s)
     void setMarker(int m) { m_marker = m; }
@@ -114,6 +118,7 @@ private:
 
     QVector<QPointF> m_route;
     QVector<QRectF> m_covered;
+    QVector<Mark> m_traffic;
     // Dead reckoning (world pixels at zoom 20)
     double m_carSpeed = -1;
     QElapsedTimer m_carSpeedAge, m_drClock;

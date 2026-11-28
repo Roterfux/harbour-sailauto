@@ -41,6 +41,9 @@ public:
     void setParked(bool parked) { m_parked = parked; }
     // Pure Maps navigation; icon may be null (own arrow is drawn then).
     void setNav(const NavState &s, const QImage &icon);
+    // Traffic warning on the route (empty title = none); severe: red, else orange
+    void setTrafficWarning(const QString &title, const QString &sub, bool severe)
+    { m_trafficTitle = title; m_trafficSub = sub; m_trafficSevere = severe; }
     // Live map behind the navigation page (nullptr = off)
     void setMap(MapView *map) { m_map = map; m_navChoosing = false; }
     // Weather (top bar + weather page)
@@ -104,8 +107,10 @@ signals:
     void musicListBack();                 // "Zurück" inside the list
     void radioSearch(const QString &text);
 
-private:
+public:
     enum Page { Home, Navigation, Music, Apps, Phone, Info, WeatherPage };
+
+private:
     struct Tile { QRect rect; Page page; QString title; QString glyph; };
 
     void layout();
@@ -119,6 +124,8 @@ private:
     QRect m_safe;
     bool m_night = false;
     int m_theme = 0;
+    QString m_trafficTitle, m_trafficSub;
+    bool m_trafficSevere = false;
     Page m_page = Home;
     QVector<Tile> m_tiles;
     QRect m_backButton;

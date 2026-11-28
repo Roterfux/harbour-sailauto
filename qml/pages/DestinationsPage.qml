@@ -90,6 +90,27 @@ Page {
                 onCheckedChanged: controller.setSetting("map/smooth", checked)
             }
 
+            SectionHeader { text: qsTr("Stau und Unfälle (TomTom)") }
+            PasswordField {
+                id: trafficKey
+                width: parent.width
+                label: qsTr("TomTom-Schlüssel (developer.tomtom.com, kostenlos)")
+                placeholderText: qsTr("TomTom-Schlüssel")
+                text: controller.setting("traffic/key", "")
+                EnterKey.iconSource: "image://theme/icon-m-enter-close"
+                EnterKey.onClicked: focus = false
+                onActiveFocusChanged: if (!activeFocus) controller.setSetting("traffic/key", text.trim())
+            }
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * Theme.horizontalPageMargin
+                wrapMode: Text.Wrap
+                color: Theme.secondaryHighlightColor
+                font.pixelSize: Theme.fontSizeExtraSmall
+                text: qsTr("Nur während der eigenen Navigation, alle 3 min für die nächsten 60 km (~20 Abfragen pro Stunde). "
+                           + "Diesen Monat: %1 Abfragen.").arg(controller.trafficRequests())
+            }
+
             SectionHeader { text: qsTr("Anzeige im Auto") }
             ComboBox {
                 label: qsTr("Aussehen")

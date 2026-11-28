@@ -51,6 +51,7 @@ desktop {
 }
 
 HEADERS += \
+    src/nav/traffic.h \
     src/media/tunebridge.h \
     src/nav/vectortile.h \
     src/nav/vectormap.h \
@@ -82,6 +83,7 @@ HEADERS += \
     src/controller.h
 
 SOURCES += \
+    src/nav/traffic.cpp \
     src/media/tunebridge.cpp \
     src/nav/vectortile.cpp \
     src/nav/vectormap.cpp \
