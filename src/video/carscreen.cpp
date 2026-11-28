@@ -2257,7 +2257,18 @@ bool CarScreen::initGpu()
         m_glSurface = new QOffscreenSurface();
         m_glSurface->create();
         m_glCtx = new QOpenGLContext(this);
-        if (!m_glSurface->isValid() || !m_glCtx->create() || !m_glCtx->makeCurrent(m_glSurface)) {
+        // GLES 3 if there (mipmaps for any texture size: sharp far map); else the default
+        QSurfaceFormat want = QSurfaceFormat::defaultFormat();
+        if (QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGLES) {
+            want.setMajorVersion(3);
+            want.setMinorVersion(0);
+        }
+        m_glCtx->setFormat(want);
+        if (m_glSurface->isValid() && !m_glCtx->create()) {
+            delete m_glCtx;
+            m_glCtx = new QOpenGLContext(this); // GLES 2
+        }
+        if (!m_glSurface->isValid() || (!m_glCtx->isValid() && !m_glCtx->create()) || !m_glCtx->makeCurrent(m_glSurface)) {
             m_gpuFailed = true;
             emit gpuStatus(QStringLiteral("Grafik: kein OpenGL, zeichne mit der CPU"));
             return false;

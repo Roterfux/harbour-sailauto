@@ -92,6 +92,13 @@ Page {
             }
             TextSwitch {
                 visible: controller.mapEnabled
+                text: qsTr("Ferne Karte scharf (anisotrop 16x)")
+                description: qsTr("Nur beim Zeichnen mit der GPU: Mipmaps und anisotrope Filterung, kein Flimmern am Horizont.")
+                checked: controller.setting("map/aniso", true)
+                onCheckedChanged: controller.setSetting("map/aniso", checked)
+            }
+            TextSwitch {
+                visible: controller.mapEnabled
                 text: qsTr("Karte flüssig")
                 description: qsTr("So viele Bilder, wie das Auto nimmt (meist 30/s). Aus: etwa 15/s, braucht weniger Strom.")
                 checked: controller.setting("map/smooth", true)

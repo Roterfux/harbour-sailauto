@@ -19,6 +19,12 @@
 #include <QNetworkRequest>
 #include <QPainter>
 #include <QPaintEngine>
+#include <QMatrix3x3>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
+#include <QOpenGLShaderProgram>
+#include <QOpenGLTexture>
+#include <QVector2D>
 #include <QPolygonF>
 #include <QStandardPaths>
 #include <QTransform>
@@ -655,7 +661,10 @@ void MapView::renderLayer(QPainter &p, const QSize &size)
     p.save();
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
     p.setTransform(t * rot * proj * base);
-    p.drawImage(QRectF(0, 0, kGrid * kTile, kGrid * kTile), m_canvas); // vector canvas has more pixels
+    // GPU: own textured draw with mipmaps + 16x anisotropic filtering (the far,
+    // strongly shrunk part stays sharp and calm); else QPainter's bilinear
+    if (!drawCanvasGL(p, t * rot * proj * base, base.mapRect(QRectF(0, horizon, w, h - horizon))))
+        p.drawImage(QRectF(0, 0, kGrid * kTile, kGrid * kTile), m_canvas); // vector canvas has more pixels
     if (m_online && m_night && !vectorMode()) // OSM tiles have no night style: darken gently
         p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 70));
     // Route line in canvas coordinates (same transform as the tiles)
@@ -865,6 +874,105 @@ void MapView::drawSpeed(QPainter &p, double w, double h)
     p.setPen(m_night ? QColor(150, 158, 175) : QColor(100, 106, 120));
     p.drawText(QRectF(box.left(), box.top() + bh * 0.62, bw, bh * 0.3), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("km/h"));
     p.restore();
+}
+
+bool MapView::drawCanvasGL(QPainter &p, const QTransform &m, const QRectF &clipDevice)
+{
+    const QPaintEngine *pe = p.paintEngine();
+    QOpenGLContext *ctx = QOpenGLContext::currentContext();
+    if (!m_anisoOn || m_glFailed || m_canvas.isNull() || !ctx || !pe || pe->type() != QPaintEngine::OpenGL2) return false;
+    QOpenGLFunctions *f = ctx->functions();
+    p.beginNativePainting();
+    if (m_glCtx != ctx) { // new context: everything new
+        delete m_tex;
+        m_tex = nullptr;
+        delete m_prog;
+        m_prog = nullptr;
+        m_glCtx = ctx;
+        m_texKey = -1;
+    }
+    if (!m_prog) {
+        m_prog = new QOpenGLShaderProgram;
+        const char *vs =
+            "attribute highp vec2 pos;\n"
+            "attribute highp vec2 uv;\n"
+            "uniform highp mat3 m;\n"
+            "uniform highp vec2 size;\n"
+            "varying highp vec2 vuv;\n"
+            "void main() {\n"
+            "  vec3 h = m * vec3(pos, 1.0);\n"
+            // device pixels -> clip space, kept homogeneous: perspective-correct texture lookup
+            "  gl_Position = vec4(h.x * 2.0 / size.x - h.z, h.z - h.y * 2.0 / size.y, 0.0, h.z);\n"
+            "  vuv = uv;\n"
+            "}\n";
+        const char *fs =
+            "varying highp vec2 vuv;\n"
+            "uniform sampler2D tex;\n"
+            "void main() { gl_FragColor = texture2D(tex, vuv); }\n";
+        if (!m_prog->addShaderFromSourceCode(QOpenGLShader::Vertex, vs) || !m_prog->addShaderFromSourceCode(QOpenGLShader::Fragment, fs)
+            || !m_prog->link()) {
+            emit log(QStringLiteral("Karte: GPU-Shader geht nicht (%1), normale Filterung").arg(m_prog->log().left(120)));
+            m_glFailed = true;
+            p.endNativePainting();
+            return false;
+        }
+    }
+    if (!m_tex || m_texKey != m_canvas.cacheKey()) {
+        // Mipmaps need non-power-of-two support (GLES 3 or desktop GL)
+        const QSurfaceFormat fmt = ctx->format();
+        const bool npotMips = !ctx->isOpenGLES() || fmt.majorVersion() >= 3 || ctx->hasExtension("GL_OES_texture_npot");
+        delete m_tex;
+        m_tex = new QOpenGLTexture(m_canvas.convertToFormat(QImage::Format_RGBA8888),
+                                   npotMips ? QOpenGLTexture::GenerateMipMaps : QOpenGLTexture::DontGenerateMipMaps);
+        m_tex->setMinificationFilter(npotMips ? QOpenGLTexture::LinearMipMapLinear : QOpenGLTexture::Linear);
+        m_tex->setMagnificationFilter(QOpenGLTexture::Linear);
+        m_tex->setWrapMode(QOpenGLTexture::ClampToEdge);
+        float aniso = 1;
+        if (ctx->hasExtension("GL_EXT_texture_filter_anisotropic")) {
+            float maxA = 1;
+            f->glGetFloatv(0x84FF /* MAX_TEXTURE_MAX_ANISOTROPY_EXT */, &maxA);
+            aniso = qMin(16.0f, maxA);
+            m_tex->bind();
+            f->glTexParameterf(GL_TEXTURE_2D, 0x84FE /* TEXTURE_MAX_ANISOTROPY_EXT */, aniso);
+        }
+        m_texKey = m_canvas.cacheKey();
+        if (!m_anisoLogged) {
+            m_anisoLogged = true;
+            emit log(QStringLiteral("Karte: GPU-Filter %1, anisotrop %2x").arg(npotMips ? QStringLiteral("Mipmaps") : QStringLiteral("linear"))
+                         .arg(int(aniso)));
+        }
+    }
+    const QSize dev(p.device()->width(), p.device()->height());
+    f->glViewport(0, 0, dev.width(), dev.height());
+    f->glDisable(GL_DEPTH_TEST);
+    f->glDisable(GL_BLEND);
+    f->glEnable(GL_SCISSOR_TEST);
+    // the FBO is drawn bottom-up in GL terms (Qt flips when reading back)
+    const QRect c = clipDevice.toAlignedRect().intersected(QRect(QPoint(0, 0), dev));
+    f->glScissor(c.left(), dev.height() - c.bottom() - 1, c.width(), c.height());
+    m_prog->bind();
+    const float mat[9] = {float(m.m11()), float(m.m12()), float(m.m13()), float(m.m21()), float(m.m22()), float(m.m23()),
+                          float(m.m31()), float(m.m32()), float(m.m33())};
+    m_prog->setUniformValue("m", QMatrix3x3(mat).transposed()); // QMatrix3x3 takes rows, GLSL wants columns
+    m_prog->setUniformValue("size", QVector2D(dev.width(), dev.height()));
+    m_prog->setUniformValue("tex", 0);
+    f->glActiveTexture(GL_TEXTURE0);
+    m_tex->bind();
+    const float s = float(kGrid * kTile);
+    const GLfloat pos[] = {0, 0, s, 0, 0, s, s, s};
+    const GLfloat uv[] = {0, 0, 1, 0, 0, 1, 1, 1};
+    const int lp = m_prog->attributeLocation("pos"), lu = m_prog->attributeLocation("uv");
+    m_prog->enableAttributeArray(lp);
+    m_prog->enableAttributeArray(lu);
+    m_prog->setAttributeArray(lp, GL_FLOAT, pos, 2);
+    m_prog->setAttributeArray(lu, GL_FLOAT, uv, 2);
+    f->glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    m_prog->disableAttributeArray(lp);
+    m_prog->disableAttributeArray(lu);
+    m_prog->release();
+    f->glDisable(GL_SCISSOR_TEST);
+    p.endNativePainting();
+    return true;
 }
 
 void MapView::paint(QPainter &p, const QRect &r)

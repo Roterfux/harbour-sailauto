@@ -58,6 +58,7 @@ public:
     void setMarker(int m) { m_marker = m; }
     void setRange(int r) { if (r != m_range) { m_range = r; m_canvasDirty = true; updateZoom(true); } }
     void setSmooth(bool on) { m_smooth = on; }
+    void setAnisotropic(bool on) { m_anisoOn = on; }
     // Areas covered by buttons/cards (map coordinates): no names there
     void setCovered(const QVector<QRectF> &rects) { m_covered = rects; }
 
@@ -123,6 +124,13 @@ private:
     QVector<QPointF> m_route;
     QVector<QRectF> m_covered;
     QVector<Mark> m_traffic;
+    // GPU drawing of the canvas (mipmaps + anisotropic filtering)
+    bool drawCanvasGL(QPainter &p, const QTransform &m, const QRectF &clipDevice);
+    class QOpenGLTexture *m_tex = nullptr;
+    class QOpenGLShaderProgram *m_prog = nullptr;
+    class QOpenGLContext *m_glCtx = nullptr;
+    qint64 m_texKey = -1;
+    bool m_anisoOn = true, m_glFailed = false, m_anisoLogged = false;
     int m_speedLimit = 0;
     // Tile store on the phone (vector tiles, zoom 14) and route prefetch
     static QString storePath(int z, int x, int y);

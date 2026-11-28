@@ -359,7 +359,10 @@ Die Karte hat eigene Tag- und Nachtfarben.
 Bildschirm und Karte werden über OpenGL gezeichnet (Framebuffer mit
 Kantenglättung, Karte direkt auf der GPU, die Kartentextur bleibt dort). Die
 ersten Bilder werden geprüft; stimmt etwas nicht oder fehlt OpenGL, zeichnet
-SailAuto von selbst mit der CPU (Protokoll: „Grafik: …“). Schalter in den
+SailAuto von selbst mit der CPU (Protokoll: „Grafik: …“). Ab 0.26.1 wird die
+geneigte Karte im GPU-Modus als Textur mit Mipmaps und 16x anisotroper
+Filterung gezeichnet (eigener Shader, perspektivisch korrekt; GLES 3 wenn
+vorhanden): die Ferne flimmert nicht mehr. Protokoll: „Karte: GPU-Filter …“. Schalter in den
 Einstellungen.
 
 Video-Kodierer (ab 0.25.0): zuerst der Hardware-Kodierer des Telefons direkt

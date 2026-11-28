@@ -1077,6 +1077,7 @@ void Controller::applySettings()
     m_map.setMarker(st.value(QStringLiteral("map/marker"), 0).toInt());
     m_map.setRange(st.value(QStringLiteral("map/range"), 0).toInt());
     m_map.setSmooth(st.value(QStringLiteral("map/smooth"), true).toBool());
+    m_map.setAnisotropic(st.value(QStringLiteral("map/aniso"), true).toBool());
     m_map.setPrefetch(st.value(QStringLiteral("map/prefetch"), true).toBool());
     m_powerSave = st.value(QStringLiteral("power/save"), true).toBool();
     m_screen.setTheme(st.value(QStringLiteral("ui/theme"), 0).toInt());
