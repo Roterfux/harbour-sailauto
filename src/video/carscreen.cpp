@@ -9,6 +9,8 @@
 #include <QtMath>
 
 
+static void drawTileIcon(QPainter &p, const QRectF &r, int page, const QColor &col);
+
 // Text never gets cut with "…": shrink the font (down to ~55 %), and wrap
 // onto a second line when the rect is tall enough.
 static void drawFit(QPainter &p, const QRect &r, int flags, const QString &t)
@@ -75,9 +77,9 @@ void CarScreen::layout()
     const int gap = area.width() / 40;
     // Navigation, Musik, Telefon big; Info narrow on the right.
     const struct { Page p; const char *t; const char *g; double weight; } defs[] = {
-        {Navigation, "Navigation", "⮝", 1.0}, {Music, "Musik", "♫", 1.0}, {Phone, "Telefon", "☎", 1.0}, {Info, "Info", "i", 0.4},
+        {Navigation, "Navigation", "⮝", 1.0}, {Music, "Musik", "♫", 1.0}, {Phone, "Telefon", "☎", 1.0},
     };
-    const int n = 4;
+    const int n = 3; // Info: icon in the top bar
     double total = 0;
     for (const auto &d : defs) total += d.weight;
     const double unit = (area.width() - (n - 1) * gap) / total;
@@ -1383,6 +1385,16 @@ void CarScreen::touch(int action, int x, int y)
             m_pressedTile = -1;
             return;
         }
+        if (m_infoRect.contains(m_touch)) {
+            m_page = Info;
+            m_pressedTile = -1;
+            return;
+        }
+        if (m_musicBarRect.contains(m_touch)) {
+            m_page = Music;
+            m_pressedTile = -1;
+            return;
+        }
         if (m_weatherRect.contains(m_touch)) {
             m_page = WeatherPage;
             m_pressedTile = -1;
@@ -1515,8 +1527,15 @@ void CarScreen::drawTopBar(QPainter &p)
         m_weatherRect = QRect(x0 - 6, r.top(), is + tw + 16, bar);
         p.setFont(f);
     }
+    // Info: small icon left of the weather
+    const int is = bar * 3 / 5;
+    const int infoRight = (m_weatherRect.isNull() ? iconsLeft : m_weatherRect.left()) - bar / 4;
+    m_infoRect = QRect(infoRight - is, r.top() + (bar - is) / 2, is, is);
+    drawTileIcon(p, QRectF(m_infoRect), 0, c.dim);
+    m_infoRect.adjust(-8, -8, 8, 8); // easier to hit
     p.setPen(c.accent);
     p.setFont(f);
+    int leftEnd;
     if (m_nav.running && m_page != Navigation) {
         // Next maneuver, small, left in the bar (right of the back button).
         const int x0 = m_page == Home ? r.left() + m_safe.width() / 40 : m_backButton.right() + bar / 3;
@@ -1524,8 +1543,31 @@ void CarScreen::drawTopBar(QPainter &p)
         p.setFont(f);
         p.setPen(c.text);
         p.drawText(QRect(x0 + bar, r.top(), m_safe.width() / 3, bar), Qt::AlignLeft | Qt::AlignVCenter, m_nav.manDist);
+        leftEnd = x0 + bar + QFontMetrics(f).width(m_nav.manDist) + bar / 2;
     } else if (m_page == Home) {
         p.drawText(r.adjusted(m_safe.width() / 40, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("SailAuto"));
+        leftEnd = r.left() + m_safe.width() / 40 + QFontMetrics(f).width(QStringLiteral("SailAuto")) + bar / 2;
+    } else {
+        static const char *titles[] = {"", "Navigation", "Musik", "Apps", "Telefon", "Info", "Wetter"};
+        QFont tf = f;
+        tf.setPixelSize(bar * 9 / 20);
+        leftEnd = m_backButton.right() + bar / 2 + QFontMetrics(tf).width(QString::fromUtf8(titles[m_page])) + bar / 2;
+    }
+    // Short music info (not on the music page)
+    m_musicBarRect = QRect();
+    if (m_hasPlayer && !m_title.isEmpty() && m_page != Music && m_mediaPlaying) {
+        const QRect mr(leftEnd, r.top(), m_infoRect.left() - 8 - leftEnd, bar);
+        if (mr.width() > bar * 2) {
+            QFont mf = f;
+            mf.setPixelSize(bar * 2 / 5);
+            mf.setBold(false);
+            p.setFont(mf);
+            p.setPen(c.dim);
+            drawFit(p, mr, Qt::AlignLeft | Qt::AlignVCenter,
+                    QString::fromUtf8("\u266B ") + m_title + (m_artist.isEmpty() ? QString() : QStringLiteral(" · ") + m_artist));
+            m_musicBarRect = mr;
+            p.setFont(f);
+        }
     }
 }
 

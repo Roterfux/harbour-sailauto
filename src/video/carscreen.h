@@ -161,6 +161,7 @@ private:
     void drawMusicList(QPainter &p, const QRect &body);
     WeatherData m_weather;
     QRect m_weatherRect;
+    QRect m_infoRect, m_musicBarRect;
     void drawWeatherIcon(QPainter &p, const QRectF &r, int code, bool day) const;
     void drawWeatherPage(QPainter &p, const QRect &body);
     QString m_loadingName;
