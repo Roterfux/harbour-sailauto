@@ -211,6 +211,10 @@ wie bei OsmAnd. Schrift wie bei OsmAnd erst nach dem Kippen, immer aufrecht und
 ohne Überlappung, nach Wichtigkeit: Orte, Straßennamen entlang der Straße (nur
 wo sie gerade genug ist), Straßennummern als Schild (A1, B17), Seen. Nah am Auto
 größer. Der Kartenaufbau läuft im Hintergrund, das Bild hängt nie.
+Ab 0.19.0: eigene Position als kleines 3D-Auto (von hinten, perspektivisch zur
+Karte), Karte 1,5-fach schärfer gezeichnet, größere Schrift. Einstellungen am
+Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
+Karte flüssig (volle Bildrate) und Stromsparen.
 
 ## Navigation mit Pure Maps
 

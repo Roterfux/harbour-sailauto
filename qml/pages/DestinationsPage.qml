@@ -45,10 +45,9 @@ Page {
 
             SectionHeader { text: qsTr("Karte im Auto") }
             TextSwitch {
-                text: qsTr("Live-Karte (experimentell)")
-                description: qsTr("Zeigt auf der Seite Navigation eine Karte, geneigt, Fahrtrichtung oben, Auto unten in der Mitte. "
-                                  + "Position vom GPS des Autos. Kacheln von OSM Scout Server (muss laufen, Karten geladen). "
-                                  + "Braucht Rechenleistung.")
+                text: qsTr("Live-Karte")
+                description: qsTr("Karte auf der Seite Navigation, geneigt, Fahrtrichtung oben. Offline von OSM Scout Server, "
+                                  + "sonst online (OpenFreeMap). Position vom GPS des Autos, sonst vom Telefon.")
                 checked: controller.mapEnabled
                 onCheckedChanged: controller.mapEnabled = checked
             }
@@ -60,6 +59,43 @@ Page {
                 inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoAutoUppercase
                 EnterKey.onClicked: focus = false
                 onActiveFocusChanged: if (!activeFocus) controller.mapUrl = text
+            }
+            ComboBox {
+                visible: controller.mapEnabled
+                label: qsTr("Eigene Position")
+                currentIndex: controller.setting("map/marker", 0)
+                menu: ContextMenu {
+                    MenuItem { text: qsTr("Auto (3D)") }
+                    MenuItem { text: qsTr("Pfeil") }
+                }
+                onCurrentIndexChanged: controller.setSetting("map/marker", currentIndex)
+            }
+            ComboBox {
+                visible: controller.mapEnabled
+                label: qsTr("Kartenausschnitt")
+                description: qsTr("Weit: mehr Straßen sichtbar, alles kleiner")
+                currentIndex: controller.setting("map/range", 0) + 1
+                menu: ContextMenu {
+                    MenuItem { text: qsTr("Nah") }
+                    MenuItem { text: qsTr("Normal") }
+                    MenuItem { text: qsTr("Weit") }
+                }
+                onCurrentIndexChanged: controller.setSetting("map/range", currentIndex - 1)
+            }
+            TextSwitch {
+                visible: controller.mapEnabled
+                text: qsTr("Karte flüssig")
+                description: qsTr("So viele Bilder, wie das Auto nimmt (meist 30/s). Aus: etwa 15/s, braucht weniger Strom.")
+                checked: controller.setting("map/smooth", true)
+                onCheckedChanged: controller.setSetting("map/smooth", checked)
+            }
+
+            SectionHeader { text: qsTr("Strom") }
+            TextSwitch {
+                text: qsTr("Stromsparen")
+                description: qsTr("Ruhige Seiten nur 1 Bild/s statt 30, volle Rate sobald sich etwas bewegt oder du tippst.")
+                checked: controller.setting("power/save", true)
+                onCheckedChanged: controller.setSetting("power/save", checked)
             }
             SectionHeader { text: qsTr("Hinweis") }
             Label {

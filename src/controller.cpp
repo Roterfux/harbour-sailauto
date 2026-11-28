@@ -96,6 +96,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_nav, &PureMapsClient::log, this, &Controller::appendLog);
     connect(&m_map, &MapView::log, this, &Controller::appendLog);
     m_weatherEnabled = QSettings().value(QStringLiteral("weather/enabled"), true).toBool();
+    applySettings();
     m_closeIdle = QSettings().value(QStringLiteral("music/closeIdle"), true).toBool();
     // Phone position source silent for 25 s: ask once more, then try the next source.
     m_posSilence.setSingleShot(true);
@@ -967,6 +968,30 @@ void Controller::setCloseIdlePlayers(bool on)
     emit closeIdleChanged();
 }
 
+QVariant Controller::setting(const QString &key, const QVariant &fallback) const
+{
+    // QSettings gives strings back after a restart: return the fallback's type
+    const QVariant v = QSettings().value(key, fallback);
+    if (fallback.type() == QVariant::Bool) return v.toBool();
+    if (fallback.type() == QVariant::Int) return v.toInt();
+    return v;
+}
+
+void Controller::setSetting(const QString &key, const QVariant &value)
+{
+    QSettings().setValue(key, value);
+    applySettings();
+}
+
+void Controller::applySettings()
+{
+    QSettings st;
+    m_map.setMarker(st.value(QStringLiteral("map/marker"), 0).toInt());
+    m_map.setRange(st.value(QStringLiteral("map/range"), 0).toInt());
+    m_map.setSmooth(st.value(QStringLiteral("map/smooth"), true).toBool());
+    m_powerSave = st.value(QStringLiteral("power/save"), true).toBool();
+}
+
 void Controller::setWeatherEnabled(bool on)
 {
     if (on == m_weatherEnabled) return;
@@ -1738,7 +1763,7 @@ void Controller::tick()
     // Power save: a picture that does not change is not encoded again (one
     // frame a second keeps the car happy). After 1 s without change, look for
     // changes only 5 times a second; a touch brings full speed back at once.
-    static const bool fullRate = qEnvironmentVariableIsSet("SAILAUTO_FULLFPS");
+    const bool fullRate = !m_powerSave || qEnvironmentVariableIsSet("SAILAUTO_FULLFPS");
     const bool touched = m_lastTouch.isValid() && m_lastTouch.elapsed() < 1500;
     if (!fullRate && m_staticTicks >= 30 && !touched && (++m_skipTicks % 6) != 0) return;
     const QImage &img = m_screen.render();

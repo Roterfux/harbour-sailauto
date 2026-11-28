@@ -23,6 +23,7 @@
 namespace {
 const int kTile = 256;
 const int kGrid = 7;              // canvas = 7x7 tiles (view reaches ~2.8 tiles ahead)
+const double kVectorScale = 1.5; // vector canvas pixels per map pixel
 const int kMaxPending = 6;        // OSM Scout Server renders one by one
 }
 
@@ -84,10 +85,15 @@ void MapView::updateFix(double lat, double lon, double bearing, double speed)
     m_fixAge.start();
     if (!m_haveFix) emit log(QStringLiteral("Karte: erste Auto-Position"));
     m_haveFix = true;
-    // Zoom by speed (hysteresis via thresholds)
+    updateZoom(false);
+}
+
+void MapView::updateZoom(bool force)
+{
+    // Zoom by speed (hysteresis via thresholds), shifted by the view range setting
     const double kmh = m_speed * 3.6;
-    const int z = kmh > 95 ? 15 : kmh > 45 ? 16 : 17;
-    if (z != m_zoom && (kmh > 100 || kmh < 90) && (kmh > 50 || kmh < 40)) {
+    const int z = (kmh > 95 ? 15 : kmh > 45 ? 16 : 17) - m_range;
+    if (z != m_zoom && (force || ((kmh > 100 || kmh < 90) && (kmh > 50 || kmh < 40)))) {
         m_zoom = z;
         m_canvasDirty = true;
     }
@@ -292,9 +298,12 @@ void MapView::rebuildCanvas(int z, int cx, int cy)
             tm.start();
             Out o;
             o.job = job;
-            o.img = QImage(kGrid * kTile, kGrid * kTile, QImage::Format_RGB32);
+            // 1.5x the pixels: the tilted view enlarges the near part, this keeps it sharp
+            const int px = int(kGrid * kTile * kVectorScale);
+            o.img = QImage(px, px, QImage::Format_RGB32);
             o.img.fill(VectorMap::backgroundFor(job.night));
             QPainter vp(&o.img);
+            vp.scale(kVectorScale, kVectorScale);
             o.labels = VectorMap::draw(vp, job);
             vp.end();
             o.job.srcs.clear();
@@ -394,7 +403,7 @@ void MapView::renderLayer(const QSize &size)
     p.save();
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
     p.setTransform(t * rot * proj);
-    p.drawImage(0, 0, m_canvas);
+    p.drawImage(QRectF(0, 0, kGrid * kTile, kGrid * kTile), m_canvas); // vector canvas has more pixels
     if (m_online && m_night && !vectorMode()) // OSM tiles have no night style: darken gently
         p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 70));
     // Route line in canvas coordinates (same transform as the tiles)
@@ -425,11 +434,15 @@ void MapView::renderLayer(const QSize &size)
                         QVector<QRectF>() << QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2) << m_covered);
     else
         drawPlaceNames(p, t * rot * proj, cz, w, h, horizon);
-    QPolygonF arrow({QPointF(c.x(), c.y() - s), QPointF(c.x() + s * 0.7, c.y() + s * 0.6),
-                     QPointF(c.x(), c.y() + s * 0.25), QPointF(c.x() - s * 0.7, c.y() + s * 0.6)});
-    p.setPen(QPen(Qt::white, 3));
-    p.setBrush(QColor(0, 150, 230));
-    p.drawPolygon(arrow);
+    if (m_marker == 0) {
+        drawCar(p, proj);
+    } else {
+        QPolygonF arrow({QPointF(c.x(), c.y() - s), QPointF(c.x() + s * 0.7, c.y() + s * 0.6),
+                         QPointF(c.x(), c.y() + s * 0.25), QPointF(c.x() - s * 0.7, c.y() + s * 0.6)});
+        p.setPen(QPen(Qt::white, 3));
+        p.setBrush(QColor(0, 150, 230));
+        p.drawPolygon(arrow);
+    }
 
     // Attribution (OSM licence) and problems
     QFont f = p.font();
@@ -449,11 +462,63 @@ void MapView::renderLayer(const QSize &size)
     }
 }
 
+void MapView::drawCar(QPainter &p, const QTransform &proj)
+{
+    // Small 3D car seen from behind and above, standing on the tilted map:
+    // its footprint goes through the same perspective as the road, heights
+    // rise straight up on screen (scaled like the ground at that spot).
+    const double L = 70, W = 34;               // ground pixels (bigger than true size)
+    const double bodyH = 13, cabH = 12;        // heights, ground pixels
+    const QPointF o = proj.map(QPointF(0, 0));
+    const double k = QLineF(o, proj.map(QPointF(1, 0))).length(); // screen px per ground px here
+    auto P = [&](double gx, double gy, double hz) {
+        const QPointF q = proj.map(QPointF(gx, gy));
+        return QPointF(q.x(), q.y() - hz * k);
+    };
+    auto quad = [&](const QPointF &a, const QPointF &b, const QPointF &c, const QPointF &d) {
+        return QPolygonF(QVector<QPointF>{a, b, c, d});
+    };
+    const double fx = W / 2, fy = -L / 2, ry = L / 2;  // front y < rear y (heading up)
+    const QColor body(0, 140, 225), dark = body.darker(150), glass = m_night ? QColor(25, 35, 50) : QColor(40, 60, 85);
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+    // shadow on the ground
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(0, 0, 0, m_night ? 130 : 80));
+    p.drawPolygon(quad(P(-fx - 3, fy - 2, 0), P(fx + 3, fy - 2, 0), P(fx + 5, ry + 5, 0), P(-fx - 5, ry + 5, 0)));
+    // lower body: sides, rear, top
+    p.setPen(QPen(QColor(255, 255, 255, 200), 1.2));
+    p.setBrush(dark);
+    p.drawPolygon(quad(P(-fx, fy, 0), P(-fx, ry, 0), P(-fx, ry, bodyH), P(-fx, fy, bodyH)));   // left side
+    p.drawPolygon(quad(P(fx, fy, 0), P(fx, ry, 0), P(fx, ry, bodyH), P(fx, fy, bodyH)));       // right side
+    p.setBrush(body.darker(120));
+    p.drawPolygon(quad(P(-fx, ry, 0), P(fx, ry, 0), P(fx, ry, bodyH), P(-fx, ry, bodyH)));     // rear
+    p.setBrush(body);
+    p.drawPolygon(quad(P(-fx, fy, bodyH), P(fx, fy, bodyH), P(fx, ry, bodyH), P(-fx, ry, bodyH))); // bonnet/boot
+    // cabin: narrower, sits from 15 % behind the front to 15 % before the rear, slanted windows
+    const double cx0 = W * 0.40, cx1 = W * 0.33;              // half width at base / roof
+    const double cf0 = fy + L * 0.30, cf1 = fy + L * 0.42;      // front base / roof (windscreen slope)
+    const double cr0 = ry - L * 0.12, cr1 = ry - L * 0.22;      // rear base / roof
+    const double z0 = bodyH, z1 = bodyH + cabH;
+    p.setBrush(glass);
+    p.drawPolygon(quad(P(-cx0, cf0, z0), P(-cx0, cr0, z0), P(-cx1, cr1, z1), P(-cx1, cf1, z1)));  // left windows
+    p.drawPolygon(quad(P(cx0, cf0, z0), P(cx0, cr0, z0), P(cx1, cr1, z1), P(cx1, cf1, z1)));      // right windows
+    p.drawPolygon(quad(P(-cx0, cr0, z0), P(cx0, cr0, z0), P(cx1, cr1, z1), P(-cx1, cr1, z1)));    // rear window
+    p.setBrush(body.lighter(115));
+    p.drawPolygon(quad(P(-cx1, cf1, z1), P(cx1, cf1, z1), P(cx1, cr1, z1), P(-cx1, cr1, z1)));    // roof
+    // rear lights
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(235, 40, 40));
+    p.drawPolygon(quad(P(-fx, ry, bodyH * 0.55), P(-fx + 8, ry, bodyH * 0.55), P(-fx + 8, ry, bodyH * 0.9), P(-fx, ry, bodyH * 0.9)));
+    p.drawPolygon(quad(P(fx - 8, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.9), P(fx - 8, ry, bodyH * 0.9)));
+    p.restore();
+}
+
 void MapView::paint(QPainter &p, const QRect &r)
 {
     // As many pictures as the car takes (every video tick); the slow part (the
     // vector canvas) is drawn in the background anyway.
-    if (m_layer.size() != r.size() || !m_layerClock.isValid() || m_layerClock.elapsed() >= 10) {
+    if (m_layer.size() != r.size() || !m_layerClock.isValid() || m_layerClock.elapsed() >= (m_smooth ? 10 : 66)) {
         QElapsedTimer tm;
         tm.start();
         renderLayer(r.size());

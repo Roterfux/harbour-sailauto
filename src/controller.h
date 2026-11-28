@@ -27,6 +27,7 @@
 #include <QElapsedTimer>
 #include <QImage>
 #include <QObject>
+#include <QVariant>
 #include <QPointer>
 #include <QQueue>
 #include <QStringList>
@@ -81,6 +82,10 @@ public:
     Q_INVOKABLE void stopListening();
     Q_INVOKABLE void disconnectHeadUnit();
     Q_INVOKABLE void clearLog();
+    // Simple settings for the settings page (stored in QSettings, applied at once):
+    // map/marker 0 car 1 arrow, map/range -1 near 0 normal 1 far, map/smooth, power/save
+    Q_INVOKABLE QVariant setting(const QString &key, const QVariant &fallback) const;
+    Q_INVOKABLE void setSetting(const QString &key, const QVariant &value);
     // Sound test: "media" (melody, 60 s or until stopped) or "guidance" (3 beeps).
     Q_INVOKABLE void soundTest(const QString &kind);
     Q_INVOKABLE void stopSoundTest();
@@ -307,6 +312,8 @@ private:
     QImage m_lastFrame;
     QElapsedTimer m_lastFrameClock, m_lastTouch;
     int m_staticTicks = 0, m_skipTicks = 0;
+    bool m_powerSave = true;
+    void applySettings();
     qint64 m_statBytes = 0;
     QElapsedTimer m_statClock;
     double m_fps = 0, m_kbps = 0;

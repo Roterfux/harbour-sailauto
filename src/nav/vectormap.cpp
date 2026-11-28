@@ -395,7 +395,7 @@ void VectorMap::drawLabels(QPainter &p, const QTransform &toScreen, const QRectF
             if (!usable.contains(sp)) continue;
             font.setBold(!lp.water);
             font.setItalic(lp.water);
-            font.setPixelSize(qMax(11, int(h / 25 * (0.75 + 0.18 * lp.size) * depthScale(sp.y()))));
+            font.setPixelSize(qMax(13, int(h / 21 * (0.75 + 0.18 * lp.size) * depthScale(sp.y()))));
             const QFontMetricsF fm(font);
             QRectF box(0, 0, fm.width(lp.name) + 8, fm.height() + 2);
             box.moveCenter(sp);
@@ -432,7 +432,7 @@ void VectorMap::drawLabels(QPainter &p, const QTransform &toScreen, const QRectF
                 if (len < 60 || !along(run, cum, len / 2, &mid, &ang)) continue;
                 font.setBold(true);
                 font.setItalic(false);
-                font.setPixelSize(qMax(12, int(h / 27 * depthScale(mid.y()))));
+                font.setPixelSize(qMax(13, int(h / 23 * depthScale(mid.y()))));
                 const QFontMetricsF fm(font);
                 QRectF box(0, 0, fm.width(ll.name) + font.pixelSize() * 0.9, fm.height() + 4);
                 box.moveCenter(mid);
@@ -454,7 +454,7 @@ void VectorMap::drawLabels(QPainter &p, const QTransform &toScreen, const QRectF
             font.setBold(false);
             font.setItalic(false);
             const double yMid = run[run.size() / 2].y();
-            font.setPixelSize(qMax(12, int(h / 26 * depthScale(yMid))));
+            font.setPixelSize(qMax(14, int(h / 22 * depthScale(yMid))));
             const QFontMetricsF fm(font);
             const double tw = fm.width(ll.name);
             if (len < tw + 30) continue;

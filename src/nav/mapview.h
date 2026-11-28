@@ -40,6 +40,11 @@ public:
     void paint(QPainter &p, const QRect &r);
     // Route line (lat, lon); empty = none
     void setRoute(const QVector<QPointF> &latlon) { m_route = latlon; }
+    // Settings: marker 0 = car, 1 = arrow; range -1 near, 0 normal, 1 far;
+    // smooth: redraw every video frame (else ~15/s)
+    void setMarker(int m) { m_marker = m; }
+    void setRange(int r) { if (r != m_range) { m_range = r; m_canvasDirty = true; updateZoom(true); } }
+    void setSmooth(bool on) { m_smooth = on; }
     // Areas covered by buttons/cards (map coordinates): no names there
     void setCovered(const QVector<QRectF> &rects) { m_covered = rects; }
 
@@ -103,6 +108,10 @@ private:
 
     QVector<QPointF> m_route;
     QVector<QRectF> m_covered;
+    int m_marker = 0, m_range = 0;
+    bool m_smooth = true;
+    void updateZoom(bool force);
+    void drawCar(QPainter &p, const QTransform &proj);
 
     // Rendered layer (rate limited)
     QImage m_layer;
