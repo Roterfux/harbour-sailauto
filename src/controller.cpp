@@ -762,7 +762,7 @@ void Controller::onCallChanged()
         }
         if (m_pausedForCall) {
             m_pausedForCall = false;
-            m_mpris.play();
+            QTimer::singleShot(2500, this, [this]() { m_mpris.play(); }); // after the sound redirect is back
             appendLog(QStringLiteral("Anruf vorbei: Musik läuft weiter"));
         }
         m_callSilenced = false;
@@ -770,6 +770,32 @@ void Controller::onCallChanged()
     Q_UNUSED(who)
     m_lastCall = c;
     m_screen.setCall(c, m_callSilenced);
+    syncRouterForCall();
+}
+
+void Controller::syncRouterForCall()
+{
+    // While a call rings or runs, the phone's sound must not go to our
+    // virtual car output: Sailfish would route the call audio there too
+    // (silence in the car). Paused, the call goes the normal way: Bluetooth
+    // hands-free of the car.
+    if (callBlocksAudio()) {
+        if (m_router.running()) {
+            stopRouter();
+            m_routerPausedForCall = true;
+            const PhoneState &ps = m_phoneStatus.state();
+            appendLog(ps.btConnected ? QStringLiteral("Anruf: Ton-Umleitung pausiert, Gespräch über Bluetooth (%1)").arg(ps.btDevice)
+                                     : QStringLiteral("Anruf: Ton-Umleitung pausiert, aber kein Bluetooth verbunden – Gespräch am Telefon"));
+        }
+    } else if (m_routerPausedForCall) {
+        m_routerPausedForCall = false;
+        QTimer::singleShot(1500, this, [this]() {
+            if (!callBlocksAudio()) {
+                startRouter();
+                appendLog(QStringLiteral("Anruf vorbei: Ton-Umleitung wieder an"));
+            }
+        });
+    }
 }
 
 void Controller::onCallAction(const QString &action)
@@ -789,6 +815,7 @@ void Controller::onCallAction(const QString &action)
             appendLog(QStringLiteral("Anruf stumm: Musik läuft weiter"));
         }
         m_screen.setCall(m_calls.call(), true);
+        syncRouterForCall();
     }
 }
 
@@ -1594,6 +1621,7 @@ void Controller::onSessionClosed(const QString &reason)
     m_screen.setCall(CallInfo(), false);
     m_lastCall = CallInfo();
     m_pausedForCall = false;
+    m_routerPausedForCall = false;
     m_notify.stop();
     m_drivingStatus = -1;
     m_gear = -1;

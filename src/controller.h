@@ -252,6 +252,8 @@ private:
     void onCallChanged();
     void onCallAction(const QString &action);
     bool callBlocksAudio() const;
+    bool m_routerPausedForCall = false;
+    void syncRouterForCall();
     bool m_notifyToCar = true;
     int m_drivingStatus = -1;
     int m_gear = -1;
