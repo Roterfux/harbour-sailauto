@@ -20,6 +20,7 @@ struct WeatherData {
     struct Day { QDate date; int code; double max, min; };
     QVector<Hour> hours;  // next 6 hours
     QVector<Day> days;    // today + 2
+    QString place;        // name of the place (reverse geocoding)
 };
 
 class WeatherClient : public QObject

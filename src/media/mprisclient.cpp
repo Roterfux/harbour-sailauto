@@ -8,6 +8,9 @@
 #include <QDBusReply>
 #include <QDBusVariant>
 #include <QDateTime>
+#include <QThread>
+#include <gst/gst.h>
+#include <gst/pbutils/pbutils.h>
 #include <csignal>
 #include <sys/types.h>
 #include <QDBusMetaType>
@@ -130,6 +133,15 @@ void MprisClient::poll()
     const qint64 rawLen = md.value(QStringLiteral("mpris:length")).toLongLong();
     qint64 lenMs = rawLen / 1000;
     if (lenMs < 1000 && rawLen >= 1000) lenMs = rawLen;
+    if (!m_metaLogged.contains(m_service)) {
+        m_metaLogged.insert(m_service);
+        emit log(QStringLiteral("Musik: %1 meldet Metadaten %2").arg(playerName(), QStringList(md.keys()).join(QLatin1Char(','))));
+    }
+    const QString mediaUrl = md.value(QStringLiteral("xesam:url")).toString();
+    if (lenMs <= 0 && !mediaUrl.isEmpty()) {
+        if (!m_probedLen.contains(mediaUrl)) probeLength(mediaUrl);
+        else lenMs = m_probedLen.value(mediaUrl);
+    }
     const QVariant tid = md.value(QStringLiteral("mpris:trackid"));
     m_trackId = tid.canConvert<QDBusObjectPath>() ? tid.value<QDBusObjectPath>().path() : tid.toString();
     const QString status = getProperty(m_service, kPlayerIface, "PlaybackStatus").toString();
@@ -387,4 +399,47 @@ QString MprisClient::quitCurrent()
     m_lastActive.insert(m_service, 0); // older than any idle limit
     const QStringList done = quitIdle(1);
     return done.isEmpty() ? QString() : name;
+}
+
+namespace {
+// gst_discoverer_discover_uri blocks (network): run it in a thread.
+class ProbeThread : public QThread
+{
+public:
+    explicit ProbeThread(const QString &url) : m_url(url) {}
+    qint64 ms = 0;
+protected:
+    void run() override
+    {
+        GError *err = nullptr;
+        GstDiscoverer *d = gst_discoverer_new(15 * GST_SECOND, &err);
+        if (!d) { if (err) g_error_free(err); return; }
+        GstDiscovererInfo *info = gst_discoverer_discover_uri(d, m_url.toUtf8().constData(), &err);
+        if (info) {
+            ms = qint64(gst_discoverer_info_get_duration(info) / GST_MSECOND);
+            g_object_unref(info);
+        }
+        if (err) g_error_free(err);
+        g_object_unref(d);
+    }
+private:
+    QString m_url;
+};
+} // namespace
+
+void MprisClient::probeLength(const QString &url)
+{
+    m_probedLen.insert(url, 0);
+    if (!gst_is_initialized()) gst_init(nullptr, nullptr);
+    auto *t = new ProbeThread(url);
+    connect(t, &QThread::finished, this, [this, t, url]() {
+        m_probedLen.insert(url, t->ms);
+        if (t->ms > 0) {
+            emit log(QStringLiteral("Musik: Länge aus der Audiodatei: %1:%2").arg(t->ms / 60000)
+                         .arg((t->ms / 1000) % 60, 2, 10, QLatin1Char('0')));
+            poll();
+        }
+        t->deleteLater();
+    });
+    t->start();
 }

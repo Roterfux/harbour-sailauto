@@ -1258,7 +1258,8 @@ void CarScreen::drawWeatherPage(QPainter &p, const QRect &body)
     f.setBold(false);
     p.setFont(f);
     p.setPen(c.dim);
-    p.drawText(tr.adjusted(0, big / 2 + 6, 0, 0), Qt::AlignLeft | Qt::AlignTop, WeatherClient::describe(m_weather.code));
+    p.drawText(tr.adjusted(0, big / 2 + 6, 0, 0), Qt::AlignLeft | Qt::AlignTop,
+               WeatherClient::describe(m_weather.code) + (m_weather.place.isEmpty() ? QString() : QStringLiteral(" · ") + m_weather.place));
     // Next hours (left) and days (right)
     const int rowTop = body.top() + big + 14;
     const int rowH = body.bottom() - rowTop;

@@ -8,6 +8,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QtMath>
 
 WeatherClient::WeatherClient(QObject *parent) : QObject(parent), m_net(new QNetworkAccessManager(this)) {}
@@ -18,7 +19,7 @@ void WeatherClient::setPosition(double lat, double lon)
     m_lon = lon;
     m_havePos = true;
     const double moved = qAbs(lat - m_fetchedLat) + qAbs(lon - m_fetchedLon);
-    if (!m_lastFetch.isValid() || m_lastFetch.elapsed() > 20 * 60 * 1000 || moved > 0.15) fetch();
+    if (!m_lastFetch.isValid() || m_lastFetch.elapsed() > 15 * 60 * 1000 || moved > 0.08) fetch();
 }
 
 void WeatherClient::fetch()
@@ -74,7 +75,27 @@ void WeatherClient::fetch()
                            dd.value(QStringLiteral("weather_code")).toArray()[i].toInt(),
                            dd.value(QStringLiteral("temperature_2m_max")).toArray()[i].toDouble(),
                            dd.value(QStringLiteral("temperature_2m_min")).toArray()[i].toDouble()});
+        d.place = m_data.place;
         m_data = d;
+        // Place name for the page (Photon reverse geocoding, same rounded position)
+        QUrl rev(QStringLiteral("https://photon.komoot.io/reverse"));
+        QUrlQuery rq;
+        rq.addQueryItem(QStringLiteral("lat"), QString::number(m_fetchedLat, 'f', 2));
+        rq.addQueryItem(QStringLiteral("lon"), QString::number(m_fetchedLon, 'f', 2));
+        rq.addQueryItem(QStringLiteral("lang"), QStringLiteral("de"));
+        rev.setQuery(rq);
+        QNetworkRequest rr(rev);
+        rr.setRawHeader("User-Agent", "SailAuto (Sailfish OS)");
+        QNetworkReply *pr = m_net->get(rr);
+        connect(pr, &QNetworkReply::finished, this, [this, pr]() {
+            pr->deleteLater();
+            const QJsonArray fs = QJsonDocument::fromJson(pr->readAll()).object().value(QStringLiteral("features")).toArray();
+            if (fs.isEmpty()) return;
+            const QJsonObject p = fs.first().toObject().value(QStringLiteral("properties")).toObject();
+            QString name = p.value(QStringLiteral("city")).toString();
+            if (name.isEmpty()) name = p.value(QStringLiteral("name")).toString();
+            if (!name.isEmpty() && name != m_data.place) { m_data.place = name; emit changed(); }
+        });
         if (!m_logged) {
             m_logged = true;
             emit log(QStringLiteral("Wetter: %1 °C, %2").arg(qRound(d.temp)).arg(describe(d.code)));

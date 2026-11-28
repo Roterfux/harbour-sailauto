@@ -8,7 +8,7 @@ include(third_party/openh264/openh264.pri)
 APP_VERSION = $$system(sed -n \'s/^Version:[[:space:]]*//p\' $$PWD/rpm/harbour-sailauto.spec)
 isEmpty(APP_VERSION): APP_VERSION = dev
 DEFINES += APP_VERSION=\\\"$$APP_VERSION\\\"
-PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 libpulse dbus-1
+PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 gstreamer-pbutils-1.0 libpulse dbus-1
 # Caller name/photo from the address book (Sailfish: qtcontacts-sqlite)
 packagesExist(Qt5Contacts) {
     QT += contacts

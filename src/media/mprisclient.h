@@ -70,6 +70,10 @@ private:
     QString m_preferred;
     bool m_showingPreferred = false;
     QString m_lastStatus, m_lastStatusService;
+    // Length from the audio itself when the player reports none (xesam:url)
+    QHash<QString, qint64> m_probedLen;   // url -> ms (0 = probing / unknown)
+    void probeLength(const QString &url);
+    QSet<QString> m_metaLogged;
     QElapsedTimer m_preferredSince;
     QHash<QString, QString> m_desktopOf; // service -> DesktopEntry
     QString m_service, m_identity;
