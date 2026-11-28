@@ -440,4 +440,4 @@ GPLv3 (Protokollwissen aus aasdk/OpenAuto, beide GPLv3).
 
 - openh264 (BSD-2-Clause), `third_party/openh264`
 - Kachel-Symbole im Auto: Material Design Icons (Apache License 2.0)
-- Karte: © OpenStreetMap-Mitwirkende (ODbL); Routen: Valhalla (OSM Scout Server / FOSSGIS)
+- Karte: © OpenStreetMap-Mitwirkende (ODbL); online-Kacheln © CARTO (ohne Beschriftung), Ortsnamen über Overpass; Routen: Valhalla (OSM Scout Server / FOSSGIS)

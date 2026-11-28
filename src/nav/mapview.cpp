@@ -1,6 +1,11 @@
 #include "mapview.h"
 
 #include <QDateTime>
+#include <QPainterPath>
+#include <QUrlQuery>
+#include <QJsonObject>
+#include <QJsonDocument>
+#include <QJsonArray>
 #include <QDir>
 #include <QLinearGradient>
 #include <QNetworkAccessManager>
@@ -32,7 +37,12 @@ MapView::MapView(QObject *parent) : QObject(parent)
 
 QString MapView::tileTemplate() const
 {
-    return m_online ? QStringLiteral("https://tile.openstreetmap.org/{z}/{x}/{y}.png") : m_url;
+    // Online: CARTO base map from OpenStreetMap data, without labels (the
+    // names are drawn upright as an overlay), real night style.
+    if (m_online)
+        return m_night ? QStringLiteral("https://basemaps.cartocdn.com/rastertiles/dark_nolabels/{z}/{x}/{y}.png")
+                       : QStringLiteral("https://basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}.png");
+    return m_url;
 }
 
 void MapView::setTileUrl(const QString &url)
@@ -99,7 +109,7 @@ QString MapView::tileKey(int z, int x, int y) const
 void MapView::request(int z, int x, int y)
 {
     const QString key = tileKey(z, x, y);
-    if (m_tiles.contains(key) || m_pending.contains(key) || m_pending.size() >= kMaxPending) return;
+    if (m_tiles.contains(key) || m_pending.contains(key) || m_pending.size() >= (m_online ? 10 : kMaxPending)) return;
     const qint64 failedAt = m_failed.value(key, 0);
     if (failedAt && QDateTime::currentMSecsSinceEpoch() - failedAt < 30000) return;
     QString url = tileTemplate();
@@ -132,7 +142,7 @@ void MapView::onReply(QNetworkReply *reply)
             m_online = true;
             m_failed.clear();
             m_canvasDirty = true;
-            emit log(QStringLiteral("Karte: OSM Scout Server nicht erreichbar, nutze Online-Karte (openstreetmap.org)"));
+            emit log(QStringLiteral("Karte: OSM Scout Server nicht erreichbar, nutze Online-Karte (CARTO/OpenStreetMap)"));
             return;
         }
         m_failed.insert(key, QDateTime::currentMSecsSinceEpoch());
@@ -176,8 +186,16 @@ void MapView::rebuildCanvas(int z, int cx, int cy)
         if (ty < 0 || ty >= n) continue;
         const QString key = tileKey(z, tx, ty);
         auto it = m_tiles.constFind(key);
-        if (it != m_tiles.constEnd()) p.drawImage(o.x() * kTile, o.y() * kTile, *it);
-        else request(z, tx, ty);
+        if (it != m_tiles.constEnd()) {
+            p.drawImage(o.x() * kTile, o.y() * kTile, *it);
+        } else {
+            request(z, tx, ty);
+            // Meanwhile: the matching quarter of the coarser tile, enlarged (no holes)
+            auto parent = m_tiles.constFind(tileKey(z - 1, tx / 2, ty / 2));
+            if (parent != m_tiles.constEnd())
+                p.drawImage(QRect(o.x() * kTile, o.y() * kTile, kTile, kTile), *parent,
+                            QRect((tx % 2) * kTile / 2, (ty % 2) * kTile / 2, kTile / 2, kTile / 2));
+        }
     }
     m_canvasZ = z;
     m_canvasX = x0;
@@ -193,7 +211,7 @@ void MapView::renderLayer(const QSize &size)
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     p.setRenderHint(QPainter::Antialiasing);
     const double w = size.width(), h = size.height();
-    const double horizon = h * 0.10;
+    const double horizon = h * 0.03;
     QLinearGradient g(0, 0, 0, horizon);
     g.setColorAt(0, sky.darker(130));
     g.setColorAt(1, sky);
@@ -225,10 +243,11 @@ void MapView::renderLayer(const QSize &size)
         rebuildCanvas(z, ctx, cty);
 
     // Ground (car-centred, heading up, pixels) -> screen trapezoid (tilted view)
-    const double ahead = 900, behind = 90, half = 420; // small "behind" puts the car low on screen
+    // Gentle tilt: far edge only a bit narrower than the near edge.
+    const double ahead = 620, behind = 80, half = 420; // small "behind" puts the car low on screen
     const QPolygonF ground({QPointF(-half, -ahead), QPointF(half, -ahead), QPointF(half, behind), QPointF(-half, behind)});
-    const QPolygonF screen({QPointF(w * 0.5 - w * 0.62, horizon), QPointF(w * 0.5 + w * 0.62, horizon),
-                            QPointF(w * 0.5 + w * 1.55, h * 1.02), QPointF(w * 0.5 - w * 1.55, h * 1.02)});
+    const QPolygonF screen({QPointF(w * 0.5 - w * 0.85, horizon), QPointF(w * 0.5 + w * 0.85, horizon),
+                            QPointF(w * 0.5 + w * 1.25, h * 1.02), QPointF(w * 0.5 - w * 1.25, h * 1.02)});
     QTransform proj;
     if (!QTransform::quadToQuad(ground, screen, proj)) return;
     QTransform t;
@@ -239,8 +258,6 @@ void MapView::renderLayer(const QSize &size)
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
     p.setTransform(t * rot * proj);
     p.drawImage(0, 0, m_canvas);
-    if (m_online && m_night) // online tiles have no night style: darken
-        p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 60)); // gently, map stays readable
     // Route line in canvas coordinates (same transform as the tiles)
     if (m_route.size() > 1) {
         QPolygonF line;
@@ -253,13 +270,15 @@ void MapView::renderLayer(const QSize &size)
     }
     p.restore();
     // Haze towards the horizon
-    QLinearGradient haze(0, horizon, 0, horizon + h * 0.10);
+    QLinearGradient haze(0, horizon, 0, horizon + h * 0.06);
     QColor hz = sky;
     hz.setAlpha(110);
     haze.setColorAt(0, hz);
     hz.setAlpha(0);
     haze.setColorAt(1, hz);
-    p.fillRect(QRectF(0, horizon, w, h * 0.10), haze);
+    p.fillRect(QRectF(0, horizon, w, h * 0.06), haze);
+    // Place names upright on top (readable, unlike names baked into tilted tiles)
+    drawPlaceNames(p, t * rot * proj, z, w, h, horizon);
 
     // Car marker at its ground position
     const QPointF c = proj.map(QPointF(0, 0));
@@ -275,7 +294,8 @@ void MapView::renderLayer(const QSize &size)
     f.setPixelSize(qMax(10, int(h / 34)));
     p.setFont(f);
     p.setPen(m_night ? QColor(200, 200, 200) : QColor(60, 60, 60));
-    p.drawText(QRectF(0, 0, w - 6, h - 4), Qt::AlignRight | Qt::AlignBottom, QStringLiteral("© OpenStreetMap-Mitwirkende"));
+    p.drawText(QRectF(0, 0, w - 6, h - 4), Qt::AlignRight | Qt::AlignBottom, m_online ? QStringLiteral("© OpenStreetMap-Mitwirkende © CARTO")
+                                                                                            : QStringLiteral("© OpenStreetMap-Mitwirkende"));
     if (!m_lastError.isEmpty() && m_tiles.isEmpty()) {
         f.setPixelSize(qMax(12, int(h / 22)));
         f.setBold(true);
@@ -295,4 +315,85 @@ void MapView::paint(QPainter &p, const QRect &r)
         m_layerClock.start();
     }
     p.drawImage(r.topLeft(), m_layer);
+}
+
+void MapView::fetchPlaces(double lat, double lon)
+{
+    if (m_placesBusy) return;
+    if (m_placesLat < 900 && qAbs(lat - m_placesLat) < 0.05 && qAbs(lon - m_placesLon) < 0.08) return;
+    m_placesBusy = true;
+    m_placesLat = lat;
+    m_placesLon = lon;
+    const double dlat = 0.15, dlon = 0.25; // ~17 x 17 km
+    const QString q = QStringLiteral("[out:json][timeout:15];node[place~\"^(city|town|village|suburb|hamlet)$\"][name](%1,%2,%3,%4);out 300;")
+                          .arg(lat - dlat, 0, 'f', 3).arg(lon - dlon, 0, 'f', 3).arg(lat + dlat, 0, 'f', 3).arg(lon + dlon, 0, 'f', 3);
+    QString base = QString::fromLocal8Bit(qgetenv("SAILAUTO_OVERPASS_URL"));
+    if (base.isEmpty()) base = QStringLiteral("https://overpass-api.de/api/interpreter");
+    QUrl url(base);
+    QUrlQuery uq;
+    uq.addQueryItem(QStringLiteral("data"), q);
+    url.setQuery(uq);
+    QNetworkRequest req(url);
+    req.setRawHeader("User-Agent", "SailAuto/" APP_VERSION " (Sailfish OS car display)");
+    if (!m_placesNet) m_placesNet = new QNetworkAccessManager(this); // m_net routes every reply to the tile handler
+    QNetworkReply *r = m_placesNet->get(req);
+    connect(r, &QNetworkReply::finished, this, [this, r]() {
+        r->deleteLater();
+        m_placesBusy = false;
+        if (r->error() != QNetworkReply::NoError) {
+            m_placesLat = 1000; // try again later
+            return;
+        }
+        QVector<Place> places;
+        for (const QJsonValue &v : QJsonDocument::fromJson(r->readAll()).object().value(QStringLiteral("elements")).toArray()) {
+            const QJsonObject o = v.toObject();
+            const QJsonObject tags = o.value(QStringLiteral("tags")).toObject();
+            const QString type = tags.value(QStringLiteral("place")).toString();
+            const int rank = type == QLatin1String("city") ? 4 : type == QLatin1String("town") ? 3
+                             : type == QLatin1String("village") || type == QLatin1String("suburb") ? 2 : 1;
+            places.append({tags.value(QStringLiteral("name")).toString(), o.value(QStringLiteral("lat")).toDouble(),
+                           o.value(QStringLiteral("lon")).toDouble(), rank});
+        }
+        std::sort(places.begin(), places.end(), [](const Place &a, const Place &b) { return a.rank > b.rank; });
+        m_places = places;
+        if (!m_placesLogged) {
+            m_placesLogged = true;
+            emit log(QStringLiteral("Karte: %1 Ortsnamen geladen").arg(places.size()));
+        }
+    });
+}
+
+void MapView::drawPlaceNames(QPainter &p, const QTransform &canvasToScreen, int z, double w, double h, double horizon)
+{
+    fetchPlaces(m_lat, m_lon);
+    if (m_places.isEmpty()) return;
+    const QPointF origin(m_canvasX * kTile, m_canvasY * kTile);
+    QVector<QRectF> taken;
+    QFont f = p.font();
+    f.setBold(true);
+    for (const Place &pl : m_places) {
+        const QPointF sp = canvasToScreen.map(worldPixel(pl.lat, pl.lon, z) - origin);
+        if (sp.y() < horizon + h * 0.04 || sp.y() > h - h * 0.08 || sp.x() < 0 || sp.x() > w) continue;
+        // bigger for cities and when near (lower on screen)
+        const double nearF = 0.7 + 0.5 * (sp.y() - horizon) / (h - horizon);
+        f.setPixelSize(qMax(11, int(h / 26 * (0.8 + 0.2 * pl.rank) * nearF)));
+        p.setFont(f);
+        const QFontMetricsF fm(f);
+        QRectF box(0, 0, fm.width(pl.name) + 8, fm.height());
+        box.moveCenter(sp);
+        bool clash = false;
+        for (const QRectF &t : taken)
+            if (t.intersects(box.adjusted(-6, -4, 6, 4))) { clash = true; break; }
+        if (clash) continue;
+        taken.append(box);
+        QPainterPath path;
+        path.addText(box.left() + 4, box.top() + fm.ascent(), f, pl.name);
+        p.setPen(QPen(m_night ? QColor(10, 12, 20, 220) : QColor(255, 255, 255, 230), 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.setBrush(Qt::NoBrush);
+        p.drawPath(path);                       // halo
+        p.setPen(Qt::NoPen);
+        p.setBrush(m_night ? QColor(225, 230, 240) : QColor(40, 44, 56));
+        p.drawPath(path);
+        if (taken.size() >= 12) break;
+    }
 }

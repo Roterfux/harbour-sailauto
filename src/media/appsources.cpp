@@ -148,7 +148,14 @@ void AppSources::parseFeed(Podcast &p, const QByteArray &xml)
             } else if (n == QLatin1String("pubDate") && inItem) {
                 e.date = x.readElementText().trimmed().section(QLatin1Char(' '), 1, 3); // "27 Nov 2026"
             } else if (n == QLatin1String("duration") && inItem) {
-                e.duration = x.readElementText().trimmed();
+                // itunes:duration: "3600", "59:30" or "1:05:00" -> seconds
+                const QStringList parts = x.readElementText().trimmed().split(QLatin1Char(':'));
+                int secs = 0;
+                for (const QString &pt : parts) secs = secs * 60 + pt.toInt();
+                e.seconds = secs;
+                const int min = (secs + 30) / 60;
+                e.duration = secs <= 0 ? QString() : min < 60 ? QStringLiteral("%1 min").arg(qMax(1, min))
+                                                               : QStringLiteral("%1 h %2 min").arg(min / 60).arg(min % 60, 2, 10, QLatin1Char('0'));
             } else if (n == QLatin1String("image") && !inItem && p.image.isEmpty()) {
                 const QString href = x.attributes().value(QStringLiteral("href")).toString();
                 if (!href.isEmpty()) p.image = href;

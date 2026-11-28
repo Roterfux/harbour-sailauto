@@ -8,6 +8,7 @@
 #include <QRegularExpression>
 #include <QFileInfo>
 #include <QLocale>
+#include <QRegExp>
 #include <QGeoPositionInfoSource>
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -208,7 +209,10 @@ Controller::Controller(QObject *parent) : QObject(parent)
         const QVector<Podcast> &pcs = m_appSources.podcasts();
         for (int k = 0; k < pcs.size(); ++k)
             items.append({QStringLiteral("podcast"), QString::number(k), pcs[k].title,
-                          pcs[k].error.isEmpty() ? QStringLiteral("%1 Folgen").arg(pcs[k].episodes.size()) : pcs[k].error});
+                          pcs[k].error.isEmpty() ? QStringLiteral("%1 Folgen%2").arg(pcs[k].episodes.size())
+                                                       .arg(pcs[k].episodes.isEmpty() || pcs[k].episodes.first().duration.isEmpty() ? QString()
+                                                            : QStringLiteral(" · neueste %1").arg(pcs[k].episodes.first().duration))
+                                                 : pcs[k].error});
         if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Abos in Sailcast"), QString()});
         m_items = items;
         showItems(items, false);
@@ -1184,7 +1188,7 @@ void Controller::onBrowsePick(int i)
         QVector<BrowseItem> items;
         for (int e = 0; e < pcs[k].episodes.size(); ++e)
             items.append({QStringLiteral("episode"), QStringLiteral("%1:%2").arg(k).arg(e), pcs[k].episodes[e].title,
-                          (pcs[k].episodes[e].date + QStringLiteral("  ") + pcs[k].episodes[e].duration).trimmed()});
+                          QStringList({pcs[k].episodes[e].date, pcs[k].episodes[e].duration}).filter(QRegExp(QStringLiteral(".+"))).join(QStringLiteral(" · "))});
         if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Folgen"), pcs[k].error});
         showItems(items, true);
     } else if (b.kind == QLatin1String("episode")) {
@@ -1192,9 +1196,10 @@ void Controller::onBrowsePick(int i)
         const QVector<Podcast> &pcs = m_appSources.podcasts();
         if (k < 0 || k >= pcs.size()) return;
         QStringList urls, titles;
-        for (const Episode &ep : pcs[k].episodes) { urls << ep.url; titles << ep.title; }
+        QList<int> secs;
+        for (const Episode &ep : pcs[k].episodes) { urls << ep.url; titles << ep.title; secs << ep.seconds; }
         m_mpris.setPreferred(QStringLiteral("harbour-sailauto"));
-        m_own.playEpisodes(urls, titles, e, pcs[k].title, pcs[k].image);
+        m_own.playEpisodes(urls, titles, e, pcs[k].title, pcs[k].image, secs);
         m_screen.closeMusicList();
     } else if (b.kind == QLatin1String("fav")) {
         m_own.toggleFavorite();

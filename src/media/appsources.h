@@ -17,7 +17,8 @@
 class QNetworkAccessManager;
 
 struct Episode {
-    QString title, url, date, duration;
+    QString title, url, date, duration; // duration: "40 min"
+    int seconds = 0;
 };
 
 struct Podcast {

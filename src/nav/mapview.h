@@ -17,6 +17,7 @@
 class QNetworkAccessManager;
 class QNetworkReply;
 class QPainter;
+class QTransform;
 
 class MapView : public QObject
 {
@@ -54,6 +55,14 @@ private:
     bool m_online = false;
     bool m_customUrl = false;
     QString tileTemplate() const;
+    // Place names overlay (OpenStreetMap via Overpass)
+    struct Place { QString name; double lat, lon; int rank; };
+    QVector<Place> m_places;
+    QNetworkAccessManager *m_placesNet = nullptr;
+    double m_placesLat = 1000, m_placesLon = 1000;
+    bool m_placesBusy = false, m_placesLogged = false;
+    void fetchPlaces(double lat, double lon);
+    void drawPlaceNames(QPainter &p, const QTransform &canvasToScreen, int z, double w, double h, double horizon);
 
     // Position
     bool m_haveFix = false;

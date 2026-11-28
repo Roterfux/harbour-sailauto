@@ -152,12 +152,13 @@ void OwnPlayer::playFiles(const QStringList &files, int index)
     m_titles.clear();
     m_queueAlbum.clear();
     m_queueImage.clear();
-    playEpisodes(files, QStringList(), index, QString(), QString());
+    playEpisodes(files, QStringList(), index, QString(), QString(), QList<int>());
 }
 
 void OwnPlayer::playEpisodes(const QStringList &urls, const QStringList &titles, int index,
-                             const QString &podcast, const QString &imageUrl)
+                             const QString &podcast, const QString &imageUrl, const QList<int> &seconds)
 {
+    m_queueSeconds = seconds;
     if (index < 0 || index >= urls.size()) return;
     m_isRadio = false;
     m_files = urls;
@@ -222,7 +223,7 @@ void OwnPlayer::stop()
 
 void OwnPlayer::next()
 {
-    if (!m_isRadio && m_index + 1 < m_files.size()) playEpisodes(m_files, m_titles, m_index + 1, m_queueAlbum, m_queueImage);
+    if (!m_isRadio && m_index + 1 < m_files.size()) playEpisodes(m_files, m_titles, m_index + 1, m_queueAlbum, m_queueImage, m_queueSeconds);
     else if (m_isRadio) { // next favorite
         const QVector<RadioStation> fav = favorites();
         for (int i = 0; i < fav.size(); ++i)
@@ -235,7 +236,7 @@ void OwnPlayer::previous()
 {
     if (!m_isRadio) {
         if (positionMs() > 3000 || m_index == 0) setPosition(0);
-        else playEpisodes(m_files, m_titles, m_index - 1, m_queueAlbum, m_queueImage);
+        else playEpisodes(m_files, m_titles, m_index - 1, m_queueAlbum, m_queueImage, m_queueSeconds);
     } else {
         const QVector<RadioStation> fav = favorites();
         for (int i = 0; i < fav.size(); ++i)
@@ -275,7 +276,9 @@ QVariantMap OwnPlayer::metadata() const
     m.insert(QStringLiteral("xesam:title"), m_title);
     if (!m_artist.isEmpty()) m.insert(QStringLiteral("xesam:artist"), QStringList(m_artist));
     if (!m_album.isEmpty()) m.insert(QStringLiteral("xesam:album"), m_album);
-    if (m_durationMs > 0 && !m_isRadio) m.insert(QStringLiteral("mpris:length"), m_durationMs * 1000);
+    qint64 len = m_durationMs;
+    if (len <= 0 && !m_isRadio) len = qint64(m_queueSeconds.value(m_index, 0)) * 1000; // from the feed
+    if (len > 0 && !m_isRadio) m.insert(QStringLiteral("mpris:length"), len * 1000);
     if (!m_artFile.isEmpty()) m.insert(QStringLiteral("mpris:artUrl"), QUrl::fromLocalFile(m_artFile).toString());
     return m;
 }
@@ -288,7 +291,7 @@ void OwnPlayer::pollBus()
         switch (GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_EOS:
             if (!m_isRadio && m_index + 1 < m_files.size())
-                playEpisodes(m_files, m_titles, m_index + 1, m_queueAlbum, m_queueImage);
+                playEpisodes(m_files, m_titles, m_index + 1, m_queueAlbum, m_queueImage, m_queueSeconds);
             else { m_state = QStringLiteral("Stopped"); emit changed(); }
             break;
         case GST_MESSAGE_ERROR: {

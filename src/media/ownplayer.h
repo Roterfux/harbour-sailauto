@@ -43,7 +43,7 @@ public:
     void playFiles(const QStringList &files, int index);
     // Podcast episodes (stream URLs, seekable), queue for next/previous
     void playEpisodes(const QStringList &urls, const QStringList &titles, int index,
-                      const QString &podcast, const QString &imageUrl);
+                      const QString &podcast, const QString &imageUrl, const QList<int> &seconds = QList<int>());
 
     // Transport (also via MPRIS)
     void play();
@@ -78,6 +78,7 @@ private:
     QStringList m_files;         // local files or http URLs (episodes)
     QStringList m_titles;        // episode titles (empty for files)
     QString m_queueAlbum, m_queueImage;
+    QList<int> m_queueSeconds;   // length from the feed, until GStreamer knows it
     int m_index = -1;
     QString m_title, m_artist, m_album, m_artFile;
     QString m_state = QStringLiteral("Stopped");
