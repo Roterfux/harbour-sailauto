@@ -551,9 +551,10 @@ void CarScreen::drawPhonePage(QPainter &p, const QRect &body)
         p.drawText(m_phoneTabs[i], Qt::AlignCenter, QString::fromUtf8(tabNames[i]));
     }
     const int btnW = bar + 10;
-    m_phoneList = QRect(body.left() + tabW + 15, body.top(), body.width() - tabW - 15 - btnW - 10, body.height());
-    m_phoneUp = QRect(m_phoneList.right() + 10, body.top(), btnW, body.height() / 2 - 5);
-    m_phoneDown = QRect(m_phoneList.right() + 10, body.center().y() + 5, btnW, body.height() / 2 - 5);
+    // Driver sits left: scroll buttons next to the tabs, list on the right
+    m_phoneUp = QRect(body.left() + tabW + 12, body.top(), btnW, body.height() / 2 - 5);
+    m_phoneDown = QRect(body.left() + tabW + 12, body.center().y() + 5, btnW, body.height() / 2 - 5);
+    m_phoneList = QRect(m_phoneUp.right() + 12, body.top(), body.right() - m_phoneUp.right() - 12, body.height());
 
     if (m_phoneTab == 2) {
         // Recent calls: arrow (in/out, red = missed), name or number, time.
@@ -785,8 +786,8 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
             covered << QRectF(0, 0, area.width() * 9 / 25 + 30, bar * 13 / 10 + bar * 2 / 3 + 20)
                     << QRectF(area.width() - area.width() * 3 / 10 - bar - 40, 0, area.width() * 3 / 10 + bar + 40, bar + 24);
         } else {
-            covered << QRectF(area.width() - bar * 3 - 30, 0, bar * 3 + 30, bar + 24);
-            if (m_nav.app && m_nav.hasRoute) covered << QRectF(0, 0, bar * 6 + 30, bar + 24);
+            covered << QRectF(0, 0, bar * 3 + 30, bar + 24);
+            if (m_nav.app && m_nav.hasRoute) covered << QRectF(bar * 3, 0, bar * 6 + 40, bar + 24);
         }
         m_map->setCovered(covered);
     }
@@ -865,10 +866,11 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         return;
     }
     // No route: "Ziel" (choose destination) and, if Pure Maps has one, start.
-    button(QRect(area.right() - bar * 3 - 10, area.top() + 10, bar * 3, bar), QStringLiteral("choose"),
+    // Driver sits left: buttons top left
+    button(QRect(area.left() + 10, area.top() + 10, bar * 3, bar), QStringLiteral("choose"),
            QStringLiteral("Ziel"), c.accent, c.bg);
     if (m_nav.app && m_nav.hasRoute)
-        button(QRect(area.left() + 10, area.top() + 10, bar * 6, bar), QStringLiteral("start"),
+        button(QRect(area.left() + 20 + bar * 3, area.top() + 10, bar * 6, bar), QStringLiteral("start"),
                QStringLiteral("Navigation starten"), QColor(40, 170, 80), Qt::white);
 }
 
@@ -1129,7 +1131,8 @@ void CarScreen::drawMusicList(QPainter &p, const QRect &body)
     const int pages = rows.size() <= first ? 1 : 1 + (rows.size() - first + per - 1) / per;
     m_musicListPage = qBound(0, m_musicListPage, pages - 1);
     const int btnW = bar + 10;
-    const QRect list(body.left(), body.top(), body.width() - btnW - 10, body.height());
+    // Driver sits left: page buttons on the left, list on the right
+    const QRect list(body.left() + btnW + 10, body.top(), body.width() - btnW - 10, body.height());
     const int rh = (list.height() - (per - 1) * 6) / per;
     QFont f = p.font();
     int slot = 0, startRow = 0, count = first;
@@ -1193,8 +1196,8 @@ void CarScreen::drawMusicList(QPainter &p, const QRect &body)
         }
         m_musicRows.append(qMakePair(r, idx));
     }
-    m_mlUp = QRect(list.right() + 10, body.top(), btnW, body.height() / 2 - 5);
-    m_mlDown = QRect(list.right() + 10, body.center().y() + 5, btnW, body.height() / 2 - 5);
+    m_mlUp = QRect(body.left(), body.top(), btnW, body.height() / 2 - 5);
+    m_mlDown = QRect(body.left(), body.center().y() + 5, btnW, body.height() / 2 - 5);
     for (const QRect &ar : {m_mlUp, m_mlDown}) {
         const bool up = ar == m_mlUp;
         const bool enabled = up ? m_musicListPage > 0 : m_musicListPage + 1 < pages;
@@ -1434,7 +1437,7 @@ void CarScreen::layoutApps()
     m_appPage = qBound(0, m_appPage, pages - 1);
     // Paging arrows on the right if needed.
     const int arrowW = pages > 1 ? bar + 10 : 0;
-    const QRect grid = body.adjusted(0, 0, -arrowW, 0);
+    const QRect grid = body.adjusted(arrowW, 0, 0, 0); // arrows on the driver's side
     const int gap = 12;
     const int cw = (grid.width() - 3 * gap) / 4;
     const int ch = (grid.height() - gap) / 2;
@@ -1445,8 +1448,8 @@ void CarScreen::layoutApps()
         m_appRects.append(QRect(grid.left() + (k % 4) * (cw + gap), grid.top() + (k / 4) * (ch + gap), cw, ch));
     }
     if (pages > 1) {
-        m_appPrev = QRect(body.right() - bar, body.top(), bar, body.height() / 2 - 6);
-        m_appNext = QRect(body.right() - bar, body.center().y() + 6, bar, body.height() / 2 - 6);
+        m_appPrev = QRect(body.left(), body.top(), bar, body.height() / 2 - 6);
+        m_appNext = QRect(body.left(), body.center().y() + 6, bar, body.height() / 2 - 6);
     } else {
         m_appPrev = m_appNext = QRect();
     }
@@ -1921,7 +1924,7 @@ void CarScreen::drawPage(QPainter &p)
             p.setPen(c.dim);
             const int textBottom = body.top() + note + 10 + bar * 2 / 3;
             // Own sources: radio and music files
-            m_listButton = QRect(body.right() - bar * 4, body.top(), bar * 4, bar);
+            m_listButton = QRect(body.left(), body.top(), bar * 4, bar); // driver side
             p.setPen(Qt::NoPen);
             p.setBrush(c.accent);
             p.drawRoundedRect(m_listButton, 12, 12);
@@ -2032,9 +2035,12 @@ void CarScreen::drawPage(QPainter &p)
         drawRound(m_playButton, true);
         drawPlayPause(m_playButton, m_mediaPlaying);
         // "Liste": playlists / track list of the player (if it offers them)
-        m_listButton = QRect(m_nextButton.right() + m_nextButton.width() / 2, m_nextButton.top() + m_nextButton.height() / 6,
-                             qMin(m_safe.right() - 10 - (m_nextButton.right() + m_nextButton.width() / 2), bar * 3),
-                             m_nextButton.height() * 2 / 3);
+        // Driver sits left: "Liste" left of the previous button
+        {
+            const int lw = qMin(m_prevButton.left() - m_prevButton.width() / 2 - (m_safe.left() + 10), bar * 3);
+            m_listButton = QRect(m_prevButton.left() - m_prevButton.width() / 2 - lw, m_prevButton.top() + m_prevButton.height() / 6,
+                                 lw, m_prevButton.height() * 2 / 3);
+        }
         p.setPen(Qt::NoPen);
         p.setBrush(c.panel);
         p.drawRoundedRect(m_listButton, 12, 12);

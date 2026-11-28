@@ -215,6 +215,8 @@ Ab 0.19.0: eigene Position als kleines 3D-Auto (von hinten, perspektivisch zur
 Karte), Karte 1,5-fach schärfer gezeichnet, größere Schrift. Einstellungen am
 Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
 Karte flüssig (volle Bildrate) und Stromsparen.
+Ab 0.19.1 für Linkslenker: Blättern in Listen, „Liste“, „Radio & Musik“ und „Ziel“
+liegen links, näher am Fahrer; Auto-Symbol kleiner.
 
 ## Navigation mit Pure Maps
 

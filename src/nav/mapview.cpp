@@ -467,8 +467,8 @@ void MapView::drawCar(QPainter &p, const QTransform &proj)
     // Small 3D car seen from behind and above, standing on the tilted map:
     // its footprint goes through the same perspective as the road, heights
     // rise straight up on screen (scaled like the ground at that spot).
-    const double L = 70, W = 34;               // ground pixels (bigger than true size)
-    const double bodyH = 13, cabH = 12;        // heights, ground pixels
+    const double L = 46, W = 23;               // ground pixels (a bit bigger than true size)
+    const double bodyH = 8.5, cabH = 8;        // heights, ground pixels
     const QPointF o = proj.map(QPointF(0, 0));
     const double k = QLineF(o, proj.map(QPointF(1, 0))).length(); // screen px per ground px here
     auto P = [&](double gx, double gy, double hz) {
@@ -485,7 +485,7 @@ void MapView::drawCar(QPainter &p, const QTransform &proj)
     // shadow on the ground
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(0, 0, 0, m_night ? 130 : 80));
-    p.drawPolygon(quad(P(-fx - 3, fy - 2, 0), P(fx + 3, fy - 2, 0), P(fx + 5, ry + 5, 0), P(-fx - 5, ry + 5, 0)));
+    p.drawPolygon(quad(P(-fx - 2, fy - 1, 0), P(fx + 2, fy - 1, 0), P(fx + 3, ry + 3, 0), P(-fx - 3, ry + 3, 0)));
     // lower body: sides, rear, top
     p.setPen(QPen(QColor(255, 255, 255, 200), 1.2));
     p.setBrush(dark);
@@ -509,8 +509,8 @@ void MapView::drawCar(QPainter &p, const QTransform &proj)
     // rear lights
     p.setPen(Qt::NoPen);
     p.setBrush(QColor(235, 40, 40));
-    p.drawPolygon(quad(P(-fx, ry, bodyH * 0.55), P(-fx + 8, ry, bodyH * 0.55), P(-fx + 8, ry, bodyH * 0.9), P(-fx, ry, bodyH * 0.9)));
-    p.drawPolygon(quad(P(fx - 8, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.9), P(fx - 8, ry, bodyH * 0.9)));
+    p.drawPolygon(quad(P(-fx, ry, bodyH * 0.55), P(-fx + 5, ry, bodyH * 0.55), P(-fx + 5, ry, bodyH * 0.9), P(-fx, ry, bodyH * 0.9)));
+    p.drawPolygon(quad(P(fx - 5, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.55), P(fx, ry, bodyH * 0.9), P(fx - 5, ry, bodyH * 0.9)));
     p.restore();
 }
 
