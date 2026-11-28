@@ -4,6 +4,7 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QUrl>
 #include <QDir>
 #include <QFile>
 #include <QSettings>
