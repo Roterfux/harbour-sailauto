@@ -417,6 +417,7 @@ def main():
     ap.add_argument("--silent-after", type=float, default=0, help="stop sending anything after N s (car off, link stale)")
     ap.add_argument("--drive", action="store_true", help="send car GPS once a second, driving 50 km/h with turns")
     ap.add_argument("--straight", action="store_true", help="with --drive: straight north instead of curves")
+    ap.add_argument("--origin", default="52.4229,10.7865", help="with --drive: start position lat,lon")
     ap.add_argument("--focus", action="append", default=[],
                     help="unsolicited audio focus state@seconds, e.g. 5@6 (car interrupts briefly), 1@9 (gives back)")
     ap.add_argument("--key", action="append", default=[],
@@ -466,14 +467,15 @@ def main():
             hu.drive_last = time.time()
             t = time.time() - hu.drive_at
             import math
+            lat0, lon0 = (float(v) for v in args.origin.split(","))
             if args.straight:
                 bearing = 0.0
-                lat = 52.4229 + 0.000125 * t        # ~13.9 m/s north
-                lon = 10.7865
+                lat = lat0 + 0.000125 * t        # ~13.9 m/s north
+                lon = lon0
             else:
                 bearing = (t * 6) % 360           # slow curve
-                lat = 52.4229 + 0.00012 * t * math.cos(math.radians(bearing))
-                lon = 10.7865 + 0.0002 * t * math.sin(math.radians(bearing))
+                lat = lat0 + 0.00012 * t * math.cos(math.radians(bearing))
+                lon = lon0 + 0.0002 * t * math.sin(math.radians(bearing))
             def i32(v): return int(v) & 0xffffffffffffffff
             loc = (f_varint(1, int(time.time() * 1000)) + f_varint(2, i32(lat * 1e7)) + f_varint(3, i32(lon * 1e7))
                    + f_varint(4, 5000) + f_varint(6, 13900) + f_varint(7, i32(bearing * 1e6)))

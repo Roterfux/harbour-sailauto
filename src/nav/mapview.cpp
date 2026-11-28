@@ -17,6 +17,8 @@
 #include <QStandardPaths>
 #include <QTransform>
 #include <QtMath>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 
 namespace {
 const int kTile = 256;
@@ -58,6 +60,7 @@ void MapView::setNight(bool night)
 {
     if (night == m_night) return;
     m_night = night;
+    m_vm.setNight(night);
     m_tiles.clear(); // day/night tiles differ
     m_failed.clear();
     m_canvasDirty = true;
@@ -104,6 +107,88 @@ QString MapView::tileKey(int z, int x, int y) const
     return QStringLiteral("%1/%2/%3").arg(z).arg(x).arg(y);
 }
 
+void MapView::requestVector(int z, int x, int y)
+{
+    const QString key = QStringLiteral("v/%1/%2/%3").arg(z).arg(x).arg(y);
+    if (m_vm.has(z, x, y) || m_pending.contains(key) || m_pending.size() >= 8) return;
+    const qint64 failedAt = m_failed.value(key, 0);
+    if (failedAt && QDateTime::currentMSecsSinceEpoch() - failedAt < 30000) return;
+    QString url = QString::fromLocal8Bit(qgetenv("SAILAUTO_VT_URL"));
+    if (url.isEmpty()) {
+        if (m_vtSource == 1 && m_vtOnline.isEmpty()) { fetchTileJson(); return; }
+        url = m_vtSource == 1 ? m_vtOnline : QStringLiteral("http://127.0.0.1:8553/v1/mbgl/tile?z={z}&x={x}&y={y}");
+    }
+    url.replace(QStringLiteral("{z}"), QString::number(z)).replace(QStringLiteral("{x}"), QString::number(x))
+        .replace(QStringLiteral("{y}"), QString::number(y));
+    QNetworkRequest req{QUrl(url)};
+    req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
+    req.setRawHeader("User-Agent", "SailAuto/" APP_VERSION " (Sailfish OS car display)");
+    QNetworkReply *r = m_net->get(req);
+    r->setProperty("key", key);
+    m_pending.insert(key);
+}
+
+void MapView::fetchTileJson()
+{
+    // OpenFreeMap: free OpenMapTiles vector tiles, no key. The tile URL holds a
+    // version, so it comes from the TileJSON.
+    if (m_tilejsonBusy) return;
+    m_tilejsonBusy = true;
+    if (!m_placesNet) m_placesNet = new QNetworkAccessManager(this);
+    QNetworkRequest req(QUrl(QStringLiteral("https://tiles.openfreemap.org/planet")));
+    req.setRawHeader("User-Agent", "SailAuto/" APP_VERSION " (Sailfish OS car display)");
+    QNetworkReply *r = m_placesNet->get(req);
+    connect(r, &QNetworkReply::finished, this, [this, r]() {
+        r->deleteLater();
+        m_tilejsonBusy = false;
+        const QJsonArray tiles = QJsonDocument::fromJson(r->readAll()).object().value(QStringLiteral("tiles")).toArray();
+        if (r->error() != QNetworkReply::NoError || tiles.isEmpty()) {
+            m_vtSource = 2; // no vector tiles at all: raster tiles from openstreetmap.org
+            m_online = true;
+            m_canvasDirty = true;
+            emit log(QStringLiteral("Karte: keine Vektorkarte erreichbar (%1), nutze Bildkacheln")
+                         .arg(r->error() != QNetworkReply::NoError ? r->errorString() : QStringLiteral("TileJSON leer")));
+            return;
+        }
+        m_vtOnline = tiles.first().toString();
+        m_canvasDirty = true;
+        emit log(QStringLiteral("Karte: Online-Vektorkarte (OpenFreeMap)"));
+    });
+}
+
+void MapView::onVectorReply(QNetworkReply *reply, const QString &key)
+{
+    const QStringList k = key.split(QLatin1Char('/'));
+    const int z = k.value(1).toInt(), x = k.value(2).toInt(), y = k.value(3).toInt();
+    const QByteArray data = reply->error() == QNetworkReply::NoError ? reply->readAll() : QByteArray();
+    QSharedPointer<VectorTile> tile(new VectorTile);
+    const bool ok = reply->error() == QNetworkReply::NoError && (data.isEmpty() || tile->parse(data));
+    if (ok) {
+        // empty answer = empty tile (sea, outside the map)
+        m_vm.insert(z, x, y, tile);
+        if (m_vtOk++ == 0) emit log(QStringLiteral("Karte: Vektorkacheln kommen an (%1)")
+                                        .arg(m_vtSource == 1 ? QStringLiteral("OpenFreeMap") : QStringLiteral("OSM Scout Server")));
+        m_lastError.clear();
+        m_vm.prune(z, x, y, 3);
+        m_canvasDirty = true;
+        return;
+    }
+    m_failed.insert(key, QDateTime::currentMSecsSinceEpoch());
+    const QString err = reply->error() != QNetworkReply::NoError ? reply->errorString() : QStringLiteral("unlesbare Kachel");
+    // OSM Scout Server missing or without vector maps: go online
+    if (m_vtSource == 0 && m_vtOk == 0 && qgetenv("SAILAUTO_VT_URL").isEmpty() && ++m_vtFails >= 2) {
+        m_vtSource = 1;
+        m_failed.clear();
+        emit log(QStringLiteral("Karte: OSM Scout Server ohne Vektorkarte (%1), versuche online").arg(err));
+        fetchTileJson();
+        return;
+    }
+    if (err != m_lastError) {
+        m_lastError = err;
+        emit log(QStringLiteral("Karte: Vektorkachel nicht geladen (%1)").arg(err));
+    }
+}
+
 void MapView::request(int z, int x, int y)
 {
     const QString key = tileKey(z, x, y);
@@ -128,6 +213,10 @@ void MapView::onReply(QNetworkReply *reply)
     reply->deleteLater();
     const QString key = reply->property("key").toString();
     m_pending.remove(key);
+    if (key.startsWith(QLatin1String("v/"))) {
+        onVectorReply(reply, key);
+        return;
+    }
     QImage img;
     if (reply->error() == QNetworkReply::NoError) img.loadFromData(reply->readAll());
     if (img.isNull() && m_online && reply->url().host() == QLatin1String("127.0.0.1")) return; // late offline replies
@@ -167,10 +256,56 @@ void MapView::onReply(QNetworkReply *reply)
 
 void MapView::rebuildCanvas(int z, int cx, int cy)
 {
-    if (m_canvas.isNull()) m_canvas = QImage(kGrid * kTile, kGrid * kTile, QImage::Format_RGB32);
+    const int x0 = cx - kGrid / 2, y0 = cy - kGrid / 2;
+    if (vectorMode()) {
+        // Drawn in a worker thread (a city tile takes a while on the phone);
+        // the old canvas stays on screen meanwhile.
+        if (m_canvasBusy) return;
+        QVector<QVector<int>> missing;
+        const VectorMap::Job job = m_vm.prepare(z, x0, y0, kGrid, &missing);
+        const int dz = qMin(z, int(VectorMap::kMaxDataZoom));
+        const double cxD = (cx + 0.5) / double(1 << (z - dz)), cyD = (cy + 0.5) / double(1 << (z - dz));
+        std::sort(missing.begin(), missing.end(), [&](const QVector<int> &a, const QVector<int> &b) {
+            return qAbs(a[1] + 0.5 - cxD) + qAbs(a[2] + 0.5 - cyD) < qAbs(b[1] + 0.5 - cxD) + qAbs(b[2] + 0.5 - cyD);
+        });
+        for (const QVector<int> &m : missing) requestVector(m[0], m[1], m[2]);
+        if (job.srcs.isEmpty() && !m_canvas.isNull() && m_canvasZ == z) { m_canvasDirty = false; return; }
+        m_canvasBusy = true;
+        m_canvasDirty = false;
+        struct Out { QImage img; VectorMap::Labels labels; VectorMap::Job job; qint64 ms; };
+        auto *watcher = new QFutureWatcher<Out>(this);
+        connect(watcher, &QFutureWatcher<Out>::finished, this, [this, watcher]() {
+            const Out o = watcher->result();
+            watcher->deleteLater();
+            m_canvasBusy = false;
+            if (o.job.night != m_night) { m_canvasDirty = true; return; }
+            m_canvas = o.img;
+            m_vm.setLabels(o.labels);
+            m_canvasZ = o.job.z;
+            m_canvasX = o.job.cx0;
+            m_canvasY = o.job.cy0;
+            static const bool dbg = !qgetenv("SAILAUTO_MAPTIME").isEmpty();
+            if (dbg) qInfo("canvas %lld ms", o.ms);
+        });
+        watcher->setFuture(QtConcurrent::run([job]() {
+            QElapsedTimer tm;
+            tm.start();
+            Out o;
+            o.job = job;
+            o.img = QImage(kGrid * kTile, kGrid * kTile, QImage::Format_RGB32);
+            o.img.fill(VectorMap::backgroundFor(job.night));
+            QPainter vp(&o.img);
+            o.labels = VectorMap::draw(vp, job);
+            vp.end();
+            o.job.srcs.clear();
+            o.ms = tm.elapsed();
+            return o;
+        }));
+        return;
+    }
+    if (m_canvas.size() != QSize(kGrid * kTile, kGrid * kTile)) m_canvas = QImage(kGrid * kTile, kGrid * kTile, QImage::Format_RGB32);
     m_canvas.fill(m_night ? QColor(30, 34, 44) : QColor(225, 222, 214));
     QPainter p(&m_canvas);
-    const int x0 = cx - kGrid / 2, y0 = cy - kGrid / 2;
     const int n = 1 << z;
     // Nearest tiles first (the server renders in order)
     QVector<QPoint> order;
@@ -214,7 +349,7 @@ void MapView::renderLayer(const QSize &size)
     g.setColorAt(0, sky.darker(130));
     g.setColorAt(1, sky);
     p.fillRect(QRectF(0, 0, w, horizon + 1), g);
-    p.fillRect(QRectF(0, horizon, w, h - horizon), m_night ? QColor(30, 34, 44) : QColor(225, 222, 214));
+    p.fillRect(QRectF(0, horizon, w, h - horizon), vectorMode() ? m_vm.background() : m_night ? QColor(30, 34, 44) : QColor(225, 222, 214));
 
     if (!m_haveFix) {
         p.setPen(m_night ? Qt::white : Qt::black);
@@ -239,6 +374,10 @@ void MapView::renderLayer(const QSize &size)
     const int ctx = int(car.x() / kTile), cty = int(car.y() / kTile);
     if (m_canvasDirty || z != m_canvasZ || ctx - kGrid / 2 != m_canvasX || cty - kGrid / 2 != m_canvasY)
         rebuildCanvas(z, ctx, cty);
+    // The vector canvas is drawn in the background: until the new one is there,
+    // show the old one (maybe another zoom) at the right place.
+    const int cz = m_canvasZ > 0 ? m_canvasZ : z;
+    if (cz != z) car *= std::pow(2.0, cz - z);
 
     // Ground (car-centred, heading up, pixels) -> screen trapezoid (tilted view)
     // Gentle tilt: far edge only a bit narrower than the near edge.
@@ -256,13 +395,13 @@ void MapView::renderLayer(const QSize &size)
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
     p.setTransform(t * rot * proj);
     p.drawImage(0, 0, m_canvas);
-    if (m_online && m_night) // OSM tiles have no night style: darken gently
+    if (m_online && m_night && !vectorMode()) // OSM tiles have no night style: darken gently
         p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 70));
     // Route line in canvas coordinates (same transform as the tiles)
     if (m_route.size() > 1) {
         QPolygonF line;
         const QPointF origin(m_canvasX * kTile, m_canvasY * kTile);
-        for (const QPointF &ll : m_route) line << worldPixel(ll.x(), ll.y(), z) - origin;
+        for (const QPointF &ll : m_route) line << worldPixel(ll.x(), ll.y(), cz) - origin;
         p.setPen(QPen(QColor(255, 255, 255, 200), 16, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
         p.drawPolyline(line);
         p.setPen(QPen(QColor(30, 120, 230), 10, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -277,12 +416,15 @@ void MapView::renderLayer(const QSize &size)
     hz.setAlpha(0);
     haze.setColorAt(1, hz);
     p.fillRect(QRectF(0, horizon, w, h * 0.06), haze);
-    // Place names upright on top (readable, unlike names baked into tilted tiles)
-    drawPlaceNames(p, t * rot * proj, z, w, h, horizon);
-
     // Car marker at its ground position
     const QPointF c = proj.map(QPointF(0, 0));
     const double s = h / 14;
+    // Names upright on top (readable, unlike names baked into tilted tiles)
+    if (vectorMode())
+        m_vm.drawLabels(p, t * rot * proj, QRectF(0, 0, w, h), horizon,
+                        {QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2), QRectF(w * 0.72, 0, w * 0.28, h * 0.2)});
+    else
+        drawPlaceNames(p, t * rot * proj, cz, w, h, horizon);
     QPolygonF arrow({QPointF(c.x(), c.y() - s), QPointF(c.x() + s * 0.7, c.y() + s * 0.6),
                      QPointF(c.x(), c.y() + s * 0.25), QPointF(c.x() - s * 0.7, c.y() + s * 0.6)});
     p.setPen(QPen(Qt::white, 3));
@@ -294,8 +436,9 @@ void MapView::renderLayer(const QSize &size)
     f.setPixelSize(qMax(10, int(h / 34)));
     p.setFont(f);
     p.setPen(m_night ? QColor(200, 200, 200) : QColor(60, 60, 60));
-    p.drawText(QRectF(0, 0, w - 6, h - 4), Qt::AlignRight | Qt::AlignBottom, QStringLiteral("© OpenStreetMap-Mitwirkende"));
-    if (!m_lastError.isEmpty() && m_tiles.isEmpty()) {
+    p.drawText(QRectF(0, 0, w - 6, h - 4), Qt::AlignRight | Qt::AlignBottom, vectorMode() ? QStringLiteral("© OpenMapTiles © OpenStreetMap-Mitwirkende")
+                                                                                      : QStringLiteral("© OpenStreetMap-Mitwirkende"));
+    if (!m_lastError.isEmpty() && (vectorMode() ? m_vm.count() == 0 : m_tiles.isEmpty())) {
         f.setPixelSize(qMax(12, int(h / 22)));
         f.setBold(true);
         p.setFont(f);
@@ -310,8 +453,12 @@ void MapView::paint(QPainter &p, const QRect &r)
 {
     // ~15 fps is plenty for a map; reuse the last layer in between.
     if (m_layer.size() != r.size() || !m_layerClock.isValid() || m_layerClock.elapsed() >= 66) {
+        QElapsedTimer tm;
+        tm.start();
         renderLayer(r.size());
         m_layerClock.start();
+        static const bool dbgRender = !qgetenv("SAILAUTO_MAPTIME").isEmpty();
+        if (dbgRender && tm.elapsed() > 30) qInfo("map render %lld ms", tm.elapsed());
     }
     p.drawImage(r.topLeft(), m_layer);
 }

@@ -9,6 +9,7 @@
 #include "media/mprisclient.h"
 #include "media/ownplayer.h"
 #include "media/appsources.h"
+#include "media/tunebridge.h"
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
 #include "phone/callmonitor.h"
@@ -234,6 +235,11 @@ private:
     // Music list in the car: own sources (radio, files) + the player's lists
     OwnPlayer m_own;
     AppSources m_appSources;
+    TuneBridgeSource m_tb;
+    QVector<QueueItem> m_tbQueue;   // shown TuneBridge songs (playable ones)
+    QString m_tbListName;
+    bool m_kbForTuneBridge = false; // music keyboard searches TuneBridge, not radio
+    void showTuneBridgeSongs(const QVector<TuneBridgeSource::Track> &tracks, const QString &name, const QString &note);
     struct BrowseItem { QString kind, value, title, sub; };
     QVector<BrowseItem> m_items;                 // shown list
     QVector<QVector<BrowseItem>> m_itemStack;    // for "Zurück"

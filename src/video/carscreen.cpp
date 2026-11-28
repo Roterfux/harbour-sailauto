@@ -886,7 +886,7 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
         p.setPen(QPen(c.accent, 2));
         p.setBrush(c.panel);
         p.drawRoundedRect(field, 10, 10);
-        line(field.adjusted(14, 0, -14, 0), m_navInput.isEmpty() ? QStringLiteral("Adresse oder Ort …") : m_navInput + QStringLiteral("|"),
+        line(field.adjusted(14, 0, -14, 0), m_navInput.isEmpty() ? (m_page == Music && m_musicKb ? m_kbHint : QStringLiteral("Adresse oder Ort")) : m_navInput + QStringLiteral("|"),
              m_navInput.isEmpty() ? c.dim : c.text, px, false);
         const QRect keys(body.left(), field.bottom() + 8, body.width(), body.bottom() - field.bottom() - 8);
         if (!m_parked) {
@@ -1102,16 +1102,51 @@ void CarScreen::drawMusicList(QPainter &p, const QRect &body)
     const int bar = m_safe.height() / 8;
     m_musicRows.clear();
     const int per = 5;
-    const int pages = qMax(1, (m_musicList.size() + per - 1) / per);
+    // App strip (switch / close app): icons with a short name, on the first page only
+    QVector<int> tiles, rows;
+    for (int i = 0; i < m_musicList.size(); ++i) (m_musicList[i].tile ? tiles : rows).append(i);
+    const int stripRows = tiles.isEmpty() ? 0 : 2;
+    const int first = per - stripRows;
+    const int pages = rows.size() <= first ? 1 : 1 + (rows.size() - first + per - 1) / per;
     m_musicListPage = qBound(0, m_musicListPage, pages - 1);
     const int btnW = bar + 10;
     const QRect list(body.left(), body.top(), body.width() - btnW - 10, body.height());
     const int rh = (list.height() - (per - 1) * 6) / per;
     QFont f = p.font();
-    for (int k = 0; k < per && m_musicListPage * per + k < m_musicList.size(); ++k) {
-        const int idx = m_musicListPage * per + k;
+    int slot = 0, startRow = 0, count = first;
+    if (m_musicListPage == 0 && stripRows) {
+        const int sh = stripRows * rh + 6;
+        const int gap = 10;
+        const int n = tiles.size();
+        const int tw = qMin(sh, (list.width() - (n - 1) * gap) / qMax(1, n));
+        for (int k = 0; k < n; ++k) {
+            const ListItem &it = m_musicList[tiles[k]];
+            const QRect r(list.left() + k * (tw + gap), list.top(), tw, sh);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.panel);
+            p.drawRoundedRect(r, 12, 12);
+            const int is = qMin(r.width(), r.height()) * 9 / 20;
+            const QRect ir(r.center().x() - is / 2, r.top() + r.height() / 8, is, is);
+            if (!it.image.isNull()) p.drawImage(ir, it.image);
+            else drawMdi(p, QRectF(ir), it.icon.isEmpty() ? QStringLiteral("apps") : it.icon,
+                         it.icon == QLatin1String("close") ? QColor(220, 90, 80) : c.accent);
+            f.setPixelSize(qMax(12, qMin(bar * 3 / 10, r.height() / 7)));
+            f.setBold(false);
+            p.setFont(f);
+            p.setPen(it.icon == QLatin1String("close") ? QColor(220, 90, 80) : c.text);
+            drawFit(p, QRect(r.left() + 4, ir.bottom() + 4, r.width() - 8, r.bottom() - ir.bottom() - 8),
+                    Qt::AlignHCenter | Qt::AlignTop, it.title);
+            m_musicRows.append(qMakePair(r, tiles[k]));
+        }
+        slot = stripRows;
+    } else if (m_musicListPage > 0) {
+        startRow = first + (m_musicListPage - 1) * per;
+        count = per;
+    }
+    for (int k = 0; k < count && startRow + k < rows.size(); ++k, ++slot) {
+        const int idx = rows[startRow + k];
         const ListItem &it = m_musicList[idx];
-        const QRect r(list.left(), list.top() + k * (rh + 6), list.width(), rh);
+        const QRect r(list.left(), list.top() + slot * (rh + 6), list.width(), rh);
         p.setPen(Qt::NoPen);
         p.setBrush(c.panel);
         p.drawRoundedRect(r, 10, 10);
@@ -1713,6 +1748,7 @@ static void drawMdi(QPainter &p, const QRectF &r, const QString &name, const QCo
         {QStringLiteral("search"), "M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"},
         {QStringLiteral("folder"), "M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z"},
         {QStringLiteral("note"), "M12,3V13.55C11.41,13.21 10.73,13 10,13C7.79,13 6,14.79 6,17C6,19.21 7.79,21 10,21C12.21,21 14,19.21 14,17V7H18V3H12Z"},
+        {QStringLiteral("play"), "M8,5.14V19.14L19,12.14L8,5.14Z"},
         {QStringLiteral("podcast"), "M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"},
         {QStringLiteral("apps"), "M16,20H20V16H16M16,14H20V10H16M10,8H14V4H10M16,8H20V4H16M10,14H14V10H10M4,14H8V10H4M4,20H8V16H4M10,20H14V16H10M4,8H8V4H4V8Z"},
         {QStringLiteral("close"), "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"},

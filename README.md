@@ -204,6 +204,14 @@ Entfernung und Straße, Restweg/-zeit/Ankunft, blaue Routenlinie auf der
 Live-Karte, „Beenden“. Weicht man ab (3 Messungen > 45 m), wird neu berechnet.
 Position: Auto-GPS, sonst Telefon-GPS. Noch keine Sprachansagen.
 
+Karte (ab 0.18.0): selbst gezeichnet aus Vektorkacheln (OpenMapTiles-Schema),
+offline von OSM Scout Server (`/v1/mbgl/tile`), sonst online von OpenFreeMap
+(ohne Schlüssel), sonst Bildkacheln von openstreetmap.org. Tag- und Nachtfarben
+wie bei OsmAnd. Schrift wie bei OsmAnd erst nach dem Kippen, immer aufrecht und
+ohne Überlappung, nach Wichtigkeit: Orte, Straßennamen entlang der Straße (nur
+wo sie gerade genug ist), Straßennummern als Schild (A1, B17), Seen. Nah am Auto
+größer. Der Kartenaufbau läuft im Hintergrund, das Bild hängt nie.
+
 ## Navigation mit Pure Maps
 
 Ab 0.7.0. Die Seite „Navigation“ im Auto zeigt, was Pure Maps am Telefon
@@ -288,7 +296,16 @@ also mit Lenkradtasten, Fortschritt usw.). Im Auto: Musik → „Liste“ (oder
 - „Listen von <App>“, falls der aktuelle Player welche anbietet.
 - Ab 0.14.0: **SailWave: Sender** (aus SailWaves Datenbank) und **Sailcast:
   Podcasts** (Abos aus Sailcasts Datenbank, Folgen aus den Feeds) – gespielt vom
-  eigenen Player.
+  eigenen Player. Ab 0.18.0 sucht SailAuto die Sailcast-Abos in allen Dateien
+  der App (SQLite, JSON, OPML); im Log steht, woher sie kamen.
+- Ab 0.18.0: **TuneBridge**: Listen wie auf TuneBridges Startseite (auf dem
+  Telefon, Favoriten, zuletzt gehört, Playlists, Alben) und Suche in allen Songs,
+  die TuneBridge kennt. Gelesen aus `~/.local/share/harbour-tunebridge/` (nur
+  lesen). Gespielt vom eigenen Player: gespeicherte Songs aus der Datei, andere
+  über TuneBridges yt-dlp (Internet). Playlists erscheinen, sobald sie einmal in
+  TuneBridge geöffnet wurden. Spielt TuneBridge gerade, stehen seine Listen
+  oben.
+- Ab 0.18.0: App wechseln / beenden als kleine Icons oben in der Liste.
 
 Adresssuche ohne OSM Scout Server: online über Photon (wie Pure Maps).
 
@@ -445,4 +462,4 @@ GPLv3 (Protokollwissen aus aasdk/OpenAuto, beide GPLv3).
 
 - openh264 (BSD-2-Clause), `third_party/openh264`
 - Kachel-Symbole im Auto: Material Design Icons (Apache License 2.0)
-- Karte: © OpenStreetMap-Mitwirkende (ODbL); online-Kacheln von openstreetmap.org, Ortsnamen über Overpass; Routen: Valhalla (OSM Scout Server / FOSSGIS)
+- Karte: © OpenStreetMap-Mitwirkende (ODbL), © OpenMapTiles (Vektorschema); Vektorkacheln von OSM Scout Server oder OpenFreeMap, Bildkacheln von openstreetmap.org, Ortsnamen dort über Overpass; Routen: Valhalla (OSM Scout Server / FOSSGIS)

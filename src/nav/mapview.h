@@ -1,5 +1,7 @@
-// Live map for the car's navigation page: raster tiles (default: OSM Scout
-// Server on the phone), tilted 3D view, heading up, car at the bottom centre.
+// Live map for the car's navigation page, tilted 3D view, heading up, car at
+// the bottom centre. Self-drawn from vector tiles (OSM Scout Server offline,
+// OpenFreeMap online), names placed upright on top (see VectorMap); raster
+// tiles only with an own tile URL or when no vector tiles can be had.
 // Position comes from the car's GPS (AAP LOCATION sensor), extrapolated
 // between fixes with speed and bearing so the map moves smoothly.
 // Drawn with QPainter (projective transform), no OpenGL needed.
@@ -13,6 +15,8 @@
 #include <QSet>
 #include <QString>
 #include <QVector>
+
+#include "vectormap.h"
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -55,6 +59,16 @@ private:
     bool m_online = false;
     bool m_customUrl = false;
     QString tileTemplate() const;
+    // Vector tiles: 0 = OSM Scout Server, 1 = OpenFreeMap (online), 2 = none (raster)
+    int m_vtSource = 0;
+    QString m_vtOnline;            // tile URL template from the OpenFreeMap TileJSON
+    bool m_tilejsonBusy = false;
+    int m_vtFails = 0, m_vtOk = 0;
+    VectorMap m_vm;
+    bool vectorMode() const { return !m_customUrl && m_vtSource < 2; }
+    void requestVector(int z, int x, int y);
+    void onVectorReply(QNetworkReply *reply, const QString &key);
+    void fetchTileJson();
     // Place names overlay (OpenStreetMap via Overpass)
     struct Place { QString name; double lat, lon; int rank; };
     QVector<Place> m_places;
@@ -83,6 +97,7 @@ private:
     QImage m_canvas;
     int m_canvasZ = -1, m_canvasX = 0, m_canvasY = 0; // top-left tile
     bool m_canvasDirty = true;
+    bool m_canvasBusy = false;   // vector canvas being drawn in the background
 
     QVector<QPointF> m_route;
 

@@ -1,5 +1,5 @@
 TARGET = harbour-sailauto
-QT += network quick qml dbus svg sql positioning
+QT += network quick qml dbus svg sql positioning concurrent
 CONFIG += c++14 link_pkgconfig
 
 include(third_party/openh264/openh264.pri)
@@ -8,7 +8,7 @@ include(third_party/openh264/openh264.pri)
 APP_VERSION = $$system(sed -n \'s/^Version:[[:space:]]*//p\' $$PWD/rpm/harbour-sailauto.spec)
 isEmpty(APP_VERSION): APP_VERSION = dev
 DEFINES += APP_VERSION=\\\"$$APP_VERSION\\\"
-PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 gstreamer-pbutils-1.0 libpulse dbus-1
+PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 gstreamer-pbutils-1.0 libpulse dbus-1 zlib
 # Caller name/photo from the address book (Sailfish: qtcontacts-sqlite)
 packagesExist(Qt5Contacts) {
     QT += contacts
@@ -51,6 +51,9 @@ desktop {
 }
 
 HEADERS += \
+    src/media/tunebridge.h \
+    src/nav/vectortile.h \
+    src/nav/vectormap.h \
     src/aap/protobuf.h \
     src/aap/protocol.h \
     src/aap/cryptor.h \
@@ -79,6 +82,9 @@ HEADERS += \
     src/controller.h
 
 SOURCES += \
+    src/media/tunebridge.cpp \
+    src/nav/vectortile.cpp \
+    src/nav/vectormap.cpp \
     src/main.cpp \
     src/aap/cryptor.cpp \
     src/aap/session.cpp \

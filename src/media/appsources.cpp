@@ -3,6 +3,9 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
+#include <QFileInfo>
+#include <QRegExp>
+#include <algorithm>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -78,25 +81,116 @@ QVector<RadioStation> AppSources::sailwaveStations(QString *error)
     return out;
 }
 
-QStringList AppSources::sailcastFeeds(QString *error)
+QStringList AppSources::appFiles(const QString &hint, int max)
 {
     QStringList out;
-    const QString db = findLocalStorage(QStringLiteral("SailcastDatabase"));
-    if (db.isEmpty()) {
-        if (error) *error = QStringLiteral("Sailcast-Datenbank nicht gefunden");
-        return out;
+    const QString home = QDir::homePath();
+    for (const QString &base : {home + QStringLiteral("/.local/share"), home + QStringLiteral("/.config"), home + QStringLiteral("/.cache")}) {
+        QDirIterator it(base, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (it.hasNext() && out.size() < max) {
+            const QString f = it.next();
+            if (f.mid(base.size()).contains(hint, Qt::CaseInsensitive)) out << f;
+        }
     }
-    for (const QStringList &r : query(db, QStringLiteral("SELECT feed_url FROM subscriptions ORDER BY position"), 1, error))
-        if (!r[0].isEmpty()) out << r[0];
+    return out;
+}
+
+bool AppSources::sailcastInstalled()
+{
+    return QFile::exists(QStringLiteral("/usr/share/applications/harbour-sailcast.desktop"))
+        || !appFiles(QStringLiteral("sailcast"), 1).isEmpty();
+}
+
+namespace {
+bool isFeedUrl(const QString &v)
+{
+    return (v.startsWith(QLatin1String("http://")) || v.startsWith(QLatin1String("https://"))) && !v.contains(QLatin1Char(' '))
+        && !v.endsWith(QLatin1String(".mp3"), Qt::CaseInsensitive) && !v.endsWith(QLatin1String(".m4a"), Qt::CaseInsensitive)
+        && !v.endsWith(QLatin1String(".jpg"), Qt::CaseInsensitive) && !v.endsWith(QLatin1String(".png"), Qt::CaseInsensitive);
+}
+} // namespace
+
+QStringList AppSources::sailcastFeeds(QString *error, QString *where)
+{
+    // Known layout first: QML LocalStorage "SailcastDatabase", subscriptions(feed_url).
+    QStringList out;
+    const QString known = findLocalStorage(QStringLiteral("SailcastDatabase"));
+    if (!known.isEmpty()) {
+        for (const QStringList &r : query(known, QStringLiteral("SELECT feed_url FROM subscriptions ORDER BY position"), 1, nullptr))
+            if (isFeedUrl(r[0])) out << r[0];
+        if (!out.isEmpty()) {
+            if (where) *where = QFileInfo(known).fileName() + QStringLiteral(" subscriptions.feed_url");
+            return out;
+        }
+    }
+    // Otherwise: every SQLite database / JSON / OPML file of the app. In SQLite,
+    // tables that look like subscriptions (podcast, feed, subscr, channel, show)
+    // with a column holding http(s) URLs (feed, rss, url, link, href).
+    const QStringList files = appFiles(QStringLiteral("sailcast"));
+    QStringList seen;
+    for (const QString &f : files) {
+        QFile fh(f);
+        if (!fh.open(QIODevice::ReadOnly)) continue;
+        const QByteArray head = fh.read(16);
+        fh.close();
+        seen << QFileInfo(f).fileName();
+        if (head.startsWith("SQLite format 3")) {
+            QString err;
+            const QList<QStringList> tables = query(f, QStringLiteral("SELECT name FROM sqlite_master WHERE type='table'"), 1, &err);
+            for (const QStringList &t : tables) {
+                const QString tn = t[0];
+                if (QRegExp(QStringLiteral("podcast|feed|subscr|channel|show"), Qt::CaseInsensitive).indexIn(tn) < 0) continue;
+                if (QRegExp(QStringLiteral("episode|item|entry|download|chapter"), Qt::CaseInsensitive).indexIn(tn) >= 0) continue;
+                const QList<QStringList> cols = query(f, QStringLiteral("PRAGMA table_info(\"%1\")").arg(tn), 2, nullptr);
+                QStringList cand;
+                for (const QStringList &c : cols)
+                    if (QRegExp(QStringLiteral("feed|rss|url|link|href"), Qt::CaseInsensitive).indexIn(c[1]) >= 0
+                        && QRegExp(QStringLiteral("image|cover|art|logo|icon|web|site"), Qt::CaseInsensitive).indexIn(c[1]) < 0)
+                        cand << c[1];
+                // feed-ish names first
+                std::stable_sort(cand.begin(), cand.end(), [](const QString &x, const QString &y) {
+                    return x.contains(QLatin1String("feed"), Qt::CaseInsensitive) > y.contains(QLatin1String("feed"), Qt::CaseInsensitive);
+                });
+                for (const QString &col : cand) {
+                    QStringList urls;
+                    for (const QStringList &r : query(f, QStringLiteral("SELECT \"%1\" FROM \"%2\"").arg(col, tn), 1, nullptr))
+                        if (isFeedUrl(r[0]) && !urls.contains(r[0])) urls << r[0];
+                    if (!urls.isEmpty()) {
+                        if (where) *where = QStringLiteral("%1 %2.%3").arg(QFileInfo(f).fileName(), tn, col);
+                        return urls;
+                    }
+                }
+            }
+        } else if (f.endsWith(QLatin1String(".json"), Qt::CaseInsensitive) || f.endsWith(QLatin1String(".opml"), Qt::CaseInsensitive)
+                   || f.endsWith(QLatin1String(".xml"), Qt::CaseInsensitive)) {
+            if (QFileInfo(f).size() > 4 * 1024 * 1024 || !fh.open(QIODevice::ReadOnly)) continue;
+            const QString txt = QString::fromUtf8(fh.readAll());
+            // OPML xmlUrl="...", JSON "feed...": "..." / "url": "..."
+            QRegExp rx(QStringLiteral("(?:xmlUrl=\"|\"(?:feed[_a-zA-Z]*|rss[_a-zA-Z]*|url)\"\\s*:\\s*\")(https?://[^\"]+)\""));
+            QStringList urls;
+            for (int pos = 0; (pos = rx.indexIn(txt, pos)) >= 0; pos += rx.matchedLength()) {
+                const QString u = rx.cap(1).replace(QStringLiteral("\\/"), QStringLiteral("/"));
+                if (isFeedUrl(u) && !urls.contains(u)) urls << u;
+            }
+            if (!urls.isEmpty()) {
+                if (where) *where = QFileInfo(f).fileName();
+                return urls;
+            }
+        }
+    }
+    if (error)
+        *error = seen.isEmpty() ? QStringLiteral("keine Sailcast-Daten gefunden")
+                                : QStringLiteral("keine Abos in %1").arg(seen.mid(0, 6).join(QStringLiteral(", ")));
     return out;
 }
 
 void AppSources::loadPodcasts()
 {
     if (m_pending > 0) return;
-    QString err;
-    const QStringList feeds = sailcastFeeds(&err);
-    if (!err.isEmpty()) emit log(QStringLiteral("Podcasts: ") + err);
+    QString err, where;
+    const QStringList feeds = sailcastFeeds(&err, &where);
+    m_info = feeds.isEmpty() ? err : QStringLiteral("%1 Abos aus %2").arg(feeds.size()).arg(where);
+    emit log(QStringLiteral("Podcasts: ") + m_info);
     m_podcasts.clear();
     for (const QString &f : feeds) {
         Podcast p;

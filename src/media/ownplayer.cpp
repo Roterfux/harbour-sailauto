@@ -158,22 +158,70 @@ void OwnPlayer::playFiles(const QStringList &files, int index)
 void OwnPlayer::playEpisodes(const QStringList &urls, const QStringList &titles, int index,
                              const QString &podcast, const QString &imageUrl, const QList<int> &seconds)
 {
-    m_queueSeconds = seconds;
     if (index < 0 || index >= urls.size()) return;
-    m_isRadio = false;
+    m_queueSeconds = seconds;
     m_files = urls;
     m_titles = titles;
+    m_queueArtists.clear();
+    m_queueCovers.clear();
     m_queueAlbum = podcast;
     m_queueImage = imageUrl;
+    playIndex(index);
+}
+
+void OwnPlayer::playQueue(const QVector<QueueItem> &items, int index, const QString &album)
+{
+    if (index < 0 || index >= items.size()) return;
+    m_files.clear();
+    m_titles.clear();
+    m_queueArtists.clear();
+    m_queueCovers.clear();
+    m_queueSeconds.clear();
+    for (const QueueItem &it : items) {
+        m_files << it.uri;
+        m_titles << it.title;
+        m_queueArtists << (it.artist.isEmpty() ? QStringLiteral(" ") : it.artist); // non-empty marks a queue
+        m_queueCovers << it.cover;
+        m_queueSeconds << it.seconds;
+    }
+    m_queueAlbum = album;
+    m_queueImage.clear();
+    playIndex(index);
+}
+
+void OwnPlayer::resolved(int index, const QString &url)
+{
+    if (index != m_index || index < 0 || index >= m_files.size()) return;
+    if (url.isEmpty()) {
+        emit log(QStringLiteral("Player: Song %1 nicht abspielbar, nächster").arg(index + 1));
+        if (index + 1 < m_files.size()) playIndex(index + 1);
+        else { m_state = QStringLiteral("Stopped"); emit changed(); }
+        return;
+    }
+    m_files[index] = url;
+    startUri(url);
+}
+
+void OwnPlayer::playIndex(int index)
+{
+    if (index < 0 || index >= m_files.size()) return;
+    m_isRadio = false;
     m_index = index;
-    const QString item = urls[index];
-    const bool remote = item.startsWith(QLatin1String("http"));
-    m_artist.clear();
+    const QString item = m_files[index];
+    const bool remote = item.startsWith(QLatin1String("http")) || item.startsWith(QLatin1String("ytvid:"));
+    m_artist = m_queueArtists.value(index).trimmed();
     m_artFile.clear();
-    if (remote) {
-        m_title = titles.value(index, QUrl(item).fileName());
-        m_album = podcast;
-        if (!imageUrl.isEmpty()) fetchIcon(imageUrl);
+    if (!m_queueArtists.isEmpty()) {
+        const QFileInfo fi(item);
+        m_title = m_titles.value(index, remote ? QString() : fi.completeBaseName());
+        m_album = m_queueAlbum;
+        const QString cover = m_queueCovers.value(index);
+        if (cover.startsWith(QLatin1String("http"))) fetchIcon(cover, index);
+        else if (!cover.isEmpty() && QFile::exists(cover)) m_artFile = cover;
+    } else if (remote) {
+        m_title = m_titles.value(index, QUrl(item).fileName());
+        m_album = m_queueAlbum;
+        if (!m_queueImage.isEmpty()) fetchIcon(m_queueImage);
     } else {
         const QFileInfo fi(item);
         m_title = fi.completeBaseName();
@@ -181,8 +229,18 @@ void OwnPlayer::playEpisodes(const QStringList &urls, const QStringList &titles,
         for (const QString &c : {QStringLiteral("cover.jpg"), QStringLiteral("folder.jpg"), QStringLiteral("cover.png"), QStringLiteral("Cover.jpg")})
             if (QFile::exists(fi.dir().filePath(c))) { m_artFile = fi.dir().filePath(c); break; }
     }
-    emit log(QStringLiteral("Player: %1 %2 von %3").arg(remote ? QStringLiteral("Folge") : QStringLiteral("Datei"))
-                 .arg(index + 1).arg(urls.size()));
+    emit log(QStringLiteral("Player: %1 %2 von %3").arg(m_queueArtists.isEmpty() ? (remote ? QStringLiteral("Folge") : QStringLiteral("Datei"))
+                                                                                 : QStringLiteral("Song"))
+                 .arg(index + 1).arg(m_files.size()));
+    if (item.startsWith(QLatin1String("ytvid:"))) {
+        // stream address comes later (resolved); show the song meanwhile
+        if (m_pipe) gst_element_set_state(m_pipe, GST_STATE_NULL);
+        m_state = QStringLiteral("Playing");
+        m_durationMs = 0;
+        emit changed();
+        emit needUrl(index, item.mid(6));
+        return;
+    }
     startUri(remote ? item : QUrl::fromLocalFile(item).toString());
 }
 
@@ -223,7 +281,7 @@ void OwnPlayer::stop()
 
 void OwnPlayer::next()
 {
-    if (!m_isRadio && m_index + 1 < m_files.size()) playEpisodes(m_files, m_titles, m_index + 1, m_queueAlbum, m_queueImage, m_queueSeconds);
+    if (!m_isRadio && m_index + 1 < m_files.size()) playIndex(m_index + 1);
     else if (m_isRadio) { // next favorite
         const QVector<RadioStation> fav = favorites();
         for (int i = 0; i < fav.size(); ++i)
@@ -236,7 +294,7 @@ void OwnPlayer::previous()
 {
     if (!m_isRadio) {
         if (positionMs() > 3000 || m_index == 0) setPosition(0);
-        else playEpisodes(m_files, m_titles, m_index - 1, m_queueAlbum, m_queueImage, m_queueSeconds);
+        else playIndex(m_index - 1);
     } else {
         const QVector<RadioStation> fav = favorites();
         for (int i = 0; i < fav.size(); ++i)
@@ -291,7 +349,7 @@ void OwnPlayer::pollBus()
         switch (GST_MESSAGE_TYPE(msg)) {
         case GST_MESSAGE_EOS:
             if (!m_isRadio && m_index + 1 < m_files.size())
-                playEpisodes(m_files, m_titles, m_index + 1, m_queueAlbum, m_queueImage, m_queueSeconds);
+                playIndex(m_index + 1);
             else { m_state = QStringLiteral("Stopped"); emit changed(); }
             break;
         case GST_MESSAGE_ERROR: {
@@ -349,19 +407,20 @@ void OwnPlayer::pollBus()
     }
 }
 
-void OwnPlayer::fetchIcon(const QString &url)
+void OwnPlayer::fetchIcon(const QString &url, int forIndex)
 {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/radio");
     QDir().mkpath(dir);
     const QString file = dir + QLatin1Char('/') + QString::fromLatin1(QCryptographicHash::hash(url.toUtf8(), QCryptographicHash::Md5).toHex());
     if (QFile::exists(file)) { m_artFile = file; return; }
     QNetworkReply *r = m_net->get(QNetworkRequest(QUrl(url)));
-    connect(r, &QNetworkReply::finished, this, [this, r, file]() {
+    connect(r, &QNetworkReply::finished, this, [this, r, file, forIndex]() {
         r->deleteLater();
         if (r->error() != QNetworkReply::NoError) return;
         QFile f(file);
         if (f.open(QIODevice::WriteOnly)) f.write(r->readAll());
         f.close();
+        if (forIndex >= 0 && forIndex != m_index) return; // song changed meanwhile
         m_artFile = file;
         emit changed();
     });

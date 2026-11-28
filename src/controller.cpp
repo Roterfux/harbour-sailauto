@@ -200,9 +200,20 @@ Controller::Controller(QObject *parent) : QObject(parent)
         showItems(m_items, false);
     });
     connect(&m_screen, &CarScreen::radioSearch, this, [this](const QString &t) {
+        if (m_kbForTuneBridge) {
+            m_kbForTuneBridge = false;
+            const QVector<TuneBridgeSource::Track> found = m_tb.search(t);
+            appendLog(QStringLiteral("TuneBridge: Suche \"%1\": %2 Songs").arg(t).arg(found.size()));
+            showTuneBridgeSongs(found, QStringLiteral("Suche: ") + t,
+                                QStringLiteral("Nichts gefunden (gesucht wird in Songs, die TuneBridge kennt)"));
+            return;
+        }
         showItems({{QStringLiteral("none"), QString(), QStringLiteral("Suche läuft"), QString()}}, true);
         m_own.searchStations(t);
     });
+    connect(&m_own, &OwnPlayer::needUrl, &m_tb, &TuneBridgeSource::resolve);
+    connect(&m_tb, &TuneBridgeSource::urlReady, &m_own, &OwnPlayer::resolved);
+    connect(&m_tb, &TuneBridgeSource::log, this, &Controller::appendLog);
     connect(&m_own, &OwnPlayer::log, this, &Controller::appendLog);
     connect(&m_appSources, &AppSources::log, this, &Controller::appendLog);
     connect(&m_appSources, &AppSources::podcastsLoaded, this, [this]() {
@@ -214,7 +225,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
                                                        .arg(pcs[k].episodes.isEmpty() || pcs[k].episodes.first().duration.isEmpty() ? QString()
                                                             : QStringLiteral(" · neueste %1").arg(pcs[k].episodes.first().duration))
                                                  : pcs[k].error});
-        if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Abos in Sailcast"), QString()});
+        if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Abos in Sailcast gefunden"), m_appSources.lastInfo()});
         m_items = items;
         showItems(items, false);
     });
@@ -1038,10 +1049,47 @@ void Controller::showItems(const QVector<BrowseItem> &items, bool push)
         {QStringLiteral("podcast"), QStringLiteral("podcast")}, {QStringLiteral("episode"), QStringLiteral("podcast")},
         {QStringLiteral("switchapp"), QStringLiteral("apps")}, {QStringLiteral("quitapp"), QStringLiteral("close")},
         {QStringLiteral("fav"), QStringLiteral("star")}, {QStringLiteral("mprislists"), QStringLiteral("playlist")},
-        {QStringLiteral("mprisitem"), QStringLiteral("playlist")}};
-    for (const BrowseItem &b : items)
-        list.append({b.title, b.sub, false, icons.value(b.kind)});
+        {QStringLiteral("mprisitem"), QStringLiteral("playlist")}, {QStringLiteral("tblists"), QStringLiteral("playlist")},
+        {QStringLiteral("tblist"), QStringLiteral("playlist")}, {QStringLiteral("tbsearch"), QStringLiteral("search")},
+        {QStringLiteral("tbtrack"), QStringLiteral("note")}, {QStringLiteral("tbplayall"), QStringLiteral("play")}};
+    for (const BrowseItem &b : items) {
+        CarScreen::ListItem li{b.title, b.sub, false, icons.value(b.kind)};
+        if (b.kind == QLatin1String("switchapp") || b.kind == QLatin1String("quitapp")) {
+            li.tile = true; // small icon in the app strip
+            const AppEntry *a = b.kind == QLatin1String("switchapp") ? m_apps.find(b.value) : nullptr;
+            if (a && !a->iconPath.isEmpty()) li.image.load(a->iconPath);
+        }
+        list.append(li);
+    }
     m_screen.setMusicList(list);
+}
+
+void Controller::showTuneBridgeSongs(const QVector<TuneBridgeSource::Track> &tracks, const QString &name, const QString &note)
+{
+    QVector<TuneBridgeSource::Track> ok;
+    int skipped = 0;
+    for (const TuneBridgeSource::Track &t : tracks) {
+        if (m_tb.playable(t)) ok.append(t);
+        else ++skipped;
+    }
+    m_tbQueue = m_tb.queue(ok);
+    m_tbListName = name;
+    QVector<BrowseItem> items;
+    if (m_tbQueue.size() > 1)
+        items.append({QStringLiteral("tbplayall"), QString(), QStringLiteral("Alle abspielen"), QStringLiteral("%1 Songs").arg(m_tbQueue.size())});
+    for (int k = 0; k < m_tbQueue.size(); ++k) {
+        const QueueItem &q = m_tbQueue[k];
+        const int m = q.seconds / 60, sec = q.seconds % 60;
+        QString sub = q.artist;
+        if (q.seconds > 0) sub += QStringLiteral(" · %1:%2").arg(m).arg(sec, 2, 10, QLatin1Char('0'));
+        if (!q.uri.startsWith(QLatin1String("ytvid:"))) sub += QStringLiteral(" · auf dem Telefon");
+        items.append({QStringLiteral("tbtrack"), QString::number(k), q.title, sub});
+    }
+    if (skipped)
+        items.append({QStringLiteral("none"), QString(), (skipped == 1 ? QStringLiteral("1 Song nur in TuneBridge") : QStringLiteral("%1 Songs nur in TuneBridge").arg(skipped)),
+                      QStringLiteral("noch ohne YouTube-Treffer")});
+    if (items.isEmpty()) items.append({QStringLiteral("none"), QString(), note, QString()});
+    showItems(items, true);
 }
 
 void Controller::showBrowseRoot()
@@ -1055,35 +1103,57 @@ void Controller::showBrowseRoot()
                      QString()});
     // Switch app: end the current one, start/show another
     if (m_mpris.hasPlayer())
-        root.append({QStringLiteral("quitapp"), QString(), QStringLiteral("„%1“ beenden").arg(m_mpris.playerName()), QStringLiteral("App schließen")});
+        root.append({QStringLiteral("quitapp"), QString(), QStringLiteral("Beenden"), QString()});
     for (const AppEntry &a : m_apps.selected()) {
         if (!a.media || a.id == QLatin1String("harbour-sailauto") || a.id == m_mpris.currentDesktopEntry()) continue;
-        root.append({QStringLiteral("switchapp"), a.id, QStringLiteral("Wechseln zu ") + a.name,
-                     m_apps.isRunning(a) ? QStringLiteral("läuft") : QStringLiteral("starten")});
+        root.append({QStringLiteral("switchapp"), a.id, a.name, QString()});
     }
+    // The playing app's own lists first, then the other apps', music files, radio.
+    const QString cur = m_mpris.currentDesktopEntry() + QLatin1Char(' ') + m_mpris.playerName();
+    QVector<BrowseItem> mine, others;
+    auto add = [&](const BrowseItem &b, const QString &app) {
+        (cur.contains(app, Qt::CaseInsensitive) ? mine : others).append(b);
+    };
+    if (m_mpris.hasPlayer() && !m_mpris.playerName().contains(QStringLiteral("SailAuto"))) {
+        QString info;
+        m_browse = m_mpris.browse(&info);
+        appendLog(QStringLiteral("Musik: Liste – ") + info);
+        if (!m_browse.isEmpty())
+            mine.append({QStringLiteral("mprislists"), QString(), QStringLiteral("Listen von ") + m_mpris.playerName(),
+                         QStringLiteral("%1 Einträge").arg(m_browse.size())});
+    }
+    if (!AppSources::findLocalStorage(QStringLiteral("sailwave")).isEmpty())
+        add({QStringLiteral("sailwave"), QString(), QStringLiteral("SailWave: Sender"), QStringLiteral("deine Sender aus SailWave")},
+            QStringLiteral("sailwave"));
+    if (TuneBridgeSource::installed()) {
+        const bool parked = m_drivingStatus == 0 || m_gear == 101;
+        const BrowseItem search{QStringLiteral("tbsearch"), QString(), QStringLiteral("TuneBridge: Suchen"),
+                                parked ? QStringLiteral("in deinen Songs") : QStringLiteral("nur im Stand")};
+        if (cur.contains(QLatin1String("tunebridge"), Qt::CaseInsensitive)) {
+            // TuneBridge plays: its lists right here
+            mine.append(search);
+            for (const TuneBridgeSource::Entry &e : m_tb.lists())
+                mine.append({QStringLiteral("tblist"), e.kind + QLatin1Char('\n') + e.id, e.name, e.sub});
+        } else {
+            others.append({QStringLiteral("tblists"), QString(), QStringLiteral("TuneBridge: Listen"),
+                           QStringLiteral("Playlists, Favoriten, auf dem Telefon")});
+            others.append(search);
+        }
+    }
+    if (AppSources::sailcastInstalled())
+        add({QStringLiteral("sailcast"), QString(), QStringLiteral("Sailcast: Podcasts"), QStringLiteral("deine Abos mit Folgen")},
+            QStringLiteral("sailcast"));
+    root += mine;
+    root += others;
+    for (const QString &r : OwnPlayer::musicRoots())
+        root.append({QStringLiteral("folder"), r, QStringLiteral("Musik: ") + QFileInfo(r).fileName(),
+                     r.startsWith(QStringLiteral("/run/media")) ? QStringLiteral("Speicherkarte") : QStringLiteral("Telefon")});
     root.append({QStringLiteral("favs"), QString(), QStringLiteral("Radio: Favoriten"), QStringLiteral("%1 Sender").arg(m_own.favorites().size())});
     const QString cc = QLocale().name().section(QLatin1Char('_'), 1, 1);
     root.append({QStringLiteral("top"), cc.isEmpty() ? QStringLiteral("DE") : cc, QStringLiteral("Radio: Beliebt"),
                  QStringLiteral("meistgehörte Sender (%1)").arg(cc.isEmpty() ? QStringLiteral("DE") : cc)});
     root.append({QStringLiteral("rsearch"), QString(), QStringLiteral("Radio suchen"),
                  m_drivingStatus == 0 || m_gear == 101 ? QStringLiteral("Tastatur") : QStringLiteral("nur im Stand")});
-    // Other apps' own lists (read from their databases)
-    if (!AppSources::findLocalStorage(QStringLiteral("sailwave")).isEmpty())
-        root.append({QStringLiteral("sailwave"), QString(), QStringLiteral("SailWave: Sender"), QStringLiteral("deine Sender aus SailWave")});
-    if (!AppSources::findLocalStorage(QStringLiteral("SailcastDatabase")).isEmpty())
-        root.append({QStringLiteral("sailcast"), QString(), QStringLiteral("Sailcast: Podcasts"), QStringLiteral("deine Abos mit Folgen")});
-    for (const QString &r : OwnPlayer::musicRoots())
-        root.append({QStringLiteral("folder"), r, QStringLiteral("Musik: ") + QFileInfo(r).fileName(),
-                     r.startsWith(QStringLiteral("/run/media")) ? QStringLiteral("Speicherkarte") : QStringLiteral("Telefon")});
-    // Lists of the current player, if it offers some
-    if (m_mpris.hasPlayer() && !m_mpris.playerName().contains(QStringLiteral("SailAuto"))) {
-        QString info;
-        m_browse = m_mpris.browse(&info);
-        appendLog(QStringLiteral("Musik: Liste – ") + info);
-        if (!m_browse.isEmpty())
-            root.append({QStringLiteral("mprislists"), QString(), QStringLiteral("Listen von ") + m_mpris.playerName(),
-                         QStringLiteral("%1 Einträge").arg(m_browse.size())});
-    }
     showItems(root, false);
 }
 
@@ -1211,6 +1281,35 @@ void Controller::onBrowsePick(int i)
         for (int k = 0; k < m_browse.size(); ++k)
             items.append({QStringLiteral("mprisitem"), QString::number(k), m_browse[k].title, m_browse[k].sub});
         showItems(items, true);
+    } else if (b.kind == QLatin1String("tblists")) {
+        QVector<BrowseItem> items;
+        for (const TuneBridgeSource::Entry &e : m_tb.lists())
+            items.append({QStringLiteral("tblist"), e.kind + QLatin1Char('\n') + e.id, e.name, e.sub});
+        if (items.isEmpty())
+            items.append({QStringLiteral("none"), QString(), QStringLiteral("Keine Listen gefunden"), QStringLiteral("TuneBridge einmal öffnen")});
+        showItems(items, true);
+    } else if (b.kind == QLatin1String("tblist")) {
+        QString note;
+        const QVector<TuneBridgeSource::Track> tracks = m_tb.tracks(b.value.section(QLatin1Char('\n'), 0, 0),
+                                                                     b.value.section(QLatin1Char('\n'), 1), &note);
+        showTuneBridgeSongs(tracks, b.title, note.isEmpty() ? QStringLiteral("Liste ist leer") : note);
+    } else if (b.kind == QLatin1String("tbsearch")) {
+        if (!(m_drivingStatus == 0 || m_gear == 101)) {
+            m_screen.showNotification(QStringLiteral("TuneBridge"), QStringLiteral("Suchen nur im Stand"), QStringLiteral("Gang P einlegen"));
+            showItems(m_items, false);
+            return;
+        }
+        m_kbForTuneBridge = true;
+        m_screen.openMusicKeyboard(QStringLiteral("Titel oder Künstler"));
+    } else if (b.kind == QLatin1String("tbtrack") || b.kind == QLatin1String("tbplayall")) {
+        const int k = b.kind == QLatin1String("tbplayall") ? 0 : b.value.toInt();
+        if (k >= 0 && k < m_tbQueue.size()) {
+            if (m_mpris.playing() && !m_mpris.playerName().contains(QStringLiteral("SailAuto"))) m_mpris.pause();
+            m_mpris.setPreferred(QStringLiteral("harbour-sailauto"));
+            m_own.playQueue(m_tbQueue, k, m_tbListName);
+            appendLog(QStringLiteral("TuneBridge: spiele \"%1\" (%2 von %3)").arg(m_tbQueue[k].title).arg(k + 1).arg(m_tbQueue.size()));
+        }
+        m_screen.closeMusicList();
     } else if (b.kind == QLatin1String("mprisitem")) {
         const int k = b.value.toInt();
         if (k >= 0 && k < m_browse.size()) m_mpris.activate(m_browse[k]);

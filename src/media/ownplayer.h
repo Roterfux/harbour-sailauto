@@ -21,6 +21,13 @@ struct RadioStation {
     QString name, url, favicon, info; // info: country, tags, bitrate
 };
 
+// One song of a queue. uri: file path, http(s) URL, or "ytvid:<id>" (the
+// stream URL is asked for with needUrl() when the song comes up).
+struct QueueItem {
+    QString uri, title, artist, cover; // cover: local file or URL
+    int seconds = 0;
+};
+
 class OwnPlayer : public QObject
 {
     Q_OBJECT
@@ -45,6 +52,11 @@ public:
     void playEpisodes(const QStringList &urls, const QStringList &titles, int index,
                       const QString &podcast, const QString &imageUrl, const QList<int> &seconds = QList<int>());
 
+    // Songs from another app's lists (TuneBridge), next/previous within them
+    void playQueue(const QVector<QueueItem> &items, int index, const QString &album);
+    void resolved(int index, const QString &url); // answer to needUrl; empty url = skip
+    bool playingQueue() const { return !m_queueArtists.isEmpty(); }
+
     // Transport (also via MPRIS)
     void play();
     void pause();
@@ -64,11 +76,13 @@ signals:
     void stationsFound(const QVector<RadioStation> &stations, const QString &error);
     void changed();
     void log(const QString &line);
+    void needUrl(int index, const QString &videoId);
 
 private:
+    void playIndex(int index);
     void startUri(const QString &uri);
     void pollBus();
-    void fetchIcon(const QString &url);
+    void fetchIcon(const QString &url, int forIndex = -1);
 
     GstElement *m_pipe = nullptr;
     QTimer m_busTimer;
@@ -79,6 +93,7 @@ private:
     QStringList m_titles;        // episode titles (empty for files)
     QString m_queueAlbum, m_queueImage;
     QList<int> m_queueSeconds;   // length from the feed, until GStreamer knows it
+    QStringList m_queueArtists, m_queueCovers; // per song (playQueue only)
     int m_index = -1;
     QString m_title, m_artist, m_album, m_artFile;
     QString m_state = QStringLiteral("Stopped");
