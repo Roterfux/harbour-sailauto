@@ -11,6 +11,7 @@
 #include <QStringList>
 #include <QTimer>
 
+#include "droidmediaenc.h"
 #include "openh264enc.h"
 #include "pcmh264.h"
 
@@ -25,11 +26,13 @@ public:
 
     bool start(int width, int height, int fps, int bitrateKbps, QString *error);
     void stop();
-    bool running() const { return m_pipeline != nullptr || m_builtin || m_oh.running(); }
+    bool running() const { return m_pipeline != nullptr || m_builtin || m_oh.running() || m_dm.running(); }
     QString encoderName() const { return m_encoderName; }
 
     // Frames in flight inside the encoder (pushed, not yet out).
-    int pending() const { return m_pending; }
+    int pending() const { return m_dm.running() ? m_dm.pending() : m_pending; }
+    // Phone's hardware encoder (droidmedia) first; off = software only
+    static void setHardwareAllowed(bool on);
     void push(const QImage &frame, quint64 timestampUs);
 
 signals:
@@ -65,4 +68,10 @@ private:
     OpenH264Encoder m_oh;
     int m_ohFrames = 0;
     QTimer m_busTimer;
+    // Hardware path (droidmedia), watched: no picture within 4 s -> software
+    DroidMediaEncoder m_dm;
+    QTimer m_dmWatch;
+    bool startDroidMedia();
+    void dropToSoftware(const QString &why);
+    void emitAccessUnit(const QByteArray &data, quint64 timestampUs);
 };

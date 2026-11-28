@@ -138,6 +138,13 @@ Page {
                 onCheckedChanged: controller.setSetting("power/save", checked)
             }
             TextSwitch {
+                text: qsTr("Hardware-Videokodierer")
+                description: qsTr("Bild fürs Auto mit dem Video-Chip des Telefons kodieren (droidmedia): spart viel Akku. "
+                                  + "Klappt es nicht, nimmt SailAuto Software und versucht es nicht noch einmal (Protokoll).")
+                checked: controller.setting("video/hw", true)
+                onCheckedChanged: controller.setSetting("video/hw", checked)
+            }
+            TextSwitch {
                 text: qsTr("Mit der GPU zeichnen")
                 description: qsTr("Bildschirm und Karte über OpenGL: weniger Last für den Prozessor. Geht es nicht, "
                                   + "nimmt SailAuto von selbst die CPU (steht im Protokoll).")

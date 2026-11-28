@@ -8,6 +8,7 @@ include(third_party/openh264/openh264.pri)
 APP_VERSION = $$system(sed -n \'s/^Version:[[:space:]]*//p\' $$PWD/rpm/harbour-sailauto.spec)
 isEmpty(APP_VERSION): APP_VERSION = dev
 DEFINES += APP_VERSION=\\\"$$APP_VERSION\\\"
+LIBS += -ldl
 PKGCONFIG += openssl gstreamer-1.0 gstreamer-app-1.0 gstreamer-pbutils-1.0 libpulse dbus-1 zlib
 # Caller name/photo from the address book (Sailfish: qtcontacts-sqlite)
 packagesExist(Qt5Contacts) {
@@ -53,6 +54,7 @@ desktop {
 }
 
 HEADERS += \
+    src/video/droidmediaenc.h \
     src/nav/speedlimit.h \
     src/nav/traffic.h \
     src/media/tunebridge.h \
@@ -86,6 +88,7 @@ HEADERS += \
     src/controller.h
 
 SOURCES += \
+    src/video/droidmediaenc.cpp \
     src/nav/speedlimit.cpp \
     src/nav/traffic.cpp \
     src/media/tunebridge.cpp \

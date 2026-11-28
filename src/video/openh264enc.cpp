@@ -33,17 +33,22 @@ bool OpenH264Encoder::start(int width, int height, int fps, int bitrateKbps, QSt
     p.iTemporalLayerNum = 1;
     p.iSpatialLayerNum = 1;
     p.bEnableFrameSkip = false;      // pacing is done by the HU's acks
-    p.uiIntraPeriod = static_cast<unsigned int>(fps * 2);
+    // Keyframes are big: one every ~10 s is enough over lossless USB (plus on request)
+    p.uiIntraPeriod = static_cast<unsigned int>(fps * 10);
     p.eSpsPpsIdStrategy = CONSTANT_ID;
     p.bPrefixNalAddingCtrl = false;
     p.iEntropyCodingModeFlag = 0;    // CAVLC, Baseline
-    p.iMultipleThreadIdc = 2;
+    p.iMultipleThreadIdc = 1;       // one slice: threads would only cost
     p.iComplexityMode = LOW_COMPLEXITY;
     p.bEnableDenoise = false;
     p.bEnableBackgroundDetection = true;
     p.bEnableAdaptiveQuant = false;
     p.bEnableLongTermReference = false;
     p.iLoopFilterDisableIdc = 0;
+    // UI pictures: do not spend bits below QP 18 (no visible gain), never go
+    // above 40 (text and street names stay readable when the map moves)
+    p.iMinQp = 18;
+    p.iMaxQp = 40;
 
     SSpatialLayerConfig &l = p.sSpatialLayers[0];
     l.iVideoWidth = m_width;
@@ -93,17 +98,19 @@ void OpenH264Encoder::toI420(const QImage &src)
         quint8 *u = m_u.data() + (y / 2) * cw;
         quint8 *v = m_v.data() + (y / 2) * cw;
         for (int x = 0; x < w; x += 2) {
-            const QRgb px[4] = {r0[x], r0[x + 1], r1[x], r1[x + 1]};
-            quint8 *dst[4] = {y0 + x, y0 + x + 1, y1 + x, y1 + x + 1};
-            int su = 0, sv = 0;
-            for (int i = 0; i < 4; ++i) {
-                const int R = qRed(px[i]), G = qGreen(px[i]), B = qBlue(px[i]);
-                *dst[i] = static_cast<quint8>(((66 * R + 129 * G + 25 * B + 128) >> 8) + 16);
-                su += ((-38 * R - 74 * G + 112 * B + 128) >> 8) + 128;
-                sv += ((112 * R - 94 * G - 18 * B + 128) >> 8) + 128;
-            }
-            u[x / 2] = static_cast<quint8>(su / 4);
-            v[x / 2] = static_cast<quint8>(sv / 4);
+            // luma of the 4 pixels, chroma from their sum (one multiply set instead of four)
+            const QRgb a = r0[x], b = r0[x + 1], c = r1[x], d = r1[x + 1];
+            const int Ra = (a >> 16) & 0xff, Ga = (a >> 8) & 0xff, Ba = a & 0xff;
+            const int Rb = (b >> 16) & 0xff, Gb = (b >> 8) & 0xff, Bb = b & 0xff;
+            const int Rc = (c >> 16) & 0xff, Gc = (c >> 8) & 0xff, Bc = c & 0xff;
+            const int Rd = (d >> 16) & 0xff, Gd = (d >> 8) & 0xff, Bd = d & 0xff;
+            y0[x] = static_cast<quint8>(((66 * Ra + 129 * Ga + 25 * Ba + 128) >> 8) + 16);
+            y0[x + 1] = static_cast<quint8>(((66 * Rb + 129 * Gb + 25 * Bb + 128) >> 8) + 16);
+            y1[x] = static_cast<quint8>(((66 * Rc + 129 * Gc + 25 * Bc + 128) >> 8) + 16);
+            y1[x + 1] = static_cast<quint8>(((66 * Rd + 129 * Gd + 25 * Bd + 128) >> 8) + 16);
+            const int R = Ra + Rb + Rc + Rd, G = Ga + Gb + Gc + Gd, B = Ba + Bb + Bc + Bd; // 4x
+            u[x / 2] = static_cast<quint8>(((-38 * R - 74 * G + 112 * B + 512) >> 10) + 128);
+            v[x / 2] = static_cast<quint8>(((112 * R - 94 * G - 18 * B + 512) >> 10) + 128);
         }
     }
 }

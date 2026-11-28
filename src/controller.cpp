@@ -1072,6 +1072,7 @@ void Controller::applySettings()
     m_powerSave = st.value(QStringLiteral("power/save"), true).toBool();
     m_screen.setTheme(st.value(QStringLiteral("ui/theme"), 0).toInt());
     m_screen.setGpu(st.value(QStringLiteral("ui/gpu"), true).toBool());
+    H264Encoder::setHardwareAllowed(st.value(QStringLiteral("video/hw"), true).toBool());
     m_traffic.setKey(st.value(QStringLiteral("traffic/key")).toString());
 }
 
@@ -1857,7 +1858,8 @@ void Controller::onSessionState(aap::Session::State s)
 void Controller::onVideoStart(const aap::VideoConfig &cfg)
 {
     m_screen.setGeometry(cfg.width, cfg.height, cfg.marginWidth, cfg.marginHeight);
-    const int kbps = cfg.height >= 1080 ? 8000 : cfg.height >= 720 ? 4000 : 2000;
+    // A bit more than before: the moving map stays sharp (USB has plenty of room)
+    const int kbps = cfg.height >= 1080 ? 9000 : cfg.height >= 720 ? 5000 : 3000;
     QString err;
     if (!m_encoder.start(cfg.width, cfg.height, cfg.fps, kbps, &err)) {
         appendLog(err);

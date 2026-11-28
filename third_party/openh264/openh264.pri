@@ -1,4 +1,4 @@
-# openh264 v2.4.1 encoder (BSD-2-Clause, see LICENSE), built statically into the app.
+# openh264 v2.7.0 encoder (BSD-2-Clause, see LICENSE), built statically into the app.
 # Generated from codec/*/targets.mk. Only encoder + processing + common.
 INCLUDEPATH += \
     $$PWD/codec/api/wels \

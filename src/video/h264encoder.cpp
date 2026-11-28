@@ -57,6 +57,25 @@ H264Encoder::H264Encoder(QObject *parent) : QObject(parent)
         gst_init(nullptr, nullptr);
     m_busTimer.setInterval(500);
     connect(&m_busTimer, &QTimer::timeout, this, &H264Encoder::pollBus);
+    m_dmWatch.setSingleShot(true);
+    connect(&m_dmWatch, &QTimer::timeout, this, [this]() {
+        if (m_dm.running() && !m_gotSample) dropToSoftware(QStringLiteral("kein Bild nach 4 s"));
+    });
+    connect(&m_dm, &DroidMediaEncoder::failed, this, [this](const QString &why) { dropToSoftware(why); });
+    connect(&m_dm, &DroidMediaEncoder::output, this, [this](const QByteArray &data, quint64 ts, bool config) {
+        if (!m_dm.running()) return;
+        m_dm.confirmWorking();          // works: no crash marker any more
+        m_dmWatch.stop();
+        if (config) {                    // SPS/PPS from Android as its own buffer
+            if (!m_sentConfig) {
+                m_sentConfig = true;
+                m_gotSample = true;
+                emit encoded(data, ts, true);
+            }
+            return;
+        }
+        emitAccessUnit(data, ts);
+    });
 }
 
 H264Encoder::~H264Encoder()
@@ -74,10 +93,46 @@ bool H264Encoder::start(int width, int height, int fps, int bitrateKbps, QString
     return tryFrom(0, error);
 }
 
+namespace { bool s_hwAllowed = true; }
+
+void H264Encoder::setHardwareAllowed(bool on) { s_hwAllowed = on; }
+
+bool H264Encoder::startDroidMedia()
+{
+    QString why;
+    if (!DroidMediaEncoder::available(&why)) {
+        qInfo("[enc] droidmedia: %s", qPrintable(why));
+        m_errors << QStringLiteral("Hardware: ") + why;
+        return false;
+    }
+    if (!m_dm.start(m_width, m_height, m_fps, m_kbps, &why)) {
+        qWarning("[enc] droidmedia: %s", qPrintable(why));
+        m_errors << QStringLiteral("Hardware: ") + why;
+        return false;
+    }
+    m_pending = 0;
+    m_sentConfig = false;
+    m_gotSample = false;
+    m_encoderName = m_dm.description();
+    m_dmWatch.start(4000);
+    return true;
+}
+
+void H264Encoder::dropToSoftware(const QString &why)
+{
+    m_dmWatch.stop();
+    if (!m_dm.running()) return;
+    m_dm.stop();
+    emit error(QStringLiteral("Hardware-Encoder: %1, nehme Software").arg(why));
+    if (startOpenH264() || startBuiltin()) emit restarted(m_encoderName);
+}
+
 bool H264Encoder::tryFrom(int index, QString *error)
 {
     stop();
     const QByteArray custom = qgetenv("SAILAUTO_ENCODER");
+    if (index == 0 && (custom == "droidmedia" || (custom.isEmpty() && s_hwAllowed)) && startDroidMedia())
+        return true;
     if (custom == "builtin")
         return index == 0 && startBuiltin();
     if (custom == "openh264")
@@ -195,6 +250,8 @@ bool H264Encoder::launch(const QString &enc, const QString &name, QString *error
 
 void H264Encoder::stop()
 {
+    m_dmWatch.stop();
+    m_dm.stop();
     m_builtin = false;
     m_oh.stop();
     m_busTimer.stop();
@@ -209,6 +266,10 @@ void H264Encoder::stop()
 
 void H264Encoder::push(const QImage &frame, quint64 timestampUs)
 {
+    if (m_dm.running()) {
+        m_dm.encode(frame, timestampUs);
+        return;
+    }
     if (m_oh.running()) {
         const QByteArray au = m_oh.encode(frame, timestampUs, m_ohFrames++ == 0);
         if (!au.isEmpty()) {
@@ -260,6 +321,11 @@ void H264Encoder::onSample(const QByteArray &data, quint64 timestampUs)
 {
     if (!m_pipeline && !m_oh.running()) return;
     m_pending = qMax(0, m_pending - 1);
+    emitAccessUnit(data, timestampUs);
+}
+
+void H264Encoder::emitAccessUnit(const QByteArray &data, quint64 timestampUs)
+{
     m_gotSample = true;
 
     // Android phones send SPS/PPS once as a separate "codec config" message

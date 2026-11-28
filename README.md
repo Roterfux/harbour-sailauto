@@ -356,8 +356,17 @@ Bildschirm und Karte werden über OpenGL gezeichnet (Framebuffer mit
 Kantenglättung, Karte direkt auf der GPU, die Kartentextur bleibt dort). Die
 ersten Bilder werden geprüft; stimmt etwas nicht oder fehlt OpenGL, zeichnet
 SailAuto von selbst mit der CPU (Protokoll: „Grafik: …“). Schalter in den
-Einstellungen. Hardware-H.264: `droidvenc` (gst-droid) nimmt auf dem Xperia 10
-III nur Kamera-Puffer, kodiert wird deshalb weiter mit openh264.
+Einstellungen.
+
+Video-Kodierer (ab 0.25.0): zuerst der Hardware-Kodierer des Telefons direkt
+über libdroidmedia (per libhybris geladen, YUV-Bilder statt Kamera-Puffer; der
+Aufbau der Android-Strukturen richtet sich nach der installierten
+droidmedia-Version). Kommt nach 4 s kein Bild oder meldet er einen Fehler, geht
+es mit Software weiter. Stürzt die App dabei ab, bleibt eine Markierung
+(`~/.cache/harbour-sailauto/harbour-sailauto/hwenc-trying`) und beim nächsten
+Start wird gleich Software genommen. Software: openh264 v2.7.0 (NEON,
+Bildschirm-Modus, Keyframe alle ~10 s, QP 18–40, 3 Mbit/s bei 800×480).
+Schalter „Hardware-Videokodierer“.
 
 ## Stromsparen (ab 0.18.1)
 
@@ -519,6 +528,6 @@ GPLv3 (Protokollwissen aus aasdk/OpenAuto, beide GPLv3).
 
 ## Fremdcode / Lizenzen
 
-- openh264 (BSD-2-Clause), `third_party/openh264`
+- openh264 v2.7.0 (BSD-2-Clause), `third_party/openh264`
 - Kachel-Symbole im Auto: Material Design Icons (Apache License 2.0)
 - Karte: © OpenStreetMap-Mitwirkende (ODbL), © OpenMapTiles (Vektorschema); Vektorkacheln von OSM Scout Server oder OpenFreeMap, Bildkacheln von openstreetmap.org, Ortsnamen dort über Overpass; Routen: Valhalla (OSM Scout Server / FOSSGIS); Verkehrsmeldungen: TomTom (eigener Schlüssel)
