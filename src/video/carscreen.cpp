@@ -10,6 +10,7 @@
 
 
 static void drawTileIcon(QPainter &p, const QRectF &r, int page, const QColor &col);
+static void drawMdi(QPainter &p, const QRectF &r, const QString &name, const QColor &col);
 
 // Text never gets cut with "…": shrink the font (down to ~55 %), and wrap
 // onto a second line when the rect is tall enough.
@@ -793,37 +794,49 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         m_navButtons.append({r, kind, QString()});
     };
     if (m_nav.running) {
-        // Turn card top left: icon, distance, street
-        const int is = bar * 2;
-        const QRect cardR(area.left() + 10, area.top() + 10, qMin(area.width() / 2, is + bar * 6), is + bar / 2);
+        // Two cards of the same size: turn (top left), destination (bottom left)
+        const QSize cs(area.width() * 2 / 5, bar * 3 / 2);
+        const QRect cardR(area.left() + 10, area.top() + 10, cs.width(), cs.height());
+        const QRect strip(area.left() + 10, area.bottom() - cs.height() - 10, cs.width(), cs.height());
         p.setPen(Qt::NoPen);
         p.setBrush(card);
         p.drawRoundedRect(cardR, 14, 14);
-        drawManeuver(p, QRect(cardR.left() + 8, cardR.top() + bar / 4, is, is), false);
+        p.drawRoundedRect(strip, 14, 14);
+        const int is = cs.height() - 16;
+        drawManeuver(p, QRect(cardR.left() + 8, cardR.top() + 8, is, is), false);
         const QRect tr(cardR.left() + is + 18, cardR.top() + 6, cardR.width() - is - 26, cardR.height() - 12);
-        f.setPixelSize(bar * 3 / 5);
+        f.setPixelSize(cs.height() * 2 / 5);
         f.setBold(true);
         p.setFont(f);
         p.setPen(c.text);
-        p.drawText(QRect(tr.left(), tr.top(), tr.width(), tr.height() / 2), Qt::AlignLeft | Qt::AlignVCenter, m_nav.manDist);
-        f.setPixelSize(bar * 2 / 5);
+        drawFit(p, QRect(tr.left(), tr.top(), tr.width(), tr.height() * 11 / 20), Qt::AlignLeft | Qt::AlignVCenter, m_nav.manDist);
+        f.setPixelSize(cs.height() / 4);
+        f.setBold(false);
         p.setFont(f);
+        p.setPen(c.dim);
         const QString street = m_nav.street.isEmpty() ? m_nav.narrative : m_nav.street;
-        drawFit(p, QRect(tr.left(), tr.center().y(), tr.width(), tr.height() / 2), Qt::AlignLeft | Qt::AlignVCenter,
-                   street);
-        // Destination strip
-        const QRect strip(area.left() + 10, area.bottom() - bar - 6, area.width() * 2 / 5, bar); // leaves the car free
-        p.setBrush(card);
-        p.setPen(Qt::NoPen);
-        p.drawRoundedRect(strip, 12, 12);
-        p.setBrush(c.accent);
-        p.drawRect(QRect(strip.left() + 10, strip.bottom() - 7, (strip.width() - 20) * qBound(0, m_nav.progress, 100) / 100, 4));
-        f.setPixelSize(bar * 2 / 5);
+        drawFit(p, QRect(tr.left(), tr.top() + tr.height() * 11 / 20, tr.width(), tr.height() * 9 / 20),
+                Qt::AlignLeft | Qt::AlignVCenter, street);
+        // Destination card: remaining distance · time, arrival below, progress line
+        const QRect sr = strip.adjusted(16, 6, -16, -10);
+        f.setPixelSize(cs.height() * 2 / 5);
+        f.setBold(true);
         p.setFont(f);
         p.setPen(c.text);
-        p.drawText(strip.adjusted(14, 0, -14, -6), Qt::AlignVCenter | Qt::AlignLeft,
-                   QStringLiteral("%1 · %2 · %3").arg(m_nav.destDist, m_nav.destTime, m_nav.destEta));
+        drawFit(p, QRect(sr.left(), sr.top(), sr.width(), sr.height() * 11 / 20), Qt::AlignLeft | Qt::AlignVCenter,
+                QStringLiteral("%1 · %2").arg(m_nav.destDist, m_nav.destTime));
+        f.setPixelSize(cs.height() / 4);
+        f.setBold(false);
+        p.setFont(f);
+        p.setPen(c.dim);
+        p.drawText(QRect(sr.left(), sr.top() + sr.height() * 11 / 20, sr.width(), sr.height() * 9 / 20),
+                   Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Ankunft %1").arg(m_nav.destEta));
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.accent);
+        p.drawRoundedRect(QRect(strip.left() + 12, strip.bottom() - 7, (strip.width() - 24) * qBound(0, m_nav.progress, 100) / 100, 4), 2, 2);
         if (!m_nav.alongRoute) {
+            f.setBold(true);
+            p.setFont(f);
             p.setPen(QColor(240, 170, 40));
             p.drawText(QRect(cardR.left(), cardR.bottom() + 4, cardR.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
                        QStringLiteral("Abseits der Route"));
@@ -927,8 +940,10 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
             p.setPen(Qt::NoPen);
             p.setBrush(c.panel);
             p.drawRoundedRect(r, 12, 12);
-            line(r.adjusted(16, 4, -16, -rh / 2), g.title, c.text, qMin(px, rh / 3), true);
-            line(r.adjusted(16, rh / 2, -16, -4), g.region, c.dim, qMin(px * 4 / 5, rh / 3), false);
+            const int mi = rh / 2;
+            drawMdi(p, QRectF(r.left() + 12, r.center().y() - mi / 2.0, mi, mi), QStringLiteral("marker"), c.accent);
+            line(r.adjusted(24 + mi, 4, -16, -rh / 2), g.title, c.text, qMin(px, rh / 3), true);
+            line(r.adjusted(24 + mi, rh / 2, -16, -4), g.region, c.dim, qMin(px * 4 / 5, rh / 3), false);
             m_navButtons.append({r, QStringLiteral("pick"), QString::number(idx)});
         }
         button(QRect(list.right() + 10, body.top(), btnW, body.height() / 2 - 5), QStringLiteral("rpage"), QStringLiteral("-1"),
@@ -991,14 +1006,29 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
     const int gap = 10;
     const int w = (body.width() - 3 * gap) / 4;
     const int bh = bar * 3 / 2;
-    button(QRect(body.left(), y, w, bh), QStringLiteral("home"), m_home, QStringLiteral("Zuhause"),
-           m_home.isEmpty() ? c.panel : c.panelPressed, m_home.isEmpty() ? c.dim : c.text, px);
-    button(QRect(body.left() + (w + gap), y, w, bh), QStringLiteral("work"), m_work, QStringLiteral("Arbeit"),
-           m_work.isEmpty() ? c.panel : c.panelPressed, m_work.isEmpty() ? c.dim : c.text, px);
-    button(QRect(body.left() + 2 * (w + gap), y, w, bh), QStringLiteral("keyboard"), QString(), QStringLiteral("Adresse eingeben"),
-           c.panelPressed, m_parked ? c.text : c.dim, px);
-    button(QRect(body.left() + 3 * (w + gap), y, w, bh), QStringLiteral("contacts"), QString(), QStringLiteral("Kontakte"),
-           c.panelPressed, c.text, px);
+    auto iconButton = [&](const QRect &r, const QString &kind, const QString &value, const QString &label,
+                          const QString &icon, bool enabled) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(c.panelPressed);
+        p.drawRoundedRect(r, 12, 12);
+        const int is = r.height() * 2 / 5;
+        drawMdi(p, QRectF(r.center().x() - is / 2.0, r.top() + r.height() / 8, is, is), icon, enabled ? c.accent : c.dim);
+        f.setPixelSize(qMin(px, r.height() / 4));
+        f.setBold(true);
+        p.setFont(f);
+        p.setPen(enabled ? c.text : c.dim);
+        drawFit(p, QRect(r.left() + 6, r.top() + r.height() / 8 + is + 2, r.width() - 12, r.bottom() - (r.top() + r.height() / 8 + is + 2)),
+                Qt::AlignCenter, label);
+        m_navButtons.append({r, kind, value});
+    };
+    const int bh2 = bh * 4 / 3;
+    iconButton(QRect(body.left(), y, w, bh2), QStringLiteral("home"), m_home, QStringLiteral("Zuhause"), QStringLiteral("home"), !m_home.isEmpty());
+    iconButton(QRect(body.left() + (w + gap), y, w, bh2), QStringLiteral("work"), m_work, QStringLiteral("Arbeit"), QStringLiteral("work"), !m_work.isEmpty());
+    iconButton(QRect(body.left() + 2 * (w + gap), y, w, bh2), QStringLiteral("keyboard"), QString(), QStringLiteral("Adresse"),
+               QStringLiteral("keyboard"), m_parked);
+    iconButton(QRect(body.left() + 3 * (w + gap), y, w, bh2), QStringLiteral("contacts"), QString(), QStringLiteral("Kontakte"),
+               QStringLiteral("account"), true);
+    y += bh2 - bh;
     y += bh + 10;
     // Recent destinations
     const int rh = qMax(bar * 4 / 5, 40);
@@ -1008,7 +1038,8 @@ void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
         p.setPen(Qt::NoPen);
         p.setBrush(c.panel);
         p.drawRoundedRect(r, 10, 10);
-        line(r.adjusted(16, 0, -16, 0), QStringLiteral("↺  ") + d, c.text, px * 9 / 10, false);
+        drawMdi(p, QRectF(r.left() + 12, r.center().y() - rh * 0.3, rh * 0.6, rh * 0.6), QStringLiteral("history"), c.dim);
+        line(r.adjusted(16 + int(rh * 0.6) + 8, 0, -16, 0), d, c.text, px * 9 / 10, false);
         m_navButtons.append({r, QStringLiteral("dest"), d});
         y += rh + 6;
     }
@@ -1088,15 +1119,22 @@ void CarScreen::drawMusicList(QPainter &p, const QRect &body)
         f.setBold(true);
         p.setFont(f);
         p.setPen(c.text);
-        const QString title = (it.playlist ? QStringLiteral("▤  ") : QString()) + (it.title.isEmpty() ? QStringLiteral("(ohne Titel)") : it.title);
-        const QRect tr = r.adjusted(14, 0, -14, it.sub.isEmpty() ? 0 : -rh / 3);
+        const QString title = it.title.isEmpty() ? QStringLiteral("(ohne Titel)") : it.title;
+        int textLeft = 14;
+        if (!it.icon.isEmpty()) {
+            const int is = rh / 2;
+            drawMdi(p, QRectF(r.left() + 14, r.center().y() - is / 2.0, is, is), it.icon,
+                    it.icon == QLatin1String("close") ? QColor(220, 90, 80) : c.accent);
+            textLeft = 14 + is + 14;
+        }
+        const QRect tr = r.adjusted(textLeft, 0, -14, it.sub.isEmpty() ? 0 : -rh / 3);
         drawFit(p, tr, Qt::AlignLeft | Qt::AlignVCenter, title);
         if (!it.sub.isEmpty()) {
             f.setBold(false);
             f.setPixelSize(qMin(bar * 3 / 10, rh * 3 / 10));
             p.setFont(f);
             p.setPen(c.dim);
-            const QRect sr = r.adjusted(14, rh * 2 / 3 - 4, -14, 0);
+            const QRect sr = r.adjusted(textLeft, rh * 2 / 3 - 4, -14, 0);
             drawFit(p, sr, Qt::AlignLeft | Qt::AlignTop, it.sub);
         }
         m_musicRows.append(qMakePair(r, idx));
@@ -1633,25 +1671,42 @@ int CarScreen::drawStatusIcons(QPainter &p, int right, int top, int height)
     return x;
 }
 
-// Tile icons: Material Design Icons (Apache License 2.0), 24x24 paths.
-static void drawTileIcon(QPainter &p, const QRectF &r, int page, const QColor &col)
+// Icons: Material Design Icons (Apache License 2.0), 24x24 paths.
+static void drawMdi(QPainter &p, const QRectF &r, const QString &name, const QColor &col)
 {
-    static const char *paths[] = {
-        // 0 info-outline
-        "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z",
-        // 1 navigation
-        "M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z",
-        // 2 music
-        "M21,3V15.5A3.5,3.5 0 0,1 17.5,19A3.5,3.5 0 0,1 14,15.5A3.5,3.5 0 0,1 17.5,12C18.04,12 18.55,12.12 19,12.34V6.47L9,8.6V17.5A3.5,3.5 0 0,1 5.5,21A3.5,3.5 0 0,1 2,17.5A3.5,3.5 0 0,1 5.5,14C6.04,14 6.55,14.12 7,14.34V6L21,3Z",
-        nullptr,
-        // 4 phone
-        "M6.62,10.79C8.06,13.62 10.38,15.94 13.21,17.38L15.41,15.18C15.69,14.9 16.08,14.82 16.43,14.93C17.55,15.3 18.75,15.5 20,15.5A1,1 0 0,1 21,16.5V20A1,1 0 0,1 20,21A17,17 0 0,1 3,4A1,1 0 0,1 4,3H7.5A1,1 0 0,1 8.5,4C8.5,5.25 8.7,6.45 9.07,7.57C9.18,7.92 9.1,8.31 8.82,8.59L6.62,10.79Z",
+    static const QHash<QString, const char *> paths = {
+        {QStringLiteral("info"), "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z"},
+        {QStringLiteral("navigation"), "M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z"},
+        {QStringLiteral("music"), "M21,3V15.5A3.5,3.5 0 0,1 17.5,19A3.5,3.5 0 0,1 14,15.5A3.5,3.5 0 0,1 17.5,12C18.04,12 18.55,12.12 19,12.34V6.47L9,8.6V17.5A3.5,3.5 0 0,1 5.5,21A3.5,3.5 0 0,1 2,17.5A3.5,3.5 0 0,1 5.5,14C6.04,14 6.55,14.12 7,14.34V6L21,3Z"},
+        {QStringLiteral("phone"), "M6.62,10.79C8.06,13.62 10.38,15.94 13.21,17.38L15.41,15.18C15.69,14.9 16.08,14.82 16.43,14.93C17.55,15.3 18.75,15.5 20,15.5A1,1 0 0,1 21,16.5V20A1,1 0 0,1 20,21A17,17 0 0,1 3,4A1,1 0 0,1 4,3H7.5A1,1 0 0,1 8.5,4C8.5,5.25 8.7,6.45 9.07,7.57C9.18,7.92 9.1,8.31 8.82,8.59L6.62,10.79Z"},
+        {QStringLiteral("radio"), "M3.24,6.15C2.51,6.43 2,7.17 2,8V20A2,2 0 0,0 4,22H20A2,2 0 0,0 22,20V8C22,6.89 21.1,6 20,6H8.3L16.57,2.66L15.88,1L3.24,6.15M7,20A3,3 0 0,1 4,17A3,3 0 0,1 7,14A3,3 0 0,1 10,17A3,3 0 0,1 7,20M20,12H18V10H16V12H4V8H20V12Z"},
+        {QStringLiteral("search"), "M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z"},
+        {QStringLiteral("folder"), "M10,4H4C2.89,4 2,4.89 2,6V18A2,2 0 0,0 4,20H20A2,2 0 0,0 22,18V8C22,6.89 21.1,6 20,6H12L10,4Z"},
+        {QStringLiteral("note"), "M12,3V13.55C11.41,13.21 10.73,13 10,13C7.79,13 6,14.79 6,17C6,19.21 7.79,21 10,21C12.21,21 14,19.21 14,17V7H18V3H12Z"},
+        {QStringLiteral("podcast"), "M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"},
+        {QStringLiteral("apps"), "M16,20H20V16H16M16,14H20V10H16M10,8H14V4H10M16,8H20V4H16M10,14H14V10H10M4,14H8V10H4M4,20H8V16H4M10,20H14V16H10M4,8H8V4H4V8Z"},
+        {QStringLiteral("close"), "M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z"},
+        {QStringLiteral("star"), "M12,17.27L18.18,21L16.54,13.64L22,8.88L14.81,8.38L12,2L9.19,8.38L2,8.88L7.45,13.64L5.82,21L12,17.27Z"},
+        {QStringLiteral("playlist"), "M15,6H3V8H15V6M15,10H3V12H15V10M3,16H11V14H3V16M17,6V14.18C16.69,14.07 16.35,14 16,14A3,3 0 0,0 13,17A3,3 0 0,0 16,20A3,3 0 0,0 19,17V8H22V6H17Z"},
+        {QStringLiteral("home"), "M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z"},
+        {QStringLiteral("work"), "M10,2H14A2,2 0 0,1 16,4V6H20A2,2 0 0,1 22,8V19A2,2 0 0,1 20,21H4C2.89,21 2,20.1 2,19V8C2,6.89 2.89,6 4,6H8V4C8,2.89 8.89,2 10,2M14,6V4H10V6H14Z"},
+        {QStringLiteral("keyboard"), "M19,10H17V8H19M19,13H17V11H19M16,10H14V8H16M16,13H14V11H16M16,17H8V15H16M7,10H5V8H7M7,13H5V11H7M8,11H10V13H8M8,8H10V10H8M11,11H13V13H11M11,8H13V10H11M20,5H4C2.89,5 2,5.89 2,7V17A2,2 0 0,0 4,19H20A2,2 0 0,0 22,17V7C22,5.89 21.1,5 20,5Z"},
+        {QStringLiteral("account"), "M12,4A4,4 0 0,1 16,8A4,4 0 0,1 12,12A4,4 0 0,1 8,8A4,4 0 0,1 12,4M12,14C16.42,14 20,15.79 20,18V20H4V18C4,15.79 7.58,14 12,14Z"},
+        {QStringLiteral("history"), "M13.5,8H12V13L16.28,15.54L17,14.33L13.5,12.25V8M13,3A9,9 0 0,0 4,12H1L4.96,16.03L9,12H6A7,7 0 0,1 13,5A7,7 0 0,1 20,12A7,7 0 0,1 13,19C11.07,19 9.32,18.21 8.06,16.94L6.64,18.36C8.27,20 10.5,21 13,21A9,9 0 0,0 22,12A9,9 0 0,0 13,3"},
+        {QStringLiteral("marker"), "M12,11.5A2.5,2.5 0 0,1 9.5,9A2.5,2.5 0 0,1 12,6.5A2.5,2.5 0 0,1 14.5,9A2.5,2.5 0 0,1 12,11.5M12,2A7,7 0 0,0 5,9C5,14.25 12,22 12,22C12,22 19,14.25 19,9A7,7 0 0,0 12,2Z"},
     };
-    const char *d = (page >= 0 && page <= 4 && paths[page]) ? paths[page] : paths[0];
+    const char *d = paths.value(name, nullptr);
+    if (!d) return;
     const QByteArray svg = QByteArrayLiteral("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='")
                            + col.name().toLatin1() + "' d='" + d + "'/></svg>";
     QSvgRenderer r2(svg);
     r2.render(&p, r);
+}
+
+static void drawTileIcon(QPainter &p, const QRectF &r, int page, const QColor &col)
+{
+    drawMdi(p, r, page == 1 ? QStringLiteral("navigation") : page == 2 ? QStringLiteral("music")
+                  : page == 4 ? QStringLiteral("phone") : QStringLiteral("info"), col);
 }
 
 void CarScreen::drawHome(QPainter &p)

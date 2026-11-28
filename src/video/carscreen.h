@@ -50,9 +50,10 @@ public:
     void hideLoading() { m_loadingName.clear(); }
     // Destinations for the navigation page (home/work from the phone settings).
     // Music page list (playlists/tracks of the player), shown after "Liste".
-    struct ListItem { QString title, sub; bool playlist; };
+    struct ListItem { QString title, sub; bool playlist; QString icon; };
     void setMusicList(const QVector<ListItem> &items) { m_musicList = items; m_musicListOn = true; m_musicListPage = 0; m_musicKb = false; }
     void closeMusicList() { m_musicListOn = false; m_musicKb = false; }
+    int currentPage() const { return m_page; }
     // Keyboard on the music page (radio search), parked only
     void openMusicKeyboard() { m_musicKb = true; m_navInput.clear(); }
     void setDestinations(const QString &home, const QString &work, const QStringList &recent)

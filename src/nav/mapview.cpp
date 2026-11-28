@@ -240,7 +240,7 @@ void MapView::renderLayer(const QSize &size)
     p.setTransform(t * rot * proj);
     p.drawImage(0, 0, m_canvas);
     if (m_online && m_night) // online tiles have no night style: darken
-        p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 140));
+        p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 60)); // gently, map stays readable
     // Route line in canvas coordinates (same transform as the tiles)
     if (m_route.size() > 1) {
         QPolygonF line;
@@ -253,13 +253,13 @@ void MapView::renderLayer(const QSize &size)
     }
     p.restore();
     // Haze towards the horizon
-    QLinearGradient haze(0, horizon, 0, horizon + h * 0.18);
+    QLinearGradient haze(0, horizon, 0, horizon + h * 0.10);
     QColor hz = sky;
-    hz.setAlpha(170);
+    hz.setAlpha(110);
     haze.setColorAt(0, hz);
     hz.setAlpha(0);
     haze.setColorAt(1, hz);
-    p.fillRect(QRectF(0, horizon, w, h * 0.18), haze);
+    p.fillRect(QRectF(0, horizon, w, h * 0.10), haze);
 
     // Car marker at its ground position
     const QPointF c = proj.map(QPointF(0, 0));

@@ -111,6 +111,8 @@ void MprisClient::poll()
                                         .arg(m_identity, chosen).arg(players.size()));
     }
     if (m_service.isEmpty()) {
+        if (m_playing) emit finished(); // the playing app went away
+        m_lastStatus.clear();
         if (!m_title.isEmpty() || m_playing) {
             m_title.clear(); m_artist.clear(); m_album.clear(); m_art = QImage(); m_playing = false;
             emit changed();
@@ -130,7 +132,13 @@ void MprisClient::poll()
     if (lenMs < 1000 && rawLen >= 1000) lenMs = rawLen;
     const QVariant tid = md.value(QStringLiteral("mpris:trackid"));
     m_trackId = tid.canConvert<QDBusObjectPath>() ? tid.value<QDBusObjectPath>().path() : tid.toString();
-    const bool playing = getProperty(m_service, kPlayerIface, "PlaybackStatus").toString() == QLatin1String("Playing");
+    const QString status = getProperty(m_service, kPlayerIface, "PlaybackStatus").toString();
+    const bool playing = status == QLatin1String("Playing");
+    // Episode/album over: Playing -> Stopped (same player)
+    if (m_lastStatus == QLatin1String("Playing") && status == QLatin1String("Stopped") && m_lastStatusService == m_service)
+        emit finished();
+    m_lastStatus = status;
+    m_lastStatusService = m_service;
     const QVariant rawPosV = getProperty(m_service, kPlayerIface, "Position");
     const qint64 rawPos = rawPosV.toLongLong();
     qint64 posMs = rawPos / 1000;

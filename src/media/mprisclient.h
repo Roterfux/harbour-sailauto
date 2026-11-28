@@ -59,6 +59,8 @@ public slots:
 signals:
     void changed();
     void log(const QString &line);
+    // Playback ended (stopped at the end, or the app closed while playing)
+    void finished();
 
 private:
     void poll();
@@ -67,6 +69,7 @@ private:
     QTimer m_timer;
     QString m_preferred;
     bool m_showingPreferred = false;
+    QString m_lastStatus, m_lastStatusService;
     QElapsedTimer m_preferredSince;
     QHash<QString, QString> m_desktopOf; // service -> DesktopEntry
     QString m_service, m_identity;

@@ -179,6 +179,18 @@ Controller::Controller(QObject *parent) : QObject(parent)
             appendLog(QStringLiteral("Navigation: Pure Maps nicht startbar (%1)").arg(err));
     });
     connect(&m_screen, &CarScreen::musicListRequested, this, &Controller::showBrowseRoot);
+    // Playback over: offer what is next (other episodes, sources, other apps)
+    connect(&m_mpris, &MprisClient::finished, this, [this]() {
+        if (!m_session || m_calls.call().state != CallInfo::None) return;
+        appendLog(QStringLiteral("Musik: Wiedergabe zu Ende, zeige Auswahl"));
+        if (m_items.size() > 0 && !m_itemStack.isEmpty() && m_items.first().kind == QLatin1String("episode")) {
+            showItems(m_items, false); // back to the episode list of this podcast
+        } else {
+            showBrowseRoot();
+        }
+        if (m_screen.currentPage() == 0 /* Home */ || m_screen.currentPage() == 2 /* Music */) m_screen.showMusic();
+        else m_screen.showNotification(QStringLiteral("Musik"), QStringLiteral("Wiedergabe zu Ende"), QStringLiteral("Auswahl unter Musik"));
+    });
     connect(&m_screen, &CarScreen::musicListPicked, this, &Controller::onBrowsePick);
     connect(&m_screen, &CarScreen::musicListBack, this, [this]() {
         if (m_itemStack.isEmpty()) { m_screen.closeMusicList(); return; }
@@ -1012,12 +1024,17 @@ void Controller::showItems(const QVector<BrowseItem> &items, bool push)
     if (push && !m_items.isEmpty()) m_itemStack.append(m_items);
     m_items = items;
     QVector<CarScreen::ListItem> list;
+    static const QHash<QString, QString> icons = {
+        {QStringLiteral("station"), QStringLiteral("radio")}, {QStringLiteral("favs"), QStringLiteral("star")},
+        {QStringLiteral("top"), QStringLiteral("radio")}, {QStringLiteral("sailwave"), QStringLiteral("radio")},
+        {QStringLiteral("rsearch"), QStringLiteral("search")}, {QStringLiteral("folder"), QStringLiteral("folder")},
+        {QStringLiteral("file"), QStringLiteral("note")}, {QStringLiteral("sailcast"), QStringLiteral("podcast")},
+        {QStringLiteral("podcast"), QStringLiteral("podcast")}, {QStringLiteral("episode"), QStringLiteral("podcast")},
+        {QStringLiteral("switchapp"), QStringLiteral("apps")}, {QStringLiteral("quitapp"), QStringLiteral("close")},
+        {QStringLiteral("fav"), QStringLiteral("star")}, {QStringLiteral("mprislists"), QStringLiteral("playlist")},
+        {QStringLiteral("mprisitem"), QStringLiteral("playlist")}};
     for (const BrowseItem &b : items)
-        list.append({b.title, b.sub, b.kind == QLatin1String("folder") || b.kind == QLatin1String("menu")
-                                     || b.kind == QLatin1String("sailwave") || b.kind == QLatin1String("sailcast")
-                                     || b.kind == QLatin1String("podcast")
-                                     || b.kind == QLatin1String("favs") || b.kind == QLatin1String("top")
-                                     || b.kind == QLatin1String("mprislists")});
+        list.append({b.title, b.sub, false, icons.value(b.kind)});
     m_screen.setMusicList(list);
 }
 
