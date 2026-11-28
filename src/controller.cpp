@@ -1,5 +1,7 @@
 #include "controller.h"
 
+#include <cstring>
+
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
@@ -422,13 +424,14 @@ void Controller::stopRouter()
     m_router.stop();
 }
 
-void Controller::stopCarAudio(const QString &why)
+void Controller::stopCarAudio(const QString &why, bool releaseFocus)
 {
     if (!m_carAudioOn) return;
     m_carAudioOn = false;
     if (m_session) {
         m_session->stopAudio(m_carAudioChannel);
-        m_session->requestAudioFocus(4 /*RELEASE*/);
+        // During a short interruption keep the focus: the car then gives it back (GAIN)
+        if (releaseFocus) m_session->requestAudioFocus(4 /*RELEASE*/);
     }
     appendLog(QStringLiteral("Ton: Stream ans Auto beendet (%1), %2 s gesendet%3")
                   .arg(why).arg(double(m_carFrames) / AudioRouter::Rate, 0, 'f', 1)
@@ -439,7 +442,17 @@ void Controller::onPhoneAudio(const QByteArray &pcm)
 {
     if (!m_session || m_audioTest.running()) return;
     if (callBlocksAudio()) return; // ringing or talking: the car's phone has the speakers
-    if (m_pausedForFocus == 5) return; // the car interrupts briefly: do not take the speakers back
+    if (m_pausedForFocus) {
+        // Paused for the car (announcement): keep quiet (the player needs a
+        // moment to stop, its state comes by polling). Once the music plays
+        // again (user) or after 2 min without "back" from the car, carry on.
+        const qint64 since = m_pausedForFocusClock.isValid() ? m_pausedForFocusClock.elapsed() : 0;
+        if (since < 4000 || (!m_mpris.playing() && since < 120000)) return;
+    }
+    if (m_pausedForFocus) {
+        m_pausedForFocus = 0; // the user started the music again, or the car never said "back"
+        appendLog(QStringLiteral("Ton: wieder ans Auto"));
+    }
     const qint16 *s = reinterpret_cast<const qint16 *>(pcm.constData());
     const int samples = pcm.size() / 2;
     int peak = 0;
@@ -1575,6 +1588,10 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     connect(m_session, &aap::Session::videoStop, this, &Controller::onVideoStop);
     connect(m_session, &aap::Session::videoCanSend, this, &Controller::flush);
     connect(m_session, &aap::Session::touch, &m_screen, &CarScreen::touch);
+    connect(m_session, &aap::Session::touch, this, [this]() {
+        m_lastTouch.start();
+        m_staticTicks = 0;
+    });
     connect(m_session, &aap::Session::key, this, &Controller::onCarKey);
     // The car may finish the media channel setup after the video started.
     connect(m_session, &aap::Session::audioReady, this, [this](int type) {
@@ -1606,7 +1623,8 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
     });
     connect(m_session, &aap::Session::audioFocusChanged, &m_audioTest, &AudioTest::onFocus);
     connect(m_session, &aap::Session::audioFocusChanged, this, [this](int st) {
-        if (m_carAudioOn && (st == 3 || st == 5)) stopCarAudio(QStringLiteral("Auto nimmt Audio-Fokus weg"));
+        if (m_carAudioOn && (st == 3 || st == 5))
+            stopCarAudio(QStringLiteral("Auto nimmt Audio-Fokus weg"), st == 3);
     });
     connect(m_session, &aap::Session::audioFocusNotified, this, [this](int st, bool unsolicited) {
         // Only the car's own decisions (radio, its announcements, ...), not its
@@ -1616,6 +1634,7 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         if ((st == 3 || st == 5) && m_mpris.playing()) {
             m_mpris.pause();
             m_pausedForFocus = st;
+            m_pausedForFocusClock.start();
             appendLog(st == 5 ? QStringLiteral("Musik: pausiert (Auto unterbricht kurz)")
                               : QStringLiteral("Musik: pausiert (Auto hat übernommen)"));
         } else if (st == 1 && m_pausedForFocus == 5) { // back after the short interruption
@@ -1716,7 +1735,24 @@ void Controller::tick()
     // Back-pressure: the HU acks every frame (OpenAuto allows 1 in flight).
     // Only render when the pipe is nearly empty so latency stays low.
     if (!m_queue.isEmpty() || m_encoder.pending() >= 3) return;
-    m_encoder.push(m_screen.render(), static_cast<quint64>(m_clock.nsecsElapsed() / 1000));
+    // Power save: a picture that does not change is not encoded again (one
+    // frame a second keeps the car happy). After 1 s without change, look for
+    // changes only 5 times a second; a touch brings full speed back at once.
+    static const bool fullRate = qEnvironmentVariableIsSet("SAILAUTO_FULLFPS");
+    const bool touched = m_lastTouch.isValid() && m_lastTouch.elapsed() < 1500;
+    if (!fullRate && m_staticTicks >= 30 && !touched && (++m_skipTicks % 6) != 0) return;
+    const QImage &img = m_screen.render();
+    const bool same = !fullRate && img.size() == m_lastFrame.size() && img.format() == m_lastFrame.format()
+                      && std::memcmp(img.constBits(), m_lastFrame.constBits(), size_t(img.byteCount())) == 0;
+    if (same) {
+        ++m_staticTicks;
+        if (m_lastFrameClock.isValid() && m_lastFrameClock.elapsed() < 1000) return;
+    } else {
+        m_staticTicks = 0;
+    }
+    m_lastFrame = img;
+    m_lastFrameClock.start();
+    m_encoder.push(img, static_cast<quint64>(m_clock.nsecsElapsed() / 1000));
 }
 
 void Controller::onEncoded(const QByteArray &data, quint64 ts, bool config)
@@ -1777,6 +1813,9 @@ void Controller::onSessionClosed(const QString &reason)
     }
     if (m_carFix.valid) saveParked(m_carFix, true);
     m_carFix = Fix();
+    // Fresh audio state for the next connection
+    m_carAudioOn = false;
+    m_pausedForFocus = 0;
     if (m_session->receivedBytes() > 0) m_autoReplugs = 0;
     m_usbKick.stop();
     if (m_session->state() != aap::Session::Closed) appendLog(m_session->summary());

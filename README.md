@@ -309,6 +309,13 @@ also mit Lenkradtasten, Fortschritt usw.). Im Auto: Musik → „Liste“ (oder
 
 Adresssuche ohne OSM Scout Server: online über Photon (wie Pure Maps).
 
+## Stromsparen (ab 0.18.1)
+
+Ein Bild, das sich nicht ändert, wird nicht neu kodiert: ruhige Seiten laufen
+mit 1 Bild/s statt 30, nach 1 s ohne Änderung wird nur 5-mal pro Sekunde
+nachgesehen; Tippen bringt sofort volle Rate. Die Karte beim Fahren bleibt
+flüssig (~15 Bilder/s). `SAILAUTO_FULLFPS=1` schaltet das ab.
+
 ## Wetter, Ladebildschirm
 
 Ab 0.12.0. **Wetter** oben im Auto (Symbol + Temperatur), antippen: jetzt,
@@ -378,8 +385,10 @@ START → PCM in Echtzeit im ACK-Fenster des Autos → STOP → Fokus freigeben.
 Im Log: `Audio-Fokus vom Auto: …`, `Tontest …`.
 
 Unterbricht das Auto selbst (Verkehrsfunk, eigene Ansage, Radio-Taste), pausiert
-SailAuto den Player; bei einer kurzen Unterbrechung läuft er danach von allein
-weiter. Ändert sich die Lautstärke am Telefon, zeigt der Autobildschirm sie
+SailAuto den Player; bei einer kurzen Unterbrechung behält SailAuto den
+Audio-Fokus, und der Player läuft danach von allein weiter. Sagt das Auto nie
+„zurück“, geht der Ton wieder ans Auto, sobald die Musik wieder spielt (oder nach
+2 min); beim Neuverbinden startet der Ton immer frisch. Ändert sich die Lautstärke am Telefon, zeigt der Autobildschirm sie
 2 s lang unten als Balken.
 
 Am PC: `python3 tools/hu_sim.py --sound-test --audio-out snd` schreibt den

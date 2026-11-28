@@ -25,6 +25,7 @@
 
 #include <QDateTime>
 #include <QElapsedTimer>
+#include <QImage>
 #include <QObject>
 #include <QPointer>
 #include <QQueue>
@@ -260,6 +261,7 @@ private:
     bool callBlocksAudio() const;
     bool m_routerPausedForCall = false;
     int m_pausedForFocus = 0;      // focus state that made us pause (5 = transient)
+    QElapsedTimer m_pausedForFocusClock;
     void syncRouterForCall();
     bool m_notifyToCar = true;
     int m_drivingStatus = -1;
@@ -291,7 +293,7 @@ private:
     void startRouter();
     void stopRouter();
     void onPhoneAudio(const QByteArray &pcm);
-    void stopCarAudio(const QString &why);
+    void stopCarAudio(const QString &why, bool releaseFocus = true);
     QElapsedTimer m_clock;
     QQueue<Packet> m_queue;
 
@@ -301,6 +303,10 @@ private:
     QStringList m_log;
 
     int m_statFrames = 0;
+    // Power save: skip unchanged pictures
+    QImage m_lastFrame;
+    QElapsedTimer m_lastFrameClock, m_lastTouch;
+    int m_staticTicks = 0, m_skipTicks = 0;
     qint64 m_statBytes = 0;
     QElapsedTimer m_statClock;
     double m_fps = 0, m_kbps = 0;
