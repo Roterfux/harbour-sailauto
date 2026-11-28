@@ -5,6 +5,7 @@
 #include <QFontMetrics>
 #include <QPainter>
 #include <QPainterPath>
+#include <QSvgRenderer>
 #include <QtMath>
 
 
@@ -1590,6 +1591,27 @@ int CarScreen::drawStatusIcons(QPainter &p, int right, int top, int height)
     return x;
 }
 
+// Tile icons: Material Design Icons (Apache License 2.0), 24x24 paths.
+static void drawTileIcon(QPainter &p, const QRectF &r, int page, const QColor &col)
+{
+    static const char *paths[] = {
+        // 0 info-outline
+        "M11,9H13V7H11M12,20C7.59,20 4,16.41 4,12C4,7.59 7.59,4 12,4C16.41,4 20,7.59 20,12C20,16.41 16.41,20 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M11,17H13V11H11V17Z",
+        // 1 navigation
+        "M12,2L4.5,20.29L5.21,21L12,18L18.79,21L19.5,20.29L12,2Z",
+        // 2 music
+        "M21,3V15.5A3.5,3.5 0 0,1 17.5,19A3.5,3.5 0 0,1 14,15.5A3.5,3.5 0 0,1 17.5,12C18.04,12 18.55,12.12 19,12.34V6.47L9,8.6V17.5A3.5,3.5 0 0,1 5.5,21A3.5,3.5 0 0,1 2,17.5A3.5,3.5 0 0,1 5.5,14C6.04,14 6.55,14.12 7,14.34V6L21,3Z",
+        nullptr,
+        // 4 phone
+        "M6.62,10.79C8.06,13.62 10.38,15.94 13.21,17.38L15.41,15.18C15.69,14.9 16.08,14.82 16.43,14.93C17.55,15.3 18.75,15.5 20,15.5A1,1 0 0,1 21,16.5V20A1,1 0 0,1 20,21A17,17 0 0,1 3,4A1,1 0 0,1 4,3H7.5A1,1 0 0,1 8.5,4C8.5,5.25 8.7,6.45 9.07,7.57C9.18,7.92 9.1,8.31 8.82,8.59L6.62,10.79Z",
+    };
+    const char *d = (page >= 0 && page <= 4 && paths[page]) ? paths[page] : paths[0];
+    const QByteArray svg = QByteArrayLiteral("<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='")
+                           + col.name().toLatin1() + "' d='" + d + "'/></svg>";
+    QSvgRenderer r2(svg);
+    r2.render(&p, r);
+}
+
 void CarScreen::drawHome(QPainter &p)
 {
     const Palette c = palette(m_night);
@@ -1599,25 +1621,14 @@ void CarScreen::drawHome(QPainter &p)
         p.setBrush(i == m_pressedTile ? c.panelPressed : c.panel);
         p.drawRoundedRect(t.rect, 18, 18);
         QFont f = p.font();
-        f.setPixelSize(t.rect.width() / 3);
-        p.setFont(f);
-        p.setPen(c.accent);
-        if (t.page == Apps) { // 3x3 grid of dots
-            const QRect g = t.rect.adjusted(0, 0, 0, -t.rect.height() / 4);
-            const int d = t.rect.width() / 12, step = d * 2;
-            p.setPen(Qt::NoPen);
-            p.setBrush(c.accent);
-            for (int yy = -1; yy <= 1; ++yy)
-                for (int xx = -1; xx <= 1; ++xx)
-                    p.drawRoundedRect(QRect(g.center().x() + xx * step - d / 2, g.center().y() + yy * step - d / 2, d, d), 3, 3);
-        } else {
-            p.drawText(t.rect.adjusted(0, 0, 0, -t.rect.height() / 4), Qt::AlignCenter, t.glyph);
-        }
-        f.setPixelSize(qMax(12, t.rect.width() / 9));
+        const int is = qMin(t.rect.width() * 2 / 5, t.rect.height() / 4);
+        drawTileIcon(p, QRectF(t.rect.center().x() - is / 2.0, t.rect.top() + t.rect.height() * 0.28 - is / 2.0, is, is),
+                     t.page == Navigation ? 1 : t.page == Music ? 2 : t.page == Phone ? 4 : 0, c.accent);
+        f.setPixelSize(qMax(12, qMin(m_safe.height() / 16, t.rect.width() / 7)));
         f.setBold(true);
         p.setFont(f);
         p.setPen(c.text);
-        p.drawText(t.rect.adjusted(0, t.rect.height() / 2, 0, 0), Qt::AlignCenter, t.title);
+        drawFit(p, t.rect.adjusted(6, t.rect.height() / 2, -6, 0), Qt::AlignCenter, t.title);
     }
 }
 
@@ -1633,7 +1644,26 @@ void CarScreen::drawPage(QPainter &p)
     f.setBold(true);
     p.setFont(f);
     p.setPen(c.text);
-    p.drawText(m_backButton, Qt::AlignCenter, QStringLiteral("← Zurück"));
+    {
+        // chevron + "Zurück"
+        const QRect b = m_backButton;
+        const int ch = b.height() / 3;
+        const QPoint o(b.left() + b.height() / 2, b.center().y());
+        p.setPen(QPen(c.text, qMax(3, ch / 3), Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.drawPolyline(QPolygon({o + QPoint(ch / 2, -ch), o + QPoint(-ch / 2, 0), o + QPoint(ch / 2, ch)}));
+        p.drawText(b.adjusted(b.height() * 3 / 4, 0, 0, 0), Qt::AlignCenter, QStringLiteral("Zurück"));
+    }
+    // Page title in the top bar (unless the turn hint uses that space)
+    if (!(m_nav.running && m_page != Navigation)) {
+        static const char *titles[] = {"", "Navigation", "Musik", "Apps", "Telefon", "Info", "Wetter"};
+        QFont tf = f;
+        tf.setPixelSize(bar * 9 / 20);
+        p.setFont(tf);
+        p.setPen(c.dim);
+        p.drawText(QRect(m_backButton.right() + bar / 2, m_safe.top(), m_safe.width() / 3, bar), Qt::AlignLeft | Qt::AlignVCenter,
+                   QString::fromUtf8(titles[m_page]));
+        p.setFont(f);
+    }
 
     const QRect body = m_safe.adjusted(m_safe.width() / 20, bar + 10, -m_safe.width() / 20, -10);
     f.setPixelSize(bar * 2 / 3);
@@ -1897,19 +1927,28 @@ void CarScreen::drawPage(QPainter &p)
         drawWeatherPage(p, body);
         break;
     case Info: {
-        p.setPen(c.text);
-        f.setPixelSize(bar / 2);
-        f.setBold(false);
-        p.setFont(f);
-        const QString txt = QStringLiteral("SailAuto %10\nHead Unit: %1\nVideo: %2x%3, sicher %4x%5\nEncoder: %6\n%7 fps, %8 kbit/s\nNachtmodus: %9")
-                                .arg(m_headUnit.isEmpty() ? QStringLiteral("?") : m_headUnit)
-                                .arg(m_image.width()).arg(m_image.height())
-                                .arg(m_safe.width()).arg(m_safe.height())
-                                .arg(m_encoder)
-                                .arg(m_fps, 0, 'f', 1).arg(m_kbps, 0, 'f', 0)
-                                .arg(m_night ? QStringLiteral("an") : QStringLiteral("aus"))
-                                .arg(m_version);
-        p.drawText(body, Qt::AlignLeft | Qt::AlignVCenter, txt);
+        const QStringList keys = {QStringLiteral("SailAuto"), QStringLiteral("Auto"), QStringLiteral("Bild"),
+                                  QStringLiteral("Encoder"), QStringLiteral("Leistung"), QStringLiteral("Nachtmodus")};
+        const QStringList vals = {m_version, m_headUnit.isEmpty() ? QStringLiteral("?") : m_headUnit,
+                                  QStringLiteral("%1×%2").arg(m_image.width()).arg(m_image.height()), m_encoder,
+                                  QStringLiteral("%1 fps · %2 kbit/s").arg(m_fps, 0, 'f', 1).arg(m_kbps, 0, 'f', 0),
+                                  m_night ? QStringLiteral("an") : QStringLiteral("aus")};
+        const int rh = qMin(bar, (body.height() - 10) / keys.size());
+        for (int i = 0; i < keys.size(); ++i) {
+            const QRect r(body.left(), body.top() + i * rh, body.width(), rh - 6);
+            p.setPen(Qt::NoPen);
+            p.setBrush(c.panel);
+            p.drawRoundedRect(r, 12, 12);
+            f.setPixelSize(rh * 2 / 5);
+            f.setBold(true);
+            p.setFont(f);
+            p.setPen(c.dim);
+            p.drawText(r.adjusted(16, 0, 0, 0), Qt::AlignLeft | Qt::AlignVCenter, keys[i]);
+            f.setBold(false);
+            p.setFont(f);
+            p.setPen(c.text);
+            drawFit(p, r.adjusted(r.width() / 4, 0, -16, 0), Qt::AlignLeft | Qt::AlignVCenter, vals[i]);
+        }
         break;
     }
     case Home:
