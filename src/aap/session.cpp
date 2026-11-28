@@ -630,6 +630,8 @@ void Session::onChannelOpened(quint8 channel, bool ok)
         if (m_sensorTypes.contains(sensor::Location)) wanted << sensor::Location;
         // Gear P = parked (some cars report driving restrictions even when standing)
         if (m_sensorTypes.contains(sensor::Gear)) wanted << sensor::Gear;
+        // Wheel speed: keeps the car moving on the map when GPS is gone (tunnel)
+        if (m_sensorTypes.contains(sensor::Speed)) wanted << sensor::Speed;
         for (int type : wanted) {
             pb::Writer w;
             w.varint(1, static_cast<uint64_t>(type)).sint(2, 0);
@@ -748,6 +750,11 @@ void Session::handleSensor(quint16 id, const QByteArray &payload)
         emit drivingStatusChanged(static_cast<int>(pb::Reader(v.bytes).number(1)));
     for (const pb::Value &v : r.all(8))
         emit gearChanged(static_cast<int>(pb::Reader(v.bytes).number(1)));
+    // SpeedData { speed_e3 = 1 } (m/s * 1000)
+    for (const pb::Value &v : r.all(3)) {
+        pb::Reader sp(v.bytes);
+        if (sp.has(1)) emit speedChanged(static_cast<int32_t>(static_cast<int64_t>(sp.number(1))) / 1e3);
+    }
     // LocationData { timestamp=1, latitude_e7=2, longitude_e7=3, accuracy_e3=4, ... } (int32 as varint)
     for (const pb::Value &v : r.all(1)) {
         pb::Reader l(v.bytes);

@@ -67,8 +67,109 @@ void MapView::setNight(bool night)
     m_canvasDirty = true;
 }
 
+void MapView::setRoute(const QVector<QPointF> &latlon)
+{
+    m_route = latlon;
+    m_route20.clear();
+    for (const QPointF &ll : latlon) m_route20 << worldPixel(ll.x(), ll.y(), 20);
+    m_drSeg = 0;
+}
+
+double MapView::speedNow() const
+{
+    // wheel speed while fresh, else the last GPS speed
+    if (m_carSpeed >= 0 && m_carSpeedAge.isValid() && m_carSpeedAge.elapsed() < 3000) return m_carSpeed;
+    return m_speed;
+}
+
+void MapView::latLonOf(const QPointF &w, double *lat, double *lon)
+{
+    const double n = kTile * std::pow(2.0, 20);
+    *lon = w.x() / n * 360.0 - 180.0;
+    *lat = qRadiansToDegrees(std::atan(std::sinh(M_PI * (1 - 2 * w.y() / n))));
+}
+
+QPointF MapView::estimate20(double *bearing)
+{
+    const QPointF fix = worldPixel(m_lat, m_lon, 20);
+    const double mpp = 156543.03392 * std::cos(qDegreesToRadians(m_lat)) / std::pow(2.0, 20); // m per px
+    const double ageS = m_fixAge.isValid() ? m_fixAge.elapsed() / 1000.0 : 0;
+    *bearing = m_bearing;
+    if (ageS <= 2.0 || speedNow() < 1.0 || ageS > 600) {
+        // normal: the last fix moved on a little (smooth between fixes)
+        m_dr = false;
+        const double d = speedNow() * qMin(ageS, 2.0) / mpp;
+        return fix + QPointF(std::sin(qDegreesToRadians(m_bearing)) * d, -std::cos(qDegreesToRadians(m_bearing)) * d);
+    }
+    // No GPS for > 2 s while driving (tunnel): keep going
+    if (!m_dr) {
+        m_dr = true;
+        const double d = speedNow() * 2.0 / mpp;
+        m_drPos = fix + QPointF(std::sin(qDegreesToRadians(m_bearing)) * d, -std::cos(qDegreesToRadians(m_bearing)) * d);
+        m_drBearing = m_bearing;
+        m_drClock.start();
+        emit log(QStringLiteral("Karte: kein GPS, schätze die Position (Tempo %1 km/h)").arg(int(speedNow() * 3.6)));
+    }
+    double step = speedNow() * m_drClock.restart() / 1000.0 / mpp;
+    // Along the route if we are on it (within ~40 m), else straight on
+    if (m_route20.size() > 1) {
+        int best = -1;
+        double bestD = 1e18;
+        QPointF bestP;
+        const int from = qMax(0, m_drSeg - 3);
+        for (int i = from; i + 1 < m_route20.size() && i < from + 400; ++i) {
+            const QPointF a = m_route20[i], b = m_route20[i + 1];
+            const QPointF ab = b - a;
+            const double len2 = ab.x() * ab.x() + ab.y() * ab.y();
+            const double t = len2 > 0 ? qBound(0.0, QPointF::dotProduct(m_drPos - a, ab) / len2, 1.0) : 0;
+            const QPointF q = a + ab * t;
+            const double d = QLineF(q, m_drPos).length();
+            if (d < bestD) { bestD = d; best = i; bestP = q; }
+        }
+        if (best >= 0 && bestD * mpp < 40) {
+            QPointF pos = bestP;
+            int i = best;
+            while (step > 0 && i + 1 < m_route20.size()) {
+                const double rest = QLineF(pos, m_route20[i + 1]).length();
+                if (rest >= step) {
+                    pos += (m_route20[i + 1] - pos) * (step / qMax(1e-9, rest));
+                    step = 0;
+                } else {
+                    step -= rest;
+                    pos = m_route20[i + 1];
+                    ++i;
+                }
+            }
+            m_drSeg = i;
+            const QPointF dir = m_route20[qMin(i + 1, m_route20.size() - 1)] - m_route20[i];
+            if (dir.manhattanLength() > 0) m_drBearing = qRadiansToDegrees(qAtan2(dir.x(), -dir.y()));
+            m_drPos = pos;
+            *bearing = m_drBearing;
+            return m_drPos;
+        }
+    }
+    m_drPos += QPointF(std::sin(qDegreesToRadians(m_drBearing)) * step, -std::cos(qDegreesToRadians(m_drBearing)) * step);
+    *bearing = m_drBearing;
+    return m_drPos;
+}
+
+bool MapView::estimate(double *lat, double *lon, double *bearing, double *speed)
+{
+    if (!m_haveFix) return false;
+    const QPointF p = estimate20(bearing);
+    latLonOf(p, lat, lon);
+    *speed = speedNow();
+    return m_dr;
+}
+
 void MapView::updateFix(double lat, double lon, double bearing, double speed)
 {
+    // Some cars repeat the last fix without GPS: same spot while the wheels
+    // turn = no news, keep estimating.
+    if (m_haveFix && speedNow() > 4 && QLineF(worldPixel(m_lat, m_lon, 20), worldPixel(lat, lon, 20)).length() < 6)
+        return;
+    if (m_dr) emit log(QStringLiteral("Karte: GPS wieder da"));
+    m_dr = false;
     if (m_haveFix && bearing < 0) {
         // No bearing from the car: from the movement since the last fix.
         const QPointF a = worldPixel(m_lat, m_lon, 20), b = worldPixel(lat, lon, 20);
@@ -371,13 +472,11 @@ void MapView::renderLayer(const QSize &size)
     }
     // Predicted position: last fix + speed * age along the bearing (max 3 s)
     const int z = m_zoom;
-    const double age = qMin(3.0, m_fixAge.elapsed() / 1000.0);
-    QPointF car = worldPixel(m_lat, m_lon, z);
-    const double metersPerPixel = 156543.03392 * std::cos(qDegreesToRadians(m_lat)) / std::pow(2.0, z);
-    const double dist = m_speed * age / metersPerPixel;
-    car += QPointF(std::sin(qDegreesToRadians(m_bearing)) * dist, -std::cos(qDegreesToRadians(m_bearing)) * dist);
+    // Estimated position: last fix moved on; in a tunnel along the route
+    double heading = m_bearing;
+    QPointF car = estimate20(&heading) / std::pow(2.0, 20 - z);
     // Smooth turning of the map
-    double diff = std::remainder(m_bearing - m_shownBearing, 360.0);
+    double diff = std::remainder(heading - m_shownBearing, 360.0);
     m_shownBearing += diff * 0.25;
 
     const int ctx = int(car.x() / kTile), cty = int(car.y() / kTile);

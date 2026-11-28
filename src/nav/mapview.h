@@ -36,10 +36,16 @@ public:
     // Car GPS: degrees; bearing in degrees (<0 unknown); speed in m/s (<0 unknown)
     void updateFix(double lat, double lon, double bearing, double speed);
     bool hasFix() const { return m_haveFix; }
+    // Car's speed sensor (m/s): used to move on without GPS (tunnel)
+    void setCarSpeed(double mps) { m_carSpeed = mps; m_carSpeedAge.start(); }
+    // Estimated position now: last fix moved on with speed and heading; without
+    // GPS (tunnel) along the route, else straight on. True while estimating
+    // without GPS (dead reckoning).
+    bool estimate(double *lat, double *lon, double *bearing, double *speed);
     // Draws the map into r (cached, redrawn at most ~15 times a second).
     void paint(QPainter &p, const QRect &r);
     // Route line (lat, lon); empty = none
-    void setRoute(const QVector<QPointF> &latlon) { m_route = latlon; }
+    void setRoute(const QVector<QPointF> &latlon);
     // Settings: marker 0 = car, 1 = arrow; range -1 near, 0 normal, 1 far;
     // smooth: redraw every video frame (else ~15/s)
     void setMarker(int m) { m_marker = m; }
@@ -108,6 +114,17 @@ private:
 
     QVector<QPointF> m_route;
     QVector<QRectF> m_covered;
+    // Dead reckoning (world pixels at zoom 20)
+    double m_carSpeed = -1;
+    QElapsedTimer m_carSpeedAge, m_drClock;
+    bool m_dr = false;
+    QPointF m_drPos;
+    double m_drBearing = 0;
+    int m_drSeg = 0;
+    QVector<QPointF> m_route20;          // route in world pixels at zoom 20
+    double speedNow() const;
+    QPointF estimate20(double *bearing);
+    static void latLonOf(const QPointF &world20, double *lat, double *lon);
     int m_marker = 0, m_range = 0;
     bool m_smooth = true;
     void updateZoom(bool force);

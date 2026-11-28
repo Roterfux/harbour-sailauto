@@ -1638,6 +1638,18 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
                           : QStringLiteral("Fahrstatus: fährt (Einschränkungen %1)").arg(st));
         updateParked();
     });
+    connect(m_session, &aap::Session::speedChanged, this, [this](double mps) { m_map.setCarSpeed(mps); });
+    // Tunnel: no GPS, the navigation goes on with the estimated position
+    if (!m_drTimer) {
+        m_drTimer = new QTimer(this);
+        m_drTimer->setInterval(1000);
+        connect(m_drTimer, &QTimer::timeout, this, [this]() {
+            if (!m_ownNav.active() || !m_mapEnabled) return;
+            double lat, lon, brg, spd;
+            if (m_map.estimate(&lat, &lon, &brg, &spd)) positionForNav(lat, lon, brg, spd);
+        });
+    }
+    m_drTimer->start();
     connect(m_session, &aap::Session::gearChanged, this, [this](int g) {
         if (g == m_gear) return;
         m_gear = g;

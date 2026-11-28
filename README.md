@@ -217,6 +217,10 @@ Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
 Karte flüssig (volle Bildrate) und Stromsparen.
 Ab 0.19.1 für Linkslenker: Blättern in Listen, „Liste“, „Radio & Musik“ und „Ziel“
 liegen links, näher am Fahrer; Auto-Symbol kleiner.
+Ab 0.19.2 im Tunnel (kein GPS > 2 s): das Auto fährt mit der Geschwindigkeit
+weiter (Tacho-Sensor des Autos, sonst letzte GPS-Geschwindigkeit), bei aktiver
+Route entlang der Route, sonst geradeaus; die Navigation zählt mit. Wiederholt
+das Auto nur die alte Position, gilt das auch als „kein GPS“. Höchstens 10 min.
 
 ## Navigation mit Pure Maps
 

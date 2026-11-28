@@ -313,6 +313,7 @@ private:
     QElapsedTimer m_lastFrameClock, m_lastTouch;
     int m_staticTicks = 0, m_skipTicks = 0;
     bool m_powerSave = true;
+    QTimer *m_drTimer = nullptr;
     void applySettings();
     qint64 m_statBytes = 0;
     QElapsedTimer m_statClock;

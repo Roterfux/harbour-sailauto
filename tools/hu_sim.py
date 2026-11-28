@@ -363,7 +363,7 @@ class HeadUnit:
         keys = b"".join(varint(k) for k in (3, 4, 84, 85, 87, 88, 89, 90))
         inp = f_varint(1, CH_INPUT) + f_bytes(4, f_bytes(1, keys) + f_bytes(2, touch))
         sensor = f_varint(1, CH_SENSOR) + f_bytes(2, f_bytes(1, f_varint(1, 13)) + f_bytes(1, f_varint(1, 10))
-                                                  + f_bytes(1, f_varint(1, 1)))
+                                                  + f_bytes(1, f_varint(1, 1)) + f_bytes(1, f_varint(1, 3)))
         acfg = f_varint(1, 48000) + f_varint(2, 16) + f_varint(3, 2)
         audio = f_varint(1, CH_MEDIA_AUDIO) + f_bytes(3, f_varint(1, 1) + f_varint(2, 3) + f_bytes(3, acfg))
         speech = f_varint(1, 5) + f_bytes(3, f_varint(1, 1) + f_varint(2, 1) +
@@ -418,6 +418,7 @@ def main():
     ap.add_argument("--drive", action="store_true", help="send car GPS once a second, driving 50 km/h with turns")
     ap.add_argument("--straight", action="store_true", help="with --drive: straight north instead of curves")
     ap.add_argument("--origin", default="52.4229,10.7865", help="with --drive: start position lat,lon")
+    ap.add_argument("--tunnel", help="with --drive: no GPS from A to B seconds (e.g. 6-14), wheel speed goes on")
     ap.add_argument("--focus", action="append", default=[],
                     help="unsolicited audio focus state@seconds, e.g. 5@6 (car interrupts briefly), 1@9 (gives back)")
     ap.add_argument("--key", action="append", default=[],
@@ -479,7 +480,13 @@ def main():
             def i32(v): return int(v) & 0xffffffffffffffff
             loc = (f_varint(1, int(time.time() * 1000)) + f_varint(2, i32(lat * 1e7)) + f_varint(3, i32(lon * 1e7))
                    + f_varint(4, 5000) + f_varint(6, 13900) + f_varint(7, i32(bearing * 1e6)))
-            hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(1, loc))
+            in_tunnel = False
+            if args.tunnel:
+                a, b = (float(v) for v in args.tunnel.split("-"))
+                in_tunnel = a <= t < b
+            if not in_tunnel:
+                hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(1, loc))
+            hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(3, f_varint(1, 13900)))  # wheel speed 50 km/h
         time.sleep(0.02)
 
     elapsed = time.time() - (hu.focus_at or time.time())
