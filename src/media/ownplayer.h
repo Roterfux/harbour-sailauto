@@ -55,7 +55,6 @@ public:
     // Songs from another app's lists (TuneBridge), next/previous within them
     void playQueue(const QVector<QueueItem> &items, int index, const QString &album);
     void resolved(int index, const QString &url); // answer to needUrl; empty url = skip
-    bool playingQueue() const { return !m_queueArtists.isEmpty(); }
 
     // Transport (also via MPRIS)
     void play();

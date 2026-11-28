@@ -1173,7 +1173,11 @@ void Controller::showItems(const QVector<BrowseItem> &items, bool push)
         {QStringLiteral("tblist"), QStringLiteral("playlist")}, {QStringLiteral("tbsearch"), QStringLiteral("search")},
         {QStringLiteral("tbtrack"), QStringLiteral("note")}, {QStringLiteral("tbplayall"), QStringLiteral("play")}};
     for (const BrowseItem &b : items) {
-        CarScreen::ListItem li{b.title, b.sub, false, icons.value(b.kind)};
+        CarScreen::ListItem li;
+        li.title = b.title;
+        li.sub = b.sub;
+        li.playlist = false;
+        li.icon = icons.value(b.kind);
         if (b.kind == QLatin1String("switchapp") || b.kind == QLatin1String("quitapp")) {
             li.tile = true; // small icon in the app strip
             const AppEntry *a = b.kind == QLatin1String("switchapp") ? m_apps.find(b.value) : nullptr;

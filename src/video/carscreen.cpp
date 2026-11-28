@@ -794,7 +794,7 @@ void CarScreen::phoneTap(const QPoint &pt)
         }
 }
 
-void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
+void CarScreen::drawNavOnMap(QPainter &p, const QRect &)
 {
     const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
@@ -1525,8 +1525,6 @@ void CarScreen::touch(int action, int x, int y)
         }
     }
     if (action == 0) { // press
-        m_pressed = true;
-        m_trail.clear();
         m_pressedTile = -1;
         m_pressedApp = -1;
         if (m_page == Home)
@@ -1536,7 +1534,6 @@ void CarScreen::touch(int action, int x, int y)
             for (int i = 0; i < m_appRects.size(); ++i)
                 if (m_appRects[i].contains(m_touch)) m_pressedApp = i;
     } else if (action == 1) { // release
-        m_pressed = false;
         for (const CallButton &b : m_callButtons) {
             if (b.rect.contains(m_touch)) {
                 emit callAction(b.action);
@@ -1657,10 +1654,6 @@ void CarScreen::touch(int action, int x, int y)
                 }
         }
         m_pressedTile = -1;
-    }
-    if (m_pressed) {
-        m_trail.append(m_touch);
-        if (m_trail.size() > 40) m_trail.remove(0);
     }
 }
 

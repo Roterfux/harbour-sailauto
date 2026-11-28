@@ -19,6 +19,8 @@ desktop {
     # Headless test build:  qmake CONFIG+=desktop && make
     QT -= quick qml
     DEFINES += SAILAUTO_DESKTOP
+    # The phone has Qt 5.6: keep the old API, no deprecation noise on newer Qt
+    QMAKE_CXXFLAGS += -Wno-deprecated-declarations
 } else {
     CONFIG += sailfishapp
     desktopfile.files = harbour-sailauto.desktop

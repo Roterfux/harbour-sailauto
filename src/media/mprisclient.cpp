@@ -101,8 +101,10 @@ void MprisClient::poll()
         if (!preferredOne.isEmpty()) m_preferred.clear(); // user went back to another player
         chosen = playingOne;
     }
-    for (auto it = m_lastActive.begin(); it != m_lastActive.end();) // forget closed players
-        it = players.contains(it.key()) ? it + 1 : m_lastActive.erase(it);
+    for (auto it = m_lastActive.begin(); it != m_lastActive.end();) { // forget closed players
+        if (players.contains(it.key())) ++it;
+        else it = m_lastActive.erase(it);
+    }
     if (chosen.isEmpty() && players.contains(m_service)) chosen = m_service;
     if (chosen.isEmpty() && !players.isEmpty()) chosen = players.first();
 

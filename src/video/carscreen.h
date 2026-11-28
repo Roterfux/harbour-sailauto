@@ -30,7 +30,6 @@ public:
     void setTheme(int theme) { m_theme = theme; }
     // Draw with the GPU (OpenGL framebuffer); falls back to software by itself
     void setGpu(bool on) { m_gpuWanted = on; }
-    QString renderer() const { return m_gpuActive ? QStringLiteral("GPU") : QStringLiteral("CPU"); }
     bool lightUi() const { return m_theme == 1 || (m_theme == 0 && !m_night); }
     void setInfo(const QString &headUnit, const QString &encoder);
     void setStats(double fps, double kbps);
@@ -235,9 +234,7 @@ private:
     QElapsedTimer m_posClock;
     bool m_playing = false;
     int m_pressedTile = -1;
-    bool m_pressed = false;
     QPoint m_touch;
-    QVector<QPoint> m_trail;
     QString m_headUnit, m_encoder, m_version;
     double m_fps = 0, m_kbps = 0;
     PhoneState m_phone;

@@ -30,7 +30,6 @@ public:
     static const int kMaxDataZoom = 14; // OpenMapTiles tiles stop at z14, higher zooms scale them
 
     void setNight(bool night) { m_night = night; }
-    bool night() const { return m_night; }
     // Data tiles (zoom kMaxDataZoom or lower)
     void insert(int z, int x, int y, const QSharedPointer<VectorTile> &tile);
     bool has(int z, int x, int y) const { return m_tiles.contains(key(z, x, y)); }

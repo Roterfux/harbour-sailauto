@@ -36,7 +36,6 @@ public:
     void setNight(bool night);
     // Car GPS: degrees; bearing in degrees (<0 unknown); speed in m/s (<0 unknown)
     void updateFix(double lat, double lon, double bearing, double speed);
-    bool hasFix() const { return m_haveFix; }
     // Car's speed sensor (m/s): used to move on without GPS (tunnel)
     void setCarSpeed(double mps) { m_carSpeed = mps; m_carSpeedAge.start(); }
     // Estimated position now: last fix moved on with speed and heading; without
@@ -132,7 +131,7 @@ private:
     static void trimStore();
     QNetworkAccessManager *m_prefetchNet = nullptr;
     QVector<QPoint> m_prefetch;
-    int m_prefetchRunning = 0, m_prefetchTotal = 0, m_prefetchDone = 0;
+    int m_prefetchRunning = 0, m_prefetchDone = 0;
     bool m_prefetchOn = true;
     // Dead reckoning (world pixels at zoom 20)
     double m_carSpeed = -1;

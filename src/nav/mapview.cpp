@@ -309,9 +309,9 @@ void MapView::prefetchRoute(const QVector<QPointF> &latlon)
             if (fy > 0.75) add(tx, ty + 1);
         }
     }
-    m_prefetchTotal = m_prefetch.size();
     m_prefetchDone = 0;
-    emit log(QStringLiteral("Karte: %1 von %2 Kacheln entlang der Route fehlen am Telefon").arg(m_prefetch.size()).arg(seen.size()));
+    if (m_vtSource == 1) // online map only; OSM Scout Server has everything on the phone
+        emit log(QStringLiteral("Karte: %1 von %2 Kacheln entlang der Route fehlen am Telefon").arg(m_prefetch.size()).arg(seen.size()));
     startPrefetch();
 }
 
