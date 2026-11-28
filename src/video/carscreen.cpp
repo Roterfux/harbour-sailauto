@@ -1,5 +1,11 @@
 #include "carscreen.h"
 
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+#include <QOpenGLFramebufferObject>
+#include <QOpenGLFunctions>
+#include <QOpenGLPaintDevice>
+
 #include <QDateTime>
 #include <QFont>
 #include <QFontMetrics>
@@ -2180,12 +2186,85 @@ void CarScreen::drawPage(QPainter &p)
     }
 }
 
+bool CarScreen::initGpu()
+{
+    if (m_gpuFailed) return false;
+    if (!m_glCtx) {
+        m_glSurface = new QOffscreenSurface();
+        m_glSurface->create();
+        m_glCtx = new QOpenGLContext(this);
+        if (!m_glSurface->isValid() || !m_glCtx->create() || !m_glCtx->makeCurrent(m_glSurface)) {
+            m_gpuFailed = true;
+            emit gpuStatus(QStringLiteral("Grafik: kein OpenGL, zeichne mit der CPU"));
+            return false;
+        }
+    }
+    if (!m_glCtx->makeCurrent(m_glSurface)) return false;
+    if (!m_fbo || m_fbo->size() != m_image.size()) {
+        delete m_fbo;
+        QOpenGLFramebufferObjectFormat fmt;
+        fmt.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
+        // Multisampling = smooth edges; needs blitting to read back
+        if (QOpenGLFramebufferObject::hasOpenGLFramebufferBlit()) fmt.setSamples(4);
+        m_fbo = new QOpenGLFramebufferObject(m_image.size(), fmt);
+        if (!m_fbo->isValid()) {
+            delete m_fbo;
+            m_fbo = nullptr;
+            m_gpuFailed = true;
+            emit gpuStatus(QStringLiteral("Grafik: OpenGL-Puffer geht nicht, zeichne mit der CPU"));
+            return false;
+        }
+    }
+    return true;
+}
+
 const QImage &CarScreen::render()
 {
     ++m_frame;
-    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
+    if (m_gpuWanted && initGpu()) {
+        m_fbo->bind();
+        {
+            QOpenGLPaintDevice dev(m_image.size());
+            QPainter p(&dev);
+            paintFrame(p);
+        }
+        m_fbo->release();
+        const QImage out = m_fbo->toImage().convertToFormat(QImage::Format_RGB32);
+        // Self-check for the first frames: the safe area must show our
+        // background; if not (driver trouble), back to the CPU for good.
+        if (m_gpuChecks < 3 && m_page == Home) {
+            ++m_gpuChecks;
+            const Palette c = (lightUi() ? lightPalette() : palette(m_night));
+            const QColor got = out.pixelColor(m_safe.left() + 2, m_safe.bottom() - 2);
+            const bool ok = !out.isNull() && qAbs(got.red() - c.bg.red()) < 24 && qAbs(got.green() - c.bg.green()) < 24
+                            && qAbs(got.blue() - c.bg.blue()) < 24;
+            if (!ok) {
+                m_gpuFailed = true;
+                m_gpuActive = false;
+                emit gpuStatus(QStringLiteral("Grafik: GPU-Bild falsch, zeichne mit der CPU"));
+            } else if (ok && !m_gpuActive) {
+                m_gpuActive = true;
+                emit gpuStatus(QStringLiteral("Grafik: zeichne mit der GPU (%1)")
+                                   .arg(QString::fromLatin1(reinterpret_cast<const char *>(
+                                       m_glCtx->functions()->glGetString(GL_RENDERER)))));
+            }
+        }
+        if (!m_gpuFailed) {
+            m_image = out;
+            return m_image;
+        }
+    }
+    m_gpuActive = false;
     m_image.fill(Qt::black);
     QPainter p(&m_image);
+    paintFrame(p);
+    return m_image;
+}
+
+void CarScreen::paintFrame(QPainter &p)
+{
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
+    p.fillRect(QRect(QPoint(0, 0), m_image.size()), Qt::black);
     p.setRenderHint(QPainter::Antialiasing);
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     p.fillRect(m_safe, c.bg);
@@ -2197,6 +2276,4 @@ const QImage &CarScreen::render()
     drawVolume(p);
     drawBanner(p);
     drawCall(p);
-
-    return m_image;
 }

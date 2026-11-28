@@ -70,7 +70,8 @@ private:
     void request(int z, int x, int y);
     void onReply(QNetworkReply *reply);
     void rebuildCanvas(int z, int cx, int cy);
-    void renderLayer(const QSize &size);
+    void renderLayer(QPainter &p, const QSize &size);
+    double m_viewW = 800;
     QString tileKey(int z, int x, int y) const;
 
     QNetworkAccessManager *m_net = nullptr;

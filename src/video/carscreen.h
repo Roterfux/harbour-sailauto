@@ -28,6 +28,9 @@ public:
     void setNight(bool night);
     // 0 automatic (light by day, dark at night), 1 always light, 2 always dark
     void setTheme(int theme) { m_theme = theme; }
+    // Draw with the GPU (OpenGL framebuffer); falls back to software by itself
+    void setGpu(bool on) { m_gpuWanted = on; }
+    QString renderer() const { return m_gpuActive ? QStringLiteral("GPU") : QStringLiteral("CPU"); }
     bool lightUi() const { return m_theme == 1 || (m_theme == 0 && !m_night); }
     void setInfo(const QString &headUnit, const QString &encoder);
     void setStats(double fps, double kbps);
@@ -106,6 +109,7 @@ signals:
     void musicListPicked(int index);
     void musicListBack();                 // "Zurück" inside the list
     void radioSearch(const QString &text);
+    void gpuStatus(const QString &line); // GPU drawing on / off (log)
 
 public:
     enum Page { Home, Navigation, Music, Apps, Phone, Info, WeatherPage };
@@ -124,6 +128,14 @@ private:
     QRect m_safe;
     bool m_night = false;
     int m_theme = 0;
+    // GPU drawing
+    bool m_gpuWanted = true, m_gpuFailed = false, m_gpuActive = false;
+    int m_gpuChecks = 0;
+    class QOpenGLContext *m_glCtx = nullptr;
+    class QOffscreenSurface *m_glSurface = nullptr;
+    class QOpenGLFramebufferObject *m_fbo = nullptr;
+    bool initGpu();
+    void paintFrame(QPainter &p);
     QString m_trafficTitle, m_trafficSub;
     bool m_trafficSevere = false;
     Page m_page = Home;

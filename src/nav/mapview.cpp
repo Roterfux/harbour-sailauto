@@ -18,6 +18,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPainter>
+#include <QPaintEngine>
 #include <QPolygonF>
 #include <QStandardPaths>
 #include <QTransform>
@@ -592,14 +593,16 @@ void MapView::rebuildCanvas(int z, int cx, int cy)
     m_canvasDirty = false;
 }
 
-void MapView::renderLayer(const QSize &size)
+void MapView::renderLayer(QPainter &p, const QSize &size)
 {
-    if (m_layer.size() != size) m_layer = QImage(size, QImage::Format_RGB32);
+    // p: the layer image (software) or straight the screen (OpenGL, already
+    // moved to the map area); every absolute transform is put on top of base.
+    const QTransform base = p.transform();
     const QColor sky = m_night ? QColor(14, 18, 28) : QColor(150, 185, 215);
-    QPainter p(&m_layer);
     p.setRenderHint(QPainter::SmoothPixmapTransform);
     p.setRenderHint(QPainter::Antialiasing);
     const double w = size.width(), h = size.height();
+    m_viewW = w;
     const double horizon = h * 0.03;
     QLinearGradient g(0, 0, 0, horizon);
     g.setColorAt(0, sky.darker(130));
@@ -651,7 +654,7 @@ void MapView::renderLayer(const QSize &size)
     rot.rotate(-m_shownBearing);
     p.save();
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
-    p.setTransform(t * rot * proj);
+    p.setTransform(t * rot * proj * base);
     p.drawImage(QRectF(0, 0, kGrid * kTile, kGrid * kTile), m_canvas); // vector canvas has more pixels
     if (m_online && m_night && !vectorMode()) // OSM tiles have no night style: darken gently
         p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 70));
@@ -788,7 +791,7 @@ void MapView::drawDestination(QPainter &p, const QTransform &canvasToScreen, int
     if (m_route.size() < 2) return;
     const QPointF origin(m_canvasX * kTile, m_canvasY * kTile);
     const QPointF sp = canvasToScreen.map(worldPixel(m_route.last().x(), m_route.last().y(), z) - origin);
-    if (sp.y() < horizon + 4 || sp.y() > h + 40 || sp.x() < -40 || sp.x() > p.device()->width() + 40) return;
+    if (sp.y() < horizon + 4 || sp.y() > h + 40 || sp.x() < -40 || sp.x() > m_viewW + 40) return;
     const double depth = 0.6 + 0.6 * qBound(0.0, (sp.y() - horizon) / (h - horizon), 1.0);
     const double s = h / 9 * depth; // pin height
     p.save();
@@ -868,10 +871,24 @@ void MapView::paint(QPainter &p, const QRect &r)
 {
     // As many pictures as the car takes (every video tick); the slow part (the
     // vector canvas) is drawn in the background anyway.
+    // OpenGL: draw straight onto the screen every frame (the canvas stays a
+    // texture on the GPU, the tilt costs almost nothing there)
+    const QPaintEngine *pe = p.paintEngine();
+    if (pe && (pe->type() == QPaintEngine::OpenGL2 || pe->type() == QPaintEngine::OpenGL)) {
+        p.save();
+        p.translate(r.topLeft());
+        p.setClipRect(QRect(QPoint(0, 0), r.size()));
+        renderLayer(p, r.size());
+        p.restore();
+        return;
+    }
     if (m_layer.size() != r.size() || !m_layerClock.isValid() || m_layerClock.elapsed() >= (m_smooth ? 10 : 66)) {
         QElapsedTimer tm;
         tm.start();
-        renderLayer(r.size());
+        if (m_layer.size() != r.size()) m_layer = QImage(r.size(), QImage::Format_RGB32);
+        QPainter lp(&m_layer);
+        renderLayer(lp, r.size());
+        lp.end();
         m_layerClock.start();
         static const bool dbgRender = !qgetenv("SAILAUTO_MAPTIME").isEmpty();
         if (dbgRender && tm.elapsed() > 30) qInfo("map render %lld ms", tm.elapsed());

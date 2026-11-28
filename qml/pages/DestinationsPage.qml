@@ -137,6 +137,13 @@ Page {
                 checked: controller.setting("power/save", true)
                 onCheckedChanged: controller.setSetting("power/save", checked)
             }
+            TextSwitch {
+                text: qsTr("Mit der GPU zeichnen")
+                description: qsTr("Bildschirm und Karte über OpenGL: weniger Last für den Prozessor. Geht es nicht, "
+                                  + "nimmt SailAuto von selbst die CPU (steht im Protokoll).")
+                checked: controller.setting("ui/gpu", true)
+                onCheckedChanged: controller.setSetting("ui/gpu", checked)
+            }
             SectionHeader { text: qsTr("Hinweis") }
             Label {
                 x: Theme.horizontalPageMargin

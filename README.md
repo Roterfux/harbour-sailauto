@@ -350,6 +350,15 @@ Einstellung „Anzeige im Auto → Aussehen“: Automatisch (hell am Tag, dunkel
 Nacht nach dem Lichtsensor des Autos, Standard), Immer hell, Immer dunkel.
 Die Karte hat eigene Tag- und Nachtfarben.
 
+## GPU (ab 0.24.0)
+
+Bildschirm und Karte werden über OpenGL gezeichnet (Framebuffer mit
+Kantenglättung, Karte direkt auf der GPU, die Kartentextur bleibt dort). Die
+ersten Bilder werden geprüft; stimmt etwas nicht oder fehlt OpenGL, zeichnet
+SailAuto von selbst mit der CPU (Protokoll: „Grafik: …“). Schalter in den
+Einstellungen. Hardware-H.264: `droidvenc` (gst-droid) nimmt auf dem Xperia 10
+III nur Kamera-Puffer, kodiert wird deshalb weiter mit openh264.
+
 ## Stromsparen (ab 0.18.1)
 
 Ein Bild, das sich nicht ändert, wird nicht neu kodiert: ruhige Seiten laufen

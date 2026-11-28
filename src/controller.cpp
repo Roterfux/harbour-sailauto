@@ -288,6 +288,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_traffic, &TrafficService::changed, this, &Controller::pushTraffic);
     connect(&m_traffic, &TrafficService::log, this, &Controller::appendLog);
     connect(&m_speedLimit, &SpeedLimit::log, this, &Controller::appendLog);
+    connect(&m_screen, &CarScreen::gpuStatus, this, &Controller::appendLog);
     connect(&m_speedLimit, &SpeedLimit::limitChanged, this, [this](int kmh) { m_map.setSpeedLimit(kmh); });
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
@@ -1069,6 +1070,7 @@ void Controller::applySettings()
     m_map.setPrefetch(st.value(QStringLiteral("map/prefetch"), true).toBool());
     m_powerSave = st.value(QStringLiteral("power/save"), true).toBool();
     m_screen.setTheme(st.value(QStringLiteral("ui/theme"), 0).toInt());
+    m_screen.setGpu(st.value(QStringLiteral("ui/gpu"), true).toBool());
     m_traffic.setKey(st.value(QStringLiteral("traffic/key")).toString());
 }
 
