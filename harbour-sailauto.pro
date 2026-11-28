@@ -51,6 +51,7 @@ desktop {
 }
 
 HEADERS += \
+    src/nav/speedlimit.h \
     src/nav/traffic.h \
     src/media/tunebridge.h \
     src/nav/vectortile.h \
@@ -83,6 +84,7 @@ HEADERS += \
     src/controller.h
 
 SOURCES += \
+    src/nav/speedlimit.cpp \
     src/nav/traffic.cpp \
     src/media/tunebridge.cpp \
     src/nav/vectortile.cpp \

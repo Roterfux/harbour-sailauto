@@ -1,5 +1,5 @@
 Name:       harbour-sailauto
-Version:    0.21.1
+Version:    0.22.0
 Release:    1
 Summary:    Android Auto projection to OpenAuto head units (MVP)
 License:    GPLv3 and BSD

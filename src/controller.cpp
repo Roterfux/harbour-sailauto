@@ -253,10 +253,13 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_ownNav, &Navigator::routeChanged, this, [this]() {
         m_map.setRoute(m_ownNav.shape());
         m_traffic.setRoute(m_ownNav.active() ? m_ownNav.shape() : QVector<QPointF>());
+        m_speedLimit.setRoute(m_ownNav.active() ? m_ownNav.shape() : QVector<QPointF>());
         if (!m_ownNav.active()) m_trafficAnnounced.clear();
     });
     connect(&m_traffic, &TrafficService::changed, this, &Controller::pushTraffic);
     connect(&m_traffic, &TrafficService::log, this, &Controller::appendLog);
+    connect(&m_speedLimit, &SpeedLimit::log, this, &Controller::appendLog);
+    connect(&m_speedLimit, &SpeedLimit::limitChanged, this, [this](int kmh) { m_map.setSpeedLimit(kmh); });
     connect(&m_nav, &PureMapsClient::changed, this, [this]() {
         const NavState &n = m_nav.state();
         if (!m_ownNav.active()) m_screen.setNav(n, m_nav.icon(n.icon, 256));
@@ -945,6 +948,7 @@ void Controller::positionForNav(double lat, double lon, double bearing, double s
 {
     m_ownNav.updatePosition(lat, lon, bearing, speed);
     if (m_ownNav.active()) m_traffic.updatePosition(lat, lon);
+    if (m_mapEnabled) m_speedLimit.updatePosition(lat, lon, speed);
 }
 
 void Controller::pushTraffic()

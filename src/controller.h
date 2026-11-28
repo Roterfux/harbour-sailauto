@@ -11,6 +11,7 @@
 #include "media/appsources.h"
 #include "media/tunebridge.h"
 #include "nav/traffic.h"
+#include "nav/speedlimit.h"
 #include "phone/phonestatus.h"
 #include "phone/notificationwatcher.h"
 #include "phone/callmonitor.h"
@@ -318,6 +319,7 @@ private:
     bool m_powerSave = true;
     QTimer *m_drTimer = nullptr;
     TrafficService m_traffic;
+    SpeedLimit m_speedLimit;
     QSet<QString> m_trafficAnnounced; // incidents already shown as a banner
     void pushTraffic();
     void applySettings();

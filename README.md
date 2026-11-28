@@ -217,6 +217,10 @@ Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
 Karte flüssig (volle Bildrate) und Stromsparen.
 Ab 0.19.1 für Linkslenker: Blättern in Listen, „Liste“, „Radio & Musik“ und „Ziel“
 liegen links, näher am Fahrer; Auto-Symbol kleiner.
+Ab 0.22.0: Tempolimit als Schild neben dem Tempo (OpenStreetMap maxspeed über
+Valhalla `trace_attributes`: offline OSM Scout Server, sonst FOSSGIS). Mit Route
+für die nächsten 50 km im Voraus, ohne Route alle 15 s aus den letzten
+Positionen. Zu schnell (> Limit + 3): Tempo rot.
 Ab 0.21.1: Zoom stufenlos nach Tempo (langsam = näher, schnell = weiter weg),
 Tempo unten links, Ziel als Stecknadel mit Zielflagge.
 Ab 0.19.2 im Tunnel (kein GPS > 2 s): das Auto fährt mit der Geschwindigkeit

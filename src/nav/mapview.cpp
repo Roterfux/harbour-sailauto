@@ -560,7 +560,7 @@ void MapView::renderLayer(const QSize &size)
     if (vectorMode())
         m_vm.drawLabels(p, t * rot * proj, QRectF(0, 0, w, h), horizon,
                         QVector<QRectF>() << QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2) << m_covered
-                                          << QRectF(0, h - h * 0.2, w * 0.22, h * 0.2)); // speed
+                                          << QRectF(0, h - h * 0.2, w * 0.36, h * 0.2)); // speed + limit
     else
         drawPlaceNames(p, t * rot * proj, cz, w, h, horizon);
     drawDestination(p, t * rot * proj, cz, h, horizon);
@@ -692,18 +692,33 @@ void MapView::drawSpeed(QPainter &p, double w, double h)
     Q_UNUSED(w)
     if (!m_haveFix) return;
     const int kmh = int(speedNow() * 3.6 + 0.5);
+    const bool over = m_speedLimit > 0 && kmh > m_speedLimit + 3; // a little tolerance
     const double bh = h * 0.16, bw = bh * 1.35;
     const QRectF box(10, h - bh - 10, bw, bh);
     p.save();
     p.setRenderHint(QPainter::Antialiasing);
-    p.setPen(QPen(m_night ? QColor(70, 76, 92) : QColor(200, 204, 214), 2));
+    // Speed limit sign right of the speed: white disc, red ring, number
+    if (m_speedLimit > 0) {
+        const double d = bh * 0.92;
+        const QRectF sign(box.right() + 8, box.center().y() - d / 2, d, d);
+        p.setPen(QPen(QColor(205, 30, 35), d * 0.12));
+        p.setBrush(Qt::white);
+        p.drawEllipse(sign.adjusted(d * 0.06, d * 0.06, -d * 0.06, -d * 0.06));
+        QFont sf = p.font();
+        sf.setBold(true);
+        sf.setPixelSize(int(d * (m_speedLimit >= 100 ? 0.34 : 0.42)));
+        p.setFont(sf);
+        p.setPen(QColor(20, 20, 20));
+        p.drawText(sign, Qt::AlignCenter, QString::number(m_speedLimit));
+    }
+    p.setPen(QPen(over ? QColor(215, 40, 35) : m_night ? QColor(70, 76, 92) : QColor(200, 204, 214), over ? 4 : 2));
     p.setBrush(m_night ? QColor(20, 24, 34, 225) : QColor(255, 255, 255, 230));
     p.drawRoundedRect(box, 12, 12);
     QFont f = p.font();
     f.setBold(true);
     f.setPixelSize(int(bh * 0.5));
     p.setFont(f);
-    p.setPen(m_night ? QColor(230, 234, 242) : QColor(25, 28, 38));
+    p.setPen(over ? QColor(215, 40, 35) : m_night ? QColor(230, 234, 242) : QColor(25, 28, 38));
     p.drawText(QRectF(box.left(), box.top() + bh * 0.04, bw, bh * 0.62), Qt::AlignCenter, QString::number(kmh));
     f.setBold(false);
     f.setPixelSize(int(bh * 0.2));
