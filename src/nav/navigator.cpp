@@ -112,7 +112,7 @@ void Navigator::requestRoute(bool reroute)
         QNetworkRequest r(url);
         r.setRawHeader("User-Agent", "SailAuto (Sailfish OS car navigation)");
         QNetworkReply *rep = m_net->get(r);
-        connect(rep, &QNetworkReply::finished, this, [this, rep, online, reroute, self]() {
+        connect(rep, &QNetworkReply::finished, this, [this, rep, online, reroute, self, json]() {
             rep->deleteLater();
             const QByteArray body = rep->readAll();
             const bool ok = rep->error() == QNetworkReply::NoError
@@ -132,6 +132,7 @@ void Navigator::requestRoute(bool reroute)
             if (!m_active) return;
             m_usedOnline = online;
             parseRoute(body);
+            requestLanes(json, online);
             emit log(QStringLiteral("Navigation (SailAuto): %1 %2, %3 (%4)")
                          .arg(reroute ? QStringLiteral("neue Route") : QStringLiteral("Route"), fmtDist(m_totalM), fmtTime(m_totalS),
                               online ? QStringLiteral("online") : QStringLiteral("offline")));
@@ -226,6 +227,69 @@ void Navigator::updatePosition(double lat, double lon, double bearing, double sp
     update();
 }
 
+void Navigator::requestLanes(const QByteArray &json, bool online)
+{
+    QJsonObject req = QJsonDocument::fromJson(json).object();
+    req.insert(QStringLiteral("format"), QStringLiteral("osrm"));
+    QUrl url(routeUrl(online));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("json"), QString::fromUtf8(QJsonDocument(req).toJson(QJsonDocument::Compact)));
+    url.setQuery(q);
+    QNetworkRequest r(url);
+    r.setRawHeader("User-Agent", "SailAuto (Sailfish OS car navigation)");
+    QNetworkReply *rep = m_net->get(r);
+    const int routeSize = m_shape.size();
+    connect(rep, &QNetworkReply::finished, this, [this, rep, routeSize]() {
+        rep->deleteLater();
+        if (rep->error() != QNetworkReply::NoError || routeSize != m_shape.size() || !m_active) return; // no lanes then
+        parseLanes(rep->readAll());
+    });
+}
+
+void Navigator::parseLanes(const QByteArray &json)
+{
+    // OSRM: routes[0].legs[0].steps[].intersections[] {location [lon,lat], lanes [{indications [..], valid}]}
+    // The lanes at the maneuver's intersection belong to that maneuver.
+    const QJsonArray routes = QJsonDocument::fromJson(json).object().value(QStringLiteral("routes")).toArray();
+    if (routes.isEmpty()) return;
+    int withLanes = 0;
+    for (const QJsonValue &lv : routes.first().toObject().value(QStringLiteral("legs")).toArray())
+        for (const QJsonValue &sv : lv.toObject().value(QStringLiteral("steps")).toArray())
+            for (const QJsonValue &iv : sv.toObject().value(QStringLiteral("intersections")).toArray()) {
+                const QJsonObject is = iv.toObject();
+                const QJsonArray lanes = is.value(QStringLiteral("lanes")).toArray();
+                if (lanes.isEmpty()) continue;
+                const QJsonArray loc = is.value(QStringLiteral("location")).toArray();
+                const double lat = loc.at(1).toDouble(), lon = loc.at(0).toDouble();
+                // the maneuver at this spot (within 30 m)
+                int best = -1;
+                double bestD = 30;
+                for (int k = 0; k < m_man.size(); ++k) {
+                    const QPointF &p = m_shape.value(m_man[k].beginIndex);
+                    const double d = distM(lat, lon, p.x(), p.y());
+                    if (d < bestD) { bestD = d; best = k; }
+                }
+                if (best < 0) continue;
+                QStringList parts;
+                bool anyValid = false;
+                for (const QJsonValue &l : lanes) {
+                    const QJsonObject lo = l.toObject();
+                    QStringList ind;
+                    for (const QJsonValue &x : lo.value(QStringLiteral("indications")).toArray()) ind << x.toString();
+                    const bool valid = lo.value(QStringLiteral("valid")).toBool();
+                    anyValid |= valid;
+                    parts << ind.join(QLatin1Char('|')) + (valid ? QStringLiteral("*") : QString());
+                }
+                if (!anyValid || parts.size() < 2) continue; // one lane or no advice: nothing to show
+                m_man[best].lanes = parts.join(QLatin1Char(','));
+                ++withLanes;
+            }
+    if (withLanes) {
+        emit log(QStringLiteral("Navigation (SailAuto): Spurempfehlung für %1 Abbiegungen").arg(withLanes));
+        update();
+    }
+}
+
 void Navigator::update()
 {
     if (m_man.isEmpty()) return;
@@ -248,8 +312,10 @@ void Navigator::update()
     m_state.narrative = m.instruction;
     m_state.destDist = fmtDist(remaining);
     m_state.destTime = fmtTime(remainingS);
+    m_state.destSeconds = remainingS;
     m_state.destEta = QDateTime::currentDateTime().addSecs(qint64(remainingS)).toString(QStringLiteral("HH:mm"));
     m_state.progress = m_totalM > 0 ? int(100 * m_along / m_totalM) : 0;
+    m_state.lanes = toMan < 1500 ? m.lanes : QString(); // only when it matters
     // Announce once per maneuver: ~ 10 s ahead (at least 150 m)
     const double ahead = qMax(150.0, m_speed * 12);
     if (next != m_announced && toMan < ahead && !m.verbal.isEmpty()) {

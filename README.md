@@ -217,6 +217,10 @@ Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
 Karte flüssig (volle Bildrate) und Stromsparen.
 Ab 0.19.1 für Linkslenker: Blättern in Listen, „Liste“, „Radio & Musik“ und „Ziel“
 liegen links, näher am Fahrer; Auto-Symbol kleiner.
+Ab 0.26.0: Spurempfehlung unter dem Abbiegehinweis (Spuren aus OpenStreetMap
+`turn:lanes`, von Valhalla im OSRM-Format geholt; zu nehmende Spuren kräftig,
+andere blass; ab 1,5 km vor dem Abbiegen). Stau-Zeitverlust (TomTom) steckt in
+Restzeit und Ankunft, „+5 min Stau“ in Orange.
 Ab 0.22.1: Karte offline. Vektorkacheln von OpenFreeMap bleiben am Telefon
 (`~/.cache/harbour-sailauto/vt`, höchstens 400 MB, älteste fliegen zuerst). Bei
 Routenstart wird die ganze Strecke vorgeladen (Einstellung „Karte entlang der

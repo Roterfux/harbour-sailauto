@@ -804,7 +804,8 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &)
         // Where the cards/buttons go (map coordinates), names stay clear of them
         QVector<QRectF> covered;
         if (m_nav.running) {
-            covered << QRectF(0, 0, area.width() * 9 / 25 + 30, bar * 13 / 10 + bar * 2 / 3 + 20 + (m_trafficTitle.isEmpty() ? 0 : bar + 10))
+            covered << QRectF(0, 0, area.width() * 9 / 25 + 30, bar * 13 / 10 + bar * 2 / 3 + 20 + (m_trafficTitle.isEmpty() ? 0 : bar + 10)
+                                                                   + (m_nav.lanes.isEmpty() ? 0 : bar * 4 / 5 + 8))
                     << QRectF(area.width() - area.width() * 3 / 10 - bar - 40, 0, area.width() * 3 / 10 + bar + 40, bar + 24);
         } else {
             covered << QRectF(0, 0, bar * 3 + 30, bar + 24);
@@ -867,14 +868,28 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &)
         f.setBold(false);
         p.setFont(f);
         p.setPen(c.dim);
-        p.drawText(QRect(sr.left(), sr.top() + sr.height() * 11 / 20, sr.width(), sr.height() * 9 / 20),
-                   Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Ankunft %1").arg(m_nav.destEta));
+        if (!m_nav.destDelay.isEmpty()) p.setPen(lightUi() ? QColor(185, 95, 0) : QColor(240, 170, 40));
+        drawFit(p, QRect(sr.left(), sr.top() + sr.height() * 11 / 20, sr.width(), sr.height() * 9 / 20),
+                Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Ankunft %1").arg(m_nav.destEta)
+                                                  + (m_nav.destDelay.isEmpty() ? QString() : QStringLiteral(" · ") + m_nav.destDelay));
         p.setPen(Qt::NoPen);
         p.setBrush(c.accent);
         p.drawRoundedRect(QRect(strip.left() + 10, strip.bottom() - 5, (strip.width() - 20) * qBound(0, m_nav.progress, 100) / 100, 3), 1, 1);
-        // Traffic warning below the turn card
+        // Lanes below the turn card (which lane to take)
+        int below = cardR.bottom() + 8 + (m_nav.alongRoute ? 0 : bar / 2);
+        if (!m_nav.lanes.isEmpty()) {
+            const int n = m_nav.lanes.count(QLatin1Char(',')) + 1;
+            const int lh = bar * 4 / 5, lw = qMin(lh * 4 / 5, (cardR.width() - 16) / n);
+            const QRect lr(cardR.left(), below, n * lw + 16, lh);
+            p.setPen(Qt::NoPen);
+            p.setBrush(card);
+            p.drawRoundedRect(lr, 12, 12);
+            drawLanes(p, lr.adjusted(8, 4, -8, -4), m_nav.lanes);
+            below = lr.bottom() + 8;
+        }
+        // Traffic warning below that
         if (!m_trafficTitle.isEmpty()) {
-            const QRect wr(cardR.left(), cardR.bottom() + 8 + (m_nav.alongRoute ? 0 : bar / 2), cardR.width(), bar);
+            const QRect wr(cardR.left(), below, cardR.width(), bar);
             p.setPen(Qt::NoPen);
             p.setBrush(m_trafficSevere ? QColor(205, 45, 40) : QColor(235, 140, 20));
             p.drawRoundedRect(wr, 12, 12);
@@ -913,6 +928,62 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &)
     if (m_nav.app && m_nav.hasRoute)
         button(QRect(area.left() + 20 + bar * 3, area.top() + 10, bar * 6, bar), QStringLiteral("start"),
                QStringLiteral("Navigation starten"), QColor(40, 170, 80), Qt::white);
+}
+
+void CarScreen::drawLanes(QPainter &p, const QRect &r, const QString &lanes)
+{
+    // One column per lane, arrows for its directions; lanes to take bright, others faint
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
+    const QStringList list = lanes.split(QLatin1Char(','));
+    const double w = double(r.width()) / qMax(1, list.size());
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+    for (int i = 0; i < list.size(); ++i) {
+        QString lane = list[i];
+        const bool take = lane.endsWith(QLatin1Char('*'));
+        if (take) lane.chop(1);
+        const QRectF cell(r.left() + i * w, r.top(), w, r.height());
+        if (i > 0) { // dashed lane divider
+            p.setPen(QPen(c.dim, 1.5, Qt::DashLine));
+            p.drawLine(QPointF(cell.left(), cell.top() + 2), QPointF(cell.left(), cell.bottom() - 2));
+        }
+        QColor col = take ? c.text : c.dim;
+        if (!take) col.setAlpha(110);
+        p.setPen(QPen(col, qMax(2.5, w / 9), Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        p.setBrush(Qt::NoBrush);
+        const double s = qMin(cell.width(), cell.height()) * 0.42;
+        const QPointF base(cell.center().x(), cell.center().y() + s);
+        const QPointF mid(cell.center().x(), cell.center().y() + s * 0.1);
+        for (const QString &ind : lane.split(QLatin1Char('|'))) {
+            // direction of the arrow end, degrees from straight up
+            double ang = 0;
+            if (ind == QLatin1String("slight left")) ang = -40;
+            else if (ind == QLatin1String("left")) ang = -90;
+            else if (ind == QLatin1String("sharp left")) ang = -135;
+            else if (ind == QLatin1String("slight right")) ang = 40;
+            else if (ind == QLatin1String("right")) ang = 90;
+            else if (ind == QLatin1String("sharp right")) ang = 135;
+            else if (ind == QLatin1String("uturn")) ang = -180;
+            const double rad = qDegreesToRadians(ang);
+            const QPointF dir(std::sin(rad), -std::cos(rad));
+            const QPointF tip = ang == 0 ? QPointF(base.x(), cell.center().y() - s) : mid + dir * s * 0.9;
+            QPainterPath path(base);
+            if (ang == 0) path.lineTo(tip);
+            else path.quadTo(QPointF(mid.x(), mid.y() - s * 0.2), tip);
+            p.drawPath(path);
+            // arrow head
+            const QPointF d = ang == 0 ? QPointF(0, -1) : dir;
+            const QPointF nrm(-d.y(), d.x());
+            const double hs = s * 0.38;
+            QPolygonF head({tip + d * hs * 0.2, tip - d * hs + nrm * hs * 0.7, tip - d * hs - nrm * hs * 0.7});
+            p.setBrush(col);
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(head);
+            p.setPen(QPen(col, qMax(2.5, w / 9), Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            p.setBrush(Qt::NoBrush);
+        }
+    }
+    p.restore();
 }
 
 void CarScreen::drawNavChoose(QPainter &p, const QRect &body)

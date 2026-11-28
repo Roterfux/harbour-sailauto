@@ -37,6 +37,10 @@ signals:
     // Short spoken-style text before a maneuver (for a later voice output)
     void announce(const QString &text);
 
+public:
+    static QString fmtDist(double m);
+    static QString fmtTime(double s);
+
 private:
     struct Maneuver {
         int type = 0;
@@ -44,13 +48,15 @@ private:
         int beginIndex = 0;
         int roundaboutExit = 0;
         double alongM = 0;   // distance from route start to the maneuver
+        QString lanes;       // see NavState::lanes
     };
     void requestRoute(bool reroute);
     void parseRoute(const QByteArray &json);
+    // Lanes: the same route once more in OSRM format (only that has turn lanes)
+    void requestLanes(const QByteArray &json, bool online);
+    void parseLanes(const QByteArray &json);
     void update();
     static QString iconFor(int type, int exitCount);
-    static QString fmtDist(double m);
-    static QString fmtTime(double s);
 
     QNetworkAccessManager *m_net;
     bool m_active = false;

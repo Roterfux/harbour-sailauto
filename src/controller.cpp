@@ -994,6 +994,7 @@ void Controller::pushTraffic()
     for (const TrafficIncident &in : ahead)
         marks.append({in.line, in.category == 6 && in.magnitude < 3 ? QColor(240, 140, 20) : QColor(215, 40, 35)});
     m_map.setTraffic(marks);
+    pushNav(); // arrival time with the jam delay
     if (ahead.isEmpty()) {
         m_screen.setTrafficWarning(QString(), QString(), false);
         return;
@@ -1022,7 +1023,15 @@ void Controller::pushTraffic()
 void Controller::pushNav()
 {
     if (m_ownNav.active()) {
-        const NavState &n = m_ownNav.state();
+        NavState n = m_ownNav.state();
+        // Time lost in jams on the route ahead (TomTom): into remaining time and arrival
+        double delay = 0;
+        for (const TrafficIncident &in : m_traffic.ahead()) delay += in.delayS;
+        if (delay >= 60 && n.destSeconds > 0) {
+            n.destTime = Navigator::fmtTime(n.destSeconds + delay);
+            n.destEta = QDateTime::currentDateTime().addSecs(qint64(n.destSeconds + delay)).toString(QStringLiteral("HH:mm"));
+            n.destDelay = QStringLiteral("+%1 Stau").arg(Navigator::fmtTime(delay));
+        }
         m_screen.setNav(n, m_nav.icon(n.icon, 256)); // Pure Maps' icons if installed, else own arrows
     } else {
         m_screen.setNav(m_nav.state(), m_nav.icon(m_nav.state().icon, 256));

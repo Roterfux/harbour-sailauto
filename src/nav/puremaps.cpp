@@ -20,7 +20,8 @@ bool NavState::operator==(const NavState &o) const
     return app == o.app && running == o.running && hasRoute == o.hasRoute && alongRoute == o.alongRoute
            && icon == o.icon && manDist == o.manDist && manTime == o.manTime && street == o.street
            && narrative == o.narrative && destDist == o.destDist && destTime == o.destTime
-           && destEta == o.destEta && progress == o.progress && roundaboutExit == o.roundaboutExit;
+           && destEta == o.destEta && progress == o.progress && roundaboutExit == o.roundaboutExit
+           && destDelay == o.destDelay && lanes == o.lanes;
 }
 
 PureMapsClient::PureMapsClient(QObject *parent) : QObject(parent)

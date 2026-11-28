@@ -134,6 +134,7 @@ private:
     class QOffscreenSurface *m_glSurface = nullptr;
     class QOpenGLFramebufferObject *m_fbo = nullptr;
     bool initGpu();
+    void drawLanes(QPainter &p, const QRect &r, const QString &lanes);
     void paintFrame(QPainter &p);
     QString m_trafficTitle, m_trafficSub;
     bool m_trafficSevere = false;

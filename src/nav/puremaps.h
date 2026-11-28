@@ -20,6 +20,10 @@ struct NavState {
     QString destDist, destTime, destEta;
     int progress = 0;
     int roundaboutExit = 0;
+    double destSeconds = 0;  // remaining time (own navigation)
+    QString destDelay;       // "+7 min Stau" (traffic on the route)
+    // Lanes before the next maneuver: "left,straight*,straight|right*" (* = take this lane)
+    QString lanes;
     bool operator==(const NavState &o) const;
     bool operator!=(const NavState &o) const { return !(*this == o); }
 };
