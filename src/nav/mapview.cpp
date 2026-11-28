@@ -451,8 +451,9 @@ void MapView::renderLayer(const QSize &size)
 
 void MapView::paint(QPainter &p, const QRect &r)
 {
-    // ~15 fps is plenty for a map; reuse the last layer in between.
-    if (m_layer.size() != r.size() || !m_layerClock.isValid() || m_layerClock.elapsed() >= 66) {
+    // As many pictures as the car takes (every video tick); the slow part (the
+    // vector canvas) is drawn in the background anyway.
+    if (m_layer.size() != r.size() || !m_layerClock.isValid() || m_layerClock.elapsed() >= 10) {
         QElapsedTimer tm;
         tm.start();
         renderLayer(r.size());

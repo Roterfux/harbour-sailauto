@@ -313,8 +313,8 @@ Adresssuche ohne OSM Scout Server: online über Photon (wie Pure Maps).
 
 Ein Bild, das sich nicht ändert, wird nicht neu kodiert: ruhige Seiten laufen
 mit 1 Bild/s statt 30, nach 1 s ohne Änderung wird nur 5-mal pro Sekunde
-nachgesehen; Tippen bringt sofort volle Rate. Die Karte beim Fahren bleibt
-flüssig (~15 Bilder/s). `SAILAUTO_FULLFPS=1` schaltet das ab.
+nachgesehen; Tippen bringt sofort volle Rate. Die Karte beim Fahren läuft mit
+so vielen Bildern, wie das Auto nimmt (meist 30/s). `SAILAUTO_FULLFPS=1` schaltet das ab.
 
 ## Wetter, Ladebildschirm
 
