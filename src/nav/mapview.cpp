@@ -1,6 +1,11 @@
 #include "mapview.h"
 
 #include <QDateTime>
+#include <QSet>
+#include <QDirIterator>
+#include <QFileInfo>
+#include <QFile>
+#include <QSettings>
 #include <QPainterPath>
 #include <QUrlQuery>
 #include <QJsonObject>
@@ -229,6 +234,21 @@ void MapView::requestVector(int z, int x, int y)
 {
     const QString key = QStringLiteral("v/%1/%2/%3").arg(z).arg(x).arg(y);
     if (m_vm.has(z, x, y) || m_pending.contains(key) || m_pending.size() >= 8) return;
+    // Kept on the phone (loaded before along a route): works without internet
+    {
+        QFile f(storePath(z, x, y));
+        if (f.open(QIODevice::ReadOnly)) {
+            QSharedPointer<VectorTile> tile(new VectorTile);
+            const QByteArray data = f.readAll();
+            if (data.isEmpty() || tile->parse(data)) {
+                m_vm.insert(z, x, y, tile);
+                m_vm.prune(z, x, y, 3);
+                m_canvasDirty = true;
+                if (m_vtOk++ == 0) emit log(QStringLiteral("Karte: Vektorkacheln aus dem Speicher am Telefon"));
+                return;
+            }
+        }
+    }
     const qint64 failedAt = m_failed.value(key, 0);
     if (failedAt && QDateTime::currentMSecsSinceEpoch() - failedAt < 30000) return;
     QString url = QString::fromLocal8Bit(qgetenv("SAILAUTO_VT_URL"));
@@ -246,6 +266,109 @@ void MapView::requestVector(int z, int x, int y)
     m_pending.insert(key);
 }
 
+QString MapView::storePath(int z, int x, int y)
+{
+    return QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/vt/%1/%2/%3.pbf").arg(z).arg(x).arg(y);
+}
+
+void MapView::saveTile(int z, int x, int y, const QByteArray &data)
+{
+    const QString path = storePath(z, x, y);
+    QDir().mkpath(QFileInfo(path).path());
+    QFile f(path);
+    if (f.open(QIODevice::WriteOnly)) f.write(data);
+}
+
+void MapView::prefetchRoute(const QVector<QPointF> &latlon)
+{
+    // Tiles along the route (zoom 14 = all detail), plus the neighbour when
+    // the route runs near a tile edge: kept on the phone for dead spots.
+    m_prefetch.clear();
+    if (!m_prefetchOn || latlon.size() < 2) return;
+    const int z = VectorMap::kMaxDataZoom;
+    QSet<QString> seen;
+    auto add = [&](int x, int y) {
+        const QString k = QStringLiteral("%1/%2").arg(x).arg(y);
+        if (seen.contains(k)) return;
+        seen.insert(k);
+        if (!QFile::exists(storePath(z, x, y))) m_prefetch.append(QPoint(x, y));
+    };
+    for (int i = 0; i + 1 < latlon.size(); ++i) {
+        const QPointF a = worldPixel(latlon[i].x(), latlon[i].y(), z) / kTile;
+        const QPointF b = worldPixel(latlon[i + 1].x(), latlon[i + 1].y(), z) / kTile;
+        const int steps = qMax(1, int(QLineF(a, b).length() / 0.2));
+        for (int s = 0; s <= steps; ++s) {
+            const QPointF t = a + (b - a) * (double(s) / steps);
+            const int tx = int(std::floor(t.x())), ty = int(std::floor(t.y()));
+            add(tx, ty);
+            const double fx = t.x() - tx, fy = t.y() - ty;
+            if (fx < 0.25) add(tx - 1, ty);
+            if (fx > 0.75) add(tx + 1, ty);
+            if (fy < 0.25) add(tx, ty - 1);
+            if (fy > 0.75) add(tx, ty + 1);
+        }
+    }
+    m_prefetchTotal = m_prefetch.size();
+    m_prefetchDone = 0;
+    emit log(QStringLiteral("Karte: %1 von %2 Kacheln entlang der Route fehlen am Telefon").arg(m_prefetch.size()).arg(seen.size()));
+    startPrefetch();
+}
+
+void MapView::startPrefetch()
+{
+    // Only for the online source (OSM Scout Server has all offline anyway)
+    if (m_prefetch.isEmpty() || m_vtSource != 1 || m_vtOnline.isEmpty()) return;
+    if (!m_prefetchNet) m_prefetchNet = new QNetworkAccessManager(this);
+    while (m_prefetchRunning < 2 && !m_prefetch.isEmpty()) {
+        const QPoint t = m_prefetch.takeFirst();
+        QString url = m_vtOnline;
+        url.replace(QStringLiteral("{z}"), QString::number(VectorMap::kMaxDataZoom)).replace(QStringLiteral("{x}"), QString::number(t.x()))
+            .replace(QStringLiteral("{y}"), QString::number(t.y()));
+        QNetworkRequest req{QUrl(url)};
+        req.setRawHeader("User-Agent", "SailAuto/" APP_VERSION " (Sailfish OS car display)");
+        ++m_prefetchRunning;
+        QNetworkReply *r = m_prefetchNet->get(req);
+        connect(r, &QNetworkReply::finished, this, [this, r, t]() {
+            r->deleteLater();
+            --m_prefetchRunning;
+            if (r->error() == QNetworkReply::NoError) {
+                saveTile(VectorMap::kMaxDataZoom, t.x(), t.y(), r->readAll());
+                ++m_prefetchDone;
+            } else {
+                m_prefetch.clear(); // offline or refused: stop, try with the next route
+            }
+            if (m_prefetch.isEmpty() && m_prefetchRunning == 0) {
+                emit log(QStringLiteral("Karte: %1 Kacheln für die Route gespeichert").arg(m_prefetchDone));
+                trimStore();
+            }
+            startPrefetch();
+        });
+    }
+}
+
+void MapView::trimStore()
+{
+    // Keep the store below ~400 MB: oldest files go first
+    struct F { QString path; qint64 size; QDateTime t; };
+    QVector<F> files;
+    qint64 total = 0;
+    QDirIterator it(QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/vt"), QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        const QFileInfo fi = it.fileInfo();
+        files.append({fi.filePath(), fi.size(), fi.lastModified()});
+        total += fi.size();
+    }
+    const qint64 limit = 400LL * 1024 * 1024;
+    if (total <= limit) return;
+    std::sort(files.begin(), files.end(), [](const F &a, const F &b) { return a.t < b.t; });
+    for (const F &f : files) {
+        if (total <= limit * 3 / 4) break;
+        QFile::remove(f.path);
+        total -= f.size;
+    }
+}
+
 void MapView::fetchTileJson()
 {
     // OpenFreeMap: free OpenMapTiles vector tiles, no key. The tile URL holds a
@@ -253,7 +376,9 @@ void MapView::fetchTileJson()
     if (m_tilejsonBusy) return;
     m_tilejsonBusy = true;
     if (!m_placesNet) m_placesNet = new QNetworkAccessManager(this);
-    QNetworkRequest req(QUrl(QStringLiteral("https://tiles.openfreemap.org/planet")));
+    QString tj = QString::fromLocal8Bit(qgetenv("SAILAUTO_TILEJSON_URL"));
+    if (tj.isEmpty()) tj = QStringLiteral("https://tiles.openfreemap.org/planet");
+    QNetworkRequest req{QUrl(tj)};
     req.setRawHeader("User-Agent", "SailAuto/" APP_VERSION " (Sailfish OS car display)");
     QNetworkReply *r = m_placesNet->get(req);
     connect(r, &QNetworkReply::finished, this, [this, r]() {
@@ -261,6 +386,13 @@ void MapView::fetchTileJson()
         m_tilejsonBusy = false;
         const QJsonArray tiles = QJsonDocument::fromJson(r->readAll()).object().value(QStringLiteral("tiles")).toArray();
         if (r->error() != QNetworkReply::NoError || tiles.isEmpty()) {
+            const QString saved = QSettings().value(QStringLiteral("map/vtTemplate")).toString();
+            if (!saved.isEmpty()) { // offline: the last known address, kept tiles come from the phone
+                m_vtOnline = saved;
+                m_canvasDirty = true;
+                emit log(QStringLiteral("Karte: offline, nutze gespeicherte Vektorkacheln"));
+                return;
+            }
             m_vtSource = 2; // no vector tiles at all: raster tiles from openstreetmap.org
             m_online = true;
             m_canvasDirty = true;
@@ -269,7 +401,9 @@ void MapView::fetchTileJson()
             return;
         }
         m_vtOnline = tiles.first().toString();
+        QSettings().setValue(QStringLiteral("map/vtTemplate"), m_vtOnline);
         m_canvasDirty = true;
+        startPrefetch();
         emit log(QStringLiteral("Karte: Online-Vektorkarte (OpenFreeMap)"));
     });
 }
@@ -283,6 +417,7 @@ void MapView::onVectorReply(QNetworkReply *reply, const QString &key)
     const bool ok = reply->error() == QNetworkReply::NoError && (data.isEmpty() || tile->parse(data));
     if (ok) {
         // empty answer = empty tile (sea, outside the map)
+        if (m_vtSource == 1) saveTile(z, x, y, data);
         m_vm.insert(z, x, y, tile);
         if (m_vtOk++ == 0) emit log(QStringLiteral("Karte: Vektorkacheln kommen an (%1)")
                                         .arg(m_vtSource == 1 ? QStringLiteral("OpenFreeMap") : QStringLiteral("OSM Scout Server")));
@@ -560,7 +695,8 @@ void MapView::renderLayer(const QSize &size)
     if (vectorMode())
         m_vm.drawLabels(p, t * rot * proj, QRectF(0, 0, w, h), horizon,
                         QVector<QRectF>() << QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2) << m_covered
-                                          << QRectF(0, h - h * 0.2, w * 0.36, h * 0.2)); // speed + limit
+                                          << QRectF(0, h - h * 0.2, w * 0.36, h * 0.2)    // speed + limit
+                                          << QRectF(w * 0.6, h - h * 0.07, w * 0.4, h * 0.07)); // attribution
     else
         drawPlaceNames(p, t * rot * proj, cz, w, h, horizon);
     drawDestination(p, t * rot * proj, cz, h, horizon);

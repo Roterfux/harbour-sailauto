@@ -51,6 +51,9 @@ public:
     struct Mark { QVector<QPointF> line; QColor color; };
     void setTraffic(const QVector<Mark> &marks) { m_traffic = marks; }
     void setSpeedLimit(int kmh) { m_speedLimit = kmh; } // 0 = unknown
+    // Load the map along the route ahead of time and keep it on the phone
+    void prefetchRoute(const QVector<QPointF> &latlon);
+    void setPrefetch(bool on) { m_prefetchOn = on; }
     // Settings: marker 0 = car, 1 = arrow; range -1 near, 0 normal, 1 far;
     // smooth: redraw every video frame (else ~15/s)
     void setMarker(int m) { m_marker = m; }
@@ -121,6 +124,15 @@ private:
     QVector<QRectF> m_covered;
     QVector<Mark> m_traffic;
     int m_speedLimit = 0;
+    // Tile store on the phone (vector tiles, zoom 14) and route prefetch
+    static QString storePath(int z, int x, int y);
+    static void saveTile(int z, int x, int y, const QByteArray &data);
+    void startPrefetch();
+    static void trimStore();
+    QNetworkAccessManager *m_prefetchNet = nullptr;
+    QVector<QPoint> m_prefetch;
+    int m_prefetchRunning = 0, m_prefetchTotal = 0, m_prefetchDone = 0;
+    bool m_prefetchOn = true;
     // Dead reckoning (world pixels at zoom 20)
     double m_carSpeed = -1;
     QElapsedTimer m_carSpeedAge, m_drClock;

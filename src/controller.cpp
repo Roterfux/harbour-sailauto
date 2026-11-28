@@ -254,6 +254,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
         m_map.setRoute(m_ownNav.shape());
         m_traffic.setRoute(m_ownNav.active() ? m_ownNav.shape() : QVector<QPointF>());
         m_speedLimit.setRoute(m_ownNav.active() ? m_ownNav.shape() : QVector<QPointF>());
+        if (m_ownNav.active() && m_mapEnabled) m_map.prefetchRoute(m_ownNav.shape());
         if (!m_ownNav.active()) m_trafficAnnounced.clear();
     });
     connect(&m_traffic, &TrafficService::changed, this, &Controller::pushTraffic);
@@ -1037,6 +1038,7 @@ void Controller::applySettings()
     m_map.setMarker(st.value(QStringLiteral("map/marker"), 0).toInt());
     m_map.setRange(st.value(QStringLiteral("map/range"), 0).toInt());
     m_map.setSmooth(st.value(QStringLiteral("map/smooth"), true).toBool());
+    m_map.setPrefetch(st.value(QStringLiteral("map/prefetch"), true).toBool());
     m_powerSave = st.value(QStringLiteral("power/save"), true).toBool();
     m_screen.setTheme(st.value(QStringLiteral("ui/theme"), 0).toInt());
     m_traffic.setKey(st.value(QStringLiteral("traffic/key")).toString());

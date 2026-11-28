@@ -84,6 +84,14 @@ Page {
             }
             TextSwitch {
                 visible: controller.mapEnabled
+                text: qsTr("Karte entlang der Route vorladen")
+                description: qsTr("Bei Routenstart die Karte für die ganze Strecke laden und am Telefon behalten (für Funklöcher, "
+                                  + "ohne OSM Scout Server). Etwa 10–20 MB pro 100 km, höchstens 400 MB.")
+                checked: controller.setting("map/prefetch", true)
+                onCheckedChanged: controller.setSetting("map/prefetch", checked)
+            }
+            TextSwitch {
+                visible: controller.mapEnabled
                 text: qsTr("Karte flüssig")
                 description: qsTr("So viele Bilder, wie das Auto nimmt (meist 30/s). Aus: etwa 15/s, braucht weniger Strom.")
                 checked: controller.setting("map/smooth", true)

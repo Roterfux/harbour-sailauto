@@ -217,6 +217,11 @@ Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
 Karte flüssig (volle Bildrate) und Stromsparen.
 Ab 0.19.1 für Linkslenker: Blättern in Listen, „Liste“, „Radio & Musik“ und „Ziel“
 liegen links, näher am Fahrer; Auto-Symbol kleiner.
+Ab 0.22.1: Karte offline. Vektorkacheln von OpenFreeMap bleiben am Telefon
+(`~/.cache/harbour-sailauto/vt`, höchstens 400 MB, älteste fliegen zuerst). Bei
+Routenstart wird die ganze Strecke vorgeladen (Einstellung „Karte entlang der
+Route vorladen“). Ohne Internet: Kacheln aus dem Speicher, letzte Kartenadresse
+gemerkt.
 Ab 0.22.0: Tempolimit als Schild neben dem Tempo (OpenStreetMap maxspeed über
 Valhalla `trace_attributes`: offline OSM Scout Server, sonst FOSSGIS). Mit Route
 für die nächsten 50 km im Voraus, ohne Route alle 15 s aus den letzten
