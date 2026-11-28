@@ -205,6 +205,18 @@ QVector<QueueItem> TuneBridgeSource::queue(const QVector<Track> &tracks) const
     return out;
 }
 
+bool TuneBridgeSource::readCarSearch(const QString &query, qint64 notBeforeMs, QVector<Track> *tracks) const
+{
+    const QFileInfo fi(m_data + QStringLiteral("/car-search.json"));
+    if (!fi.exists() || fi.lastModified().toMSecsSinceEpoch() < notBeforeMs) return false;
+    const QJsonObject o = readJson(fi.filePath()).object();
+    if (o.value(QStringLiteral("query")).toString() != query) return false;
+    tracks->clear();
+    for (const QJsonValue &v : o.value(QStringLiteral("tracks")).toArray())
+        if (v.isObject()) tracks->append(toTrack(v.toObject()));
+    return true;
+}
+
 void TuneBridgeSource::resolve(int index, const QString &videoId)
 {
     const QString ytdlp = m_data + QStringLiteral("/bin/yt-dlp");

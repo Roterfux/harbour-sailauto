@@ -337,6 +337,9 @@ also mit Lenkradtasten, Fortschritt usw.). Im Auto: Musik → „Liste“ (oder
   über TuneBridges yt-dlp (Internet). Playlists erscheinen, sobald sie einmal in
   TuneBridge geöffnet wurden. Spielt TuneBridge gerade, stehen seine Listen
   oben.
+- Ab 0.23.0: Hat TuneBridge die Auto-Erweiterung (`docs/tunebridge-carlink.md`,
+  MPRIS `OpenUri` mit `tunebridge:`), spielt TuneBridge Listen und Suchtreffer
+  selbst (auch Spotify-Songs), und die Suche geht online. Sonst wie oben.
 - Ab 0.18.0: App wechseln / beenden als kleine Icons oben in der Liste.
 
 Adresssuche ohne OSM Scout Server: online über Photon (wie Pure Maps).

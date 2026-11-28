@@ -42,6 +42,9 @@ public:
     // Queue for the own player (uri: file or "ytvid:<id>")
     QVector<QueueItem> queue(const QVector<Track> &tracks) const;
     bool playable(const Track &t) const;
+    // TuneBridge with car control (MPRIS OpenUri, scheme "tunebridge"): it writes
+    // the result of an online search to car-search.json {query, tracks:[track]}
+    bool readCarSearch(const QString &query, qint64 notBeforeMs, QVector<Track> *tracks) const;
     // Stream URL for a video id via TuneBridge's yt-dlp -> urlReady(index, url)
     void resolve(int index, const QString &videoId);
 

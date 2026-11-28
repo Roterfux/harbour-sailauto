@@ -205,6 +205,34 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_screen, &CarScreen::radioSearch, this, [this](const QString &t) {
         if (m_kbForTuneBridge) {
             m_kbForTuneBridge = false;
+            const QString svc = tuneBridgeControl();
+            if (!svc.isEmpty()) {
+                // TuneBridge searches online itself and writes the result for us
+                m_tbSearchQuery = t;
+                m_tbSearchSince = QDateTime::currentMSecsSinceEpoch() - 1000;
+                m_mpris.openUri(svc, QStringLiteral("tunebridge:search?q=") + QString::fromUtf8(QUrl::toPercentEncoding(t)));
+                showItems({{QStringLiteral("none"), QString(), QStringLiteral("TuneBridge sucht"), t}}, true);
+                if (!m_tbSearchPoll) {
+                    m_tbSearchPoll = new QTimer(this);
+                    m_tbSearchPoll->setInterval(500);
+                    connect(m_tbSearchPoll, &QTimer::timeout, this, [this]() {
+                        QVector<TuneBridgeSource::Track> res;
+                        const bool late = QDateTime::currentMSecsSinceEpoch() - m_tbSearchSince > 20000;
+                        if (m_tb.readCarSearch(m_tbSearchQuery, m_tbSearchSince, &res) || late) {
+                            m_tbSearchPoll->stop();
+                            if (!m_items.isEmpty()) m_items.clear(); // replace "TuneBridge sucht"
+                            if (!m_itemStack.isEmpty()) m_items = m_itemStack.takeLast();
+                            m_tbUriBase = QStringLiteral("tunebridge:play?source=search");
+                            appendLog(QStringLiteral("TuneBridge: Suche \"%1\": %2 Songs").arg(m_tbSearchQuery).arg(res.size()));
+                            showTuneBridgeSongs(res, QStringLiteral("Suche: ") + m_tbSearchQuery,
+                                                late ? QStringLiteral("TuneBridge hat nicht geantwortet") : QStringLiteral("Nichts gefunden"));
+                        }
+                    });
+                }
+                m_tbSearchPoll->start();
+                return;
+            }
+            m_tbUriBase.clear();
             const QVector<TuneBridgeSource::Track> found = m_tb.search(t);
             appendLog(QStringLiteral("TuneBridge: Suche \"%1\": %2 Songs").arg(t).arg(found.size()));
             showTuneBridgeSongs(found, QStringLiteral("Suche: ") + t,
@@ -1154,13 +1182,46 @@ void Controller::showItems(const QVector<BrowseItem> &items, bool push)
     m_screen.setMusicList(list);
 }
 
+QString Controller::tuneBridgeControl() const
+{
+    const QString svc = m_mpris.serviceFor(QStringLiteral("harbour-tunebridge"));
+    return m_mpris.supportsScheme(svc, QStringLiteral("tunebridge")) ? svc : QString();
+}
+
 void Controller::showTuneBridgeSongs(const QVector<TuneBridgeSource::Track> &tracks, const QString &name, const QString &note)
 {
     QVector<TuneBridgeSource::Track> ok;
     int skipped = 0;
+    const bool control = !m_tbUriBase.isEmpty(); // TuneBridge plays: every song works
     for (const TuneBridgeSource::Track &t : tracks) {
-        if (m_tb.playable(t)) ok.append(t);
+        if (control || m_tb.playable(t)) ok.append(t);
         else ++skipped;
+    }
+    if (control) {
+        // List for the car; TuneBridge plays by position, so keep all songs in order
+        m_tbQueue.clear();
+        for (const TuneBridgeSource::Track &t : ok) {
+            QueueItem q;
+            q.uri = QStringLiteral("tunebridge:");
+            q.title = t.title;
+            q.artist = t.artists;
+            q.seconds = t.seconds;
+            m_tbQueue.append(q);
+        }
+        m_tbListName = name;
+        QVector<BrowseItem> items;
+        items.append({QStringLiteral("tbplayall"), QString(), QStringLiteral("Abspielen"),
+                      ok.isEmpty() ? QStringLiteral("in TuneBridge") : QStringLiteral("%1 Songs, in TuneBridge").arg(ok.size())});
+        for (int k = 0; k < m_tbQueue.size(); ++k) {
+            const QueueItem &q = m_tbQueue[k];
+            QString sub = q.artist;
+            if (q.seconds > 0) sub += QStringLiteral(" · %1:%2").arg(q.seconds / 60).arg(q.seconds % 60, 2, 10, QLatin1Char('0'));
+            items.append({QStringLiteral("tbtrack"), QString::number(k), q.title, sub});
+        }
+        if (ok.isEmpty() && m_tbUriBase.startsWith(QLatin1String("tunebridge:play?source=search")))
+            items = {{QStringLiteral("none"), QString(), note, QString()}};
+        showItems(items, true);
+        return;
     }
     m_tbQueue = m_tb.queue(ok);
     m_tbListName = name;
@@ -1380,8 +1441,12 @@ void Controller::onBrowsePick(int i)
         showItems(items, true);
     } else if (b.kind == QLatin1String("tblist")) {
         QString note;
-        const QVector<TuneBridgeSource::Track> tracks = m_tb.tracks(b.value.section(QLatin1Char('\n'), 0, 0),
-                                                                     b.value.section(QLatin1Char('\n'), 1), &note);
+        const QString kind = b.value.section(QLatin1Char('\n'), 0, 0), id = b.value.section(QLatin1Char('\n'), 1);
+        m_tbUriBase = tuneBridgeControl().isEmpty() ? QString()
+                                                    : QStringLiteral("tunebridge:list?kind=%1&id=%2").arg(
+                                                          QString::fromUtf8(QUrl::toPercentEncoding(kind)),
+                                                          QString::fromUtf8(QUrl::toPercentEncoding(id)));
+        const QVector<TuneBridgeSource::Track> tracks = m_tb.tracks(kind, id, &note);
         showTuneBridgeSongs(tracks, b.title, note.isEmpty() ? QStringLiteral("Liste ist leer") : note);
     } else if (b.kind == QLatin1String("tbsearch")) {
         if (!(m_drivingStatus == 0 || m_gear == 101)) {
@@ -1393,7 +1458,12 @@ void Controller::onBrowsePick(int i)
         m_screen.openMusicKeyboard(QStringLiteral("Titel oder Künstler"));
     } else if (b.kind == QLatin1String("tbtrack") || b.kind == QLatin1String("tbplayall")) {
         const int k = b.kind == QLatin1String("tbplayall") ? 0 : b.value.toInt();
-        if (k >= 0 && k < m_tbQueue.size()) {
+        const QString svc = m_tbUriBase.isEmpty() ? QString() : tuneBridgeControl();
+        if (!svc.isEmpty()) {
+            // TuneBridge plays it (its queue, its progress, Spotify songs too)
+            if (m_own.status() == QLatin1String("Playing")) m_own.pause();
+            m_mpris.openUri(svc, m_tbUriBase + QStringLiteral("&start=%1").arg(k));
+        } else if (k >= 0 && k < m_tbQueue.size()) {
             if (m_mpris.playing() && !m_mpris.playerName().contains(QStringLiteral("SailAuto"))) m_mpris.pause();
             m_mpris.setPreferred(QStringLiteral("harbour-sailauto"));
             m_own.playQueue(m_tbQueue, k, m_tbListName);

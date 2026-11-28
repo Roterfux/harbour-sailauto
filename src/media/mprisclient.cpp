@@ -363,6 +363,38 @@ void MprisClient::activate(const Entry &e)
     QTimer::singleShot(300, this, &MprisClient::poll);
 }
 
+QString MprisClient::serviceFor(const QString &app) const
+{
+    QDBusConnectionInterface *bus = QDBusConnection::sessionBus().interface();
+    if (!bus) return QString();
+    const QString shortName = QString(app).remove(QStringLiteral("harbour-"));
+    for (const QString &n : bus->registeredServiceNames().value()) {
+        if (!n.startsWith(QLatin1String("org.mpris.MediaPlayer2."))) continue;
+        if (n.contains(shortName, Qt::CaseInsensitive)) return n;
+        if (getProperty(n, kRootIface, "DesktopEntry").toString() == app) return n;
+    }
+    return QString();
+}
+
+bool MprisClient::supportsScheme(const QString &service, const QString &scheme) const
+{
+    if (service.isEmpty()) return false;
+    return getProperty(service, kRootIface, "SupportedUriSchemes").toStringList().contains(scheme, Qt::CaseInsensitive);
+}
+
+bool MprisClient::openUri(const QString &service, const QString &uri)
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(service, QLatin1String(kPath), QLatin1String(kPlayerIface), QStringLiteral("OpenUri"));
+    m << uri;
+    const QDBusMessage r = QDBusConnection::sessionBus().call(m, QDBus::Block, 3000);
+    const bool ok = r.type() != QDBusMessage::ErrorMessage;
+    emit log(ok ? QStringLiteral("Musik: an %1 geschickt: %2").arg(service.section(QLatin1Char('.'), 3, 3), uri.left(80))
+                : QStringLiteral("Musik: OpenUri fehlgeschlagen (%1)").arg(r.errorMessage()));
+    if (ok) setPreferred(m_desktopOf.value(service));
+    QTimer::singleShot(500, this, &MprisClient::poll);
+    return ok;
+}
+
 QStringList MprisClient::quitIdle(qint64 idleMs)
 {
     QStringList done;

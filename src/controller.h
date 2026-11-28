@@ -250,6 +250,12 @@ private:
     QString m_tbListName;
     bool m_kbForTuneBridge = false; // music keyboard searches TuneBridge, not radio
     void showTuneBridgeSongs(const QVector<TuneBridgeSource::Track> &tracks, const QString &name, const QString &note);
+    // TuneBridge with car control: it plays lists / searches itself (MPRIS OpenUri "tunebridge:")
+    QString tuneBridgeControl() const; // its MPRIS service if it takes "tunebridge:" URIs, else empty
+    QString m_tbUriBase;               // "tunebridge:list?kind=..&id=.." or "tunebridge:play?source=search"
+    QTimer *m_tbSearchPoll = nullptr;
+    QString m_tbSearchQuery;
+    qint64 m_tbSearchSince = 0;
     struct BrowseItem { QString kind, value, title, sub; };
     QVector<BrowseItem> m_items;                 // shown list
     QVector<QVector<BrowseItem>> m_itemStack;    // for "Zurück"

@@ -35,6 +35,11 @@ public:
     struct Entry { QString id, title, sub; bool playlist; };
     QVector<Entry> browse(QString *info);       // playlists first, then tracks
     void activate(const Entry &e);
+    // Player of an app by desktop entry or bus name part ("harbour-tunebridge"), empty if not running
+    QString serviceFor(const QString &app) const;
+    // MPRIS OpenUri on that player; true if the player takes the URI scheme
+    bool supportsScheme(const QString &service, const QString &scheme) const;
+    bool openUri(const QString &service, const QString &uri);
 
 public slots:
     void playPause();
