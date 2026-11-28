@@ -200,8 +200,8 @@ Standard: SailAuto navigiert selbst (Schalter in „Ziele“). Ziel im Auto wäh
 (Zuhause/Arbeit/Adresse/Kontakte/letzte Ziele) → Route sofort, ohne Telefon.
 Route: offline über OSM Scout Server (`/v2/route`, Valhalla), sonst online über
 den Valhalla-Server der FOSSGIS (OpenStreetMap). Anzeige: nächstes Manöver mit
-Entfernung und Straße, Restweg/-zeit/Ankunft, blaue Routenlinie auf der
-Live-Karte, „Beenden“. Weicht man ab (3 Messungen > 45 m), wird neu berechnet.
+Entfernung und Straße (oben links), Restweg/-zeit/Ankunft klein oben rechts
+mit rundem ✕ zum Beenden, blaue Routenlinie auf der Live-Karte. Weicht man ab (3 Messungen > 45 m), wird neu berechnet.
 Position: Auto-GPS, sonst Telefon-GPS. Noch keine Sprachansagen.
 
 Karte (ab 0.18.0): selbst gezeichnet aus Vektorkacheln (OpenMapTiles-Schema),

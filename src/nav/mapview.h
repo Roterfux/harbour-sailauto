@@ -40,6 +40,8 @@ public:
     void paint(QPainter &p, const QRect &r);
     // Route line (lat, lon); empty = none
     void setRoute(const QVector<QPointF> &latlon) { m_route = latlon; }
+    // Areas covered by buttons/cards (map coordinates): no names there
+    void setCovered(const QVector<QRectF> &rects) { m_covered = rects; }
 
 signals:
     void log(const QString &line);
@@ -100,6 +102,7 @@ private:
     bool m_canvasBusy = false;   // vector canvas being drawn in the background
 
     QVector<QPointF> m_route;
+    QVector<QRectF> m_covered;
 
     // Rendered layer (rate limited)
     QImage m_layer;

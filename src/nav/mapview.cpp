@@ -22,7 +22,7 @@
 
 namespace {
 const int kTile = 256;
-const int kGrid = 5;              // canvas = 5x5 tiles
+const int kGrid = 7;              // canvas = 7x7 tiles (view reaches ~2.8 tiles ahead)
 const int kMaxPending = 6;        // OSM Scout Server renders one by one
 }
 
@@ -381,7 +381,7 @@ void MapView::renderLayer(const QSize &size)
 
     // Ground (car-centred, heading up, pixels) -> screen trapezoid (tilted view)
     // Gentle tilt: far edge only a bit narrower than the near edge.
-    const double ahead = 620, behind = 80, half = 420; // small "behind" puts the car low on screen
+    const double ahead = 740, behind = 90, half = 510; // small "behind" puts the car low on screen
     const QPolygonF ground({QPointF(-half, -ahead), QPointF(half, -ahead), QPointF(half, behind), QPointF(-half, behind)});
     const QPolygonF screen({QPointF(w * 0.5 - w * 0.85, horizon), QPointF(w * 0.5 + w * 0.85, horizon),
                             QPointF(w * 0.5 + w * 1.25, h * 1.02), QPointF(w * 0.5 - w * 1.25, h * 1.02)});
@@ -422,7 +422,7 @@ void MapView::renderLayer(const QSize &size)
     // Names upright on top (readable, unlike names baked into tilted tiles)
     if (vectorMode())
         m_vm.drawLabels(p, t * rot * proj, QRectF(0, 0, w, h), horizon,
-                        {QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2), QRectF(w * 0.72, 0, w * 0.28, h * 0.2)});
+                        QVector<QRectF>() << QRectF(c.x() - s * 1.6, c.y() - s * 1.6, s * 3.2, s * 3.2) << m_covered);
     else
         drawPlaceNames(p, t * rot * proj, cz, w, h, horizon);
     QPolygonF arrow({QPointF(c.x(), c.y() - s), QPointF(c.x() + s * 0.7, c.y() + s * 0.6),

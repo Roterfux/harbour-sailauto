@@ -778,6 +778,18 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
     const int bar = m_safe.height() / 8;
     // Map uses the whole area below the top bar.
     const QRect area(m_safe.left(), m_safe.top() + bar, m_safe.width(), m_safe.height() - bar);
+    {
+        // Where the cards/buttons go (map coordinates), names stay clear of them
+        QVector<QRectF> covered;
+        if (m_nav.running) {
+            covered << QRectF(0, 0, area.width() * 9 / 25 + 30, bar * 13 / 10 + bar * 2 / 3 + 20)
+                    << QRectF(area.width() - area.width() * 3 / 10 - bar - 40, 0, area.width() * 3 / 10 + bar + 40, bar + 24);
+        } else {
+            covered << QRectF(area.width() - bar * 3 - 30, 0, bar * 3 + 30, bar + 24);
+            if (m_nav.app && m_nav.hasRoute) covered << QRectF(0, 0, bar * 6 + 30, bar + 24);
+        }
+        m_map->setCovered(covered);
+    }
     m_map->paint(p, area);
     QFont f = p.font();
     QColor card = c.bg;
@@ -794,14 +806,12 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         m_navButtons.append({r, kind, QString()});
     };
     if (m_nav.running) {
-        // Two cards of the same size: turn (top left), destination (bottom left)
-        const QSize cs(area.width() * 2 / 5, bar * 3 / 2);
+        // Turn card top left; arrival + small stop button top right; the rest is map.
+        const QSize cs(area.width() * 9 / 25, bar * 13 / 10);
         const QRect cardR(area.left() + 10, area.top() + 10, cs.width(), cs.height());
-        const QRect strip(area.left() + 10, area.bottom() - cs.height() - 10, cs.width(), cs.height());
         p.setPen(Qt::NoPen);
         p.setBrush(card);
         p.drawRoundedRect(cardR, 14, 14);
-        p.drawRoundedRect(strip, 14, 14);
         const int is = cs.height() - 16;
         drawManeuver(p, QRect(cardR.left() + 8, cardR.top() + 8, is, is), false);
         const QRect tr(cardR.left() + is + 18, cardR.top() + 6, cardR.width() - is - 26, cardR.height() - 12);
@@ -817,15 +827,21 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         const QString street = m_nav.street.isEmpty() ? m_nav.narrative : m_nav.street;
         drawFit(p, QRect(tr.left(), tr.top() + tr.height() * 11 / 20, tr.width(), tr.height() * 9 / 20),
                 Qt::AlignLeft | Qt::AlignVCenter, street);
-        // Destination card: remaining distance · time, arrival below, progress line
-        const QRect sr = strip.adjusted(16, 6, -16, -10);
-        f.setPixelSize(cs.height() * 2 / 5);
+        // Arrival: compact card in the upper right corner, stop as a small round button
+        const int sb = bar * 4 / 5;
+        const QRect stopR(area.right() - 10 - sb, area.top() + 10, sb, sb);
+        const QRect strip(stopR.left() - 8 - area.width() * 3 / 10, area.top() + 10, area.width() * 3 / 10, bar);
+        p.setPen(Qt::NoPen);
+        p.setBrush(card);
+        p.drawRoundedRect(strip, 12, 12);
+        const QRect sr = strip.adjusted(12, 3, -12, -7);
+        f.setPixelSize(strip.height() * 2 / 5);
         f.setBold(true);
         p.setFont(f);
         p.setPen(c.text);
         drawFit(p, QRect(sr.left(), sr.top(), sr.width(), sr.height() * 11 / 20), Qt::AlignLeft | Qt::AlignVCenter,
                 QStringLiteral("%1 · %2").arg(m_nav.destDist, m_nav.destTime));
-        f.setPixelSize(cs.height() / 4);
+        f.setPixelSize(strip.height() * 3 / 10);
         f.setBold(false);
         p.setFont(f);
         p.setPen(c.dim);
@@ -833,7 +849,7 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
                    Qt::AlignLeft | Qt::AlignVCenter, QStringLiteral("Ankunft %1").arg(m_nav.destEta));
         p.setPen(Qt::NoPen);
         p.setBrush(c.accent);
-        p.drawRoundedRect(QRect(strip.left() + 12, strip.bottom() - 7, (strip.width() - 24) * qBound(0, m_nav.progress, 100) / 100, 4), 2, 2);
+        p.drawRoundedRect(QRect(strip.left() + 10, strip.bottom() - 5, (strip.width() - 20) * qBound(0, m_nav.progress, 100) / 100, 3), 1, 1);
         if (!m_nav.alongRoute) {
             f.setBold(true);
             p.setFont(f);
@@ -841,8 +857,11 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
             p.drawText(QRect(cardR.left(), cardR.bottom() + 4, cardR.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
                        QStringLiteral("Abseits der Route"));
         }
-        button(QRect(area.right() - bar * 3 - 10, area.top() + 10, bar * 3, bar), QStringLiteral("stopnav"),
-               QStringLiteral("Beenden"), QColor(200, 60, 50), Qt::white);
+        p.setPen(QPen(Qt::white, 2));
+        p.setBrush(QColor(200, 60, 50));
+        p.drawEllipse(stopR);
+        drawMdi(p, QRectF(stopR).adjusted(sb / 4.0, sb / 4.0, -sb / 4.0, -sb / 4.0), QStringLiteral("close"), Qt::white);
+        m_navButtons.append({stopR.adjusted(-8, -8, 8, 8), QStringLiteral("stopnav"), QString()}); // easier to hit
         return;
     }
     // No route: "Ziel" (choose destination) and, if Pure Maps has one, start.
