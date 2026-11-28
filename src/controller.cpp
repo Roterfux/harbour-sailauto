@@ -130,7 +130,7 @@ Controller::Controller(QObject *parent) : QObject(parent)
     connect(&m_weather, &WeatherClient::changed, this, [this]() { m_screen.setWeather(m_weather.data()); });
     {
         QSettings st;
-        m_mapEnabled = st.value(QStringLiteral("map/enabled"), false).toBool();
+        m_mapEnabled = st.value(QStringLiteral("map/enabled"), true).toBool();
         const QString u = st.value(QStringLiteral("map/url")).toString();
         if (!u.isEmpty()) m_map.setTileUrl(u);
     }

@@ -50,6 +50,10 @@ private:
     QNetworkAccessManager *m_net = nullptr;
     QString m_url;
     bool m_night = false;
+    // Offline server unreachable -> openstreetmap.org tiles (only with the default URL)
+    bool m_online = false;
+    bool m_customUrl = false;
+    QString tileTemplate() const;
 
     // Position
     bool m_haveFix = false;

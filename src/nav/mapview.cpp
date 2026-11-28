@@ -30,10 +30,17 @@ MapView::MapView(QObject *parent) : QObject(parent)
     m_url = QStringLiteral("http://127.0.0.1:8553/v1/tile?style=default&daylight={daylight}&shift=0&scale=1&z={z}&x={x}&y={y}");
 }
 
+QString MapView::tileTemplate() const
+{
+    return m_online ? QStringLiteral("https://tile.openstreetmap.org/{z}/{x}/{y}.png") : m_url;
+}
+
 void MapView::setTileUrl(const QString &url)
 {
     if (url.trimmed().isEmpty() || url == m_url) return;
     m_url = url.trimmed();
+    m_customUrl = !m_url.startsWith(QLatin1String("http://127.0.0.1:8553/"));
+    m_online = false;
     m_tiles.clear();
     m_failed.clear();
     m_canvasDirty = true;
@@ -95,13 +102,14 @@ void MapView::request(int z, int x, int y)
     if (m_tiles.contains(key) || m_pending.contains(key) || m_pending.size() >= kMaxPending) return;
     const qint64 failedAt = m_failed.value(key, 0);
     if (failedAt && QDateTime::currentMSecsSinceEpoch() - failedAt < 30000) return;
-    QString url = m_url;
+    QString url = tileTemplate();
     url.replace(QStringLiteral("{z}"), QString::number(z)).replace(QStringLiteral("{x}"), QString::number(x))
         .replace(QStringLiteral("{y}"), QString::number(y))
         .replace(QStringLiteral("{daylight}"), m_night ? QStringLiteral("0") : QStringLiteral("1"));
     QNetworkRequest req{QUrl(url)};
     req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
-    req.setRawHeader("User-Agent", "SailAuto");
+    // openstreetmap.org tile policy: identify the app, use the cache.
+    req.setRawHeader("User-Agent", "SailAuto/" APP_VERSION " (Sailfish OS car display; github.com/Roterfux/harbour-sailauto)");
     QNetworkReply *r = m_net->get(req);
     r->setProperty("key", key);
     m_pending.insert(key);
@@ -114,12 +122,25 @@ void MapView::onReply(QNetworkReply *reply)
     m_pending.remove(key);
     QImage img;
     if (reply->error() == QNetworkReply::NoError) img.loadFromData(reply->readAll());
+    if (img.isNull() && m_online && reply->url().host() == QLatin1String("127.0.0.1")) return; // late offline replies
     if (img.isNull()) {
+        // OSM Scout Server not running at all: switch to online tiles once.
+        const auto e = reply->error();
+        if (!m_online && !m_customUrl
+            && (e == QNetworkReply::ConnectionRefusedError || e == QNetworkReply::HostNotFoundError
+                || e == QNetworkReply::TimeoutError || e == QNetworkReply::RemoteHostClosedError)) {
+            m_online = true;
+            m_failed.clear();
+            m_canvasDirty = true;
+            emit log(QStringLiteral("Karte: OSM Scout Server nicht erreichbar, nutze Online-Karte (openstreetmap.org)"));
+            return;
+        }
         m_failed.insert(key, QDateTime::currentMSecsSinceEpoch());
         const QString err = reply->error() != QNetworkReply::NoError ? reply->errorString() : QStringLiteral("kein Bild");
         if (err != m_lastError) {
             m_lastError = err;
-            emit log(QStringLiteral("Karte: Kachel nicht geladen (%1). Läuft OSM Scout Server mit Karten?").arg(err));
+            emit log(m_online ? QStringLiteral("Karte: Online-Kachel nicht geladen (%1). Internet da?").arg(err)
+                              : QStringLiteral("Karte: Kachel nicht geladen (%1). Läuft OSM Scout Server mit Karten?").arg(err));
         }
         return;
     }
@@ -218,6 +239,8 @@ void MapView::renderLayer(const QSize &size)
     p.setClipRect(QRectF(0, horizon, w, h - horizon));
     p.setTransform(t * rot * proj);
     p.drawImage(0, 0, m_canvas);
+    if (m_online && m_night) // online tiles have no night style: darken
+        p.fillRect(QRectF(0, 0, m_canvas.width(), m_canvas.height()), QColor(0, 0, 20, 140));
     // Route line in canvas coordinates (same transform as the tiles)
     if (m_route.size() > 1) {
         QPolygonF line;
@@ -259,7 +282,8 @@ void MapView::renderLayer(const QSize &size)
         p.setFont(f);
         p.setPen(m_night ? Qt::white : Qt::black);
         p.drawText(QRectF(0, horizon, w, h / 3), Qt::AlignCenter | Qt::TextWordWrap,
-                   QStringLiteral("Keine Kartenkacheln – OSM Scout Server starten und Karten laden"));
+                   m_online ? QStringLiteral("Keine Kartenkacheln – Internet prüfen")
+                            : QStringLiteral("Keine Kartenkacheln – OSM Scout Server starten und Karten laden"));
     }
 }
 
