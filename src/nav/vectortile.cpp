@@ -8,6 +8,7 @@ namespace {
 struct Pb {
     const quint8 *p, *end;
     bool ok = true;
+    Pb() : p(nullptr), end(nullptr) {} // QVector (Qt 5.6) needs it
     Pb(const char *d, int n) : p(reinterpret_cast<const quint8 *>(d)), end(reinterpret_cast<const quint8 *>(d) + n) {}
     bool atEnd() const { return p >= end || !ok; }
     quint64 varint()
