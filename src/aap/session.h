@@ -95,6 +95,8 @@ signals:
     // GearData: 0 neutral, 1..10 gears, 100 drive, 101 park, 102 reverse
     void gearChanged(int gear);
     void speedChanged(double metersPerSecond); // car's speed sensor (wheels)
+    void gyroChanged(double x, double y, double z); // rad/s, car frame (z = up)
+    void satellitesChanged(int inUse, int inView); // car's GPS: satellites used / seen (-1 unknown)
     // Streaming, but the car sent nothing for ~20 s (switched off / stale USB)
     void carSilent();
     // Audio focus from the car; unsolicited = the car decided (not an answer to us)

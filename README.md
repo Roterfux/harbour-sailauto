@@ -217,6 +217,12 @@ Telefon (Ziele → Karte im Auto): Auto oder Pfeil, Ausschnitt Nah/Normal/Weit,
 Karte flüssig (volle Bildrate) und Stromsparen.
 Ab 0.19.1 für Linkslenker: Blättern in Listen, „Liste“, „Radio & Musik“ und „Ziel“
 liegen links, näher am Fahrer; Auto-Symbol kleiner.
+Ab 0.27.0: Gyroskop des Autos (Sensor 20): die Karte dreht in Kurven sofort mit,
+im Tunnel ohne Route folgt die geschätzte Position der Kurve; die Achsrichtung
+wird gegen das GPS gelernt. GPS-Satelliten (Sensor 21): „GPS schwach (n)“ über
+dem Tempo bei weniger als 4 Satelliten, „ohne GPS“ beim Schätzen. Der
+Hersteller-Kanal des Autos (VW, Android-Auto-Feld 12) wird mit Name und Daten
+ins Protokoll geschrieben.
 Ab 0.26.0: Spurempfehlung unter dem Abbiegehinweis (Spuren aus OpenStreetMap
 `turn:lanes`, von Valhalla im OSRM-Format geholt; zu nehmende Spuren kräftig,
 andere blass; ab 1,5 km vor dem Abbiegen). Stau-Zeitverlust (TomTom) steckt in

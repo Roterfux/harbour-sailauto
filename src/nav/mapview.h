@@ -38,6 +38,10 @@ public:
     void updateFix(double lat, double lon, double bearing, double speed);
     // Car's speed sensor (m/s): used to move on without GPS (tunnel)
     void setCarSpeed(double mps) { m_carSpeed = mps; m_carSpeedAge.start(); }
+    // Car's gyroscope, turn rate around the vertical axis (rad/s, z up)
+    void setGyro(double zRadPerSec);
+    // Car's GPS: satellites in use / in view (-1 unknown)
+    void setSatellites(int inUse, int inView) { m_satsInUse = inUse; m_satsInView = inView; m_satsAge.start(); }
     // Estimated position now: last fix moved on with speed and heading; without
     // GPS (tunnel) along the route, else straight on. True while estimating
     // without GPS (dead reckoning).
@@ -149,6 +153,15 @@ private:
     double m_drBearing = 0;
     int m_drSeg = 0;
     QVector<QPointF> m_route20;          // route in world pixels at zoom 20
+    // Gyroscope: heading change since the last fix (clockwise degrees). The
+    // sign of the car's z axis is learned against the GPS bearing.
+    double m_gyroRate = 0, m_gyroSinceFix = 0, m_rawSinceFix = 0;
+    int m_gyroSign = 1, m_signVotes = 0;
+    bool m_gyroLogged = false;
+    QElapsedTimer m_gyroClock, m_gyroAge;
+    bool gyroFresh() const { return m_gyroAge.isValid() && m_gyroAge.elapsed() < 1000; }
+    int m_satsInUse = -1, m_satsInView = -1;
+    QElapsedTimer m_satsAge;
     double speedNow() const;
     QPointF estimate20(double *bearing);
     static void latLonOf(const QPointF &world20, double *lat, double *lon);

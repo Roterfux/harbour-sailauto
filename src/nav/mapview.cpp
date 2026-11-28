@@ -79,6 +79,23 @@ void MapView::setNight(bool night)
     m_canvasDirty = true;
 }
 
+void MapView::setGyro(double zRadPerSec)
+{
+    const double dt = m_gyroClock.isValid() ? qMin<qint64>(m_gyroClock.elapsed(), 300) / 1000.0 : 0;
+    m_gyroClock.start();
+    m_gyroAge.start();
+    if (!m_gyroLogged) {
+        m_gyroLogged = true;
+        emit log(QStringLiteral("Karte: Gyroskop des Autos liefert Daten"));
+    }
+    if (speedNow() < 1.0) { m_gyroRate = 0; return; } // standing: ignore drift
+    const double raw = qRadiansToDegrees(zRadPerSec);   // counter-clockwise positive (z up)
+    m_rawSinceFix += raw * dt;
+    m_gyroRate = -raw * m_gyroSign;                    // clockwise = compass direction
+    m_gyroSinceFix += m_gyroRate * dt;
+    if (m_dr) m_drBearing += m_gyroRate * dt;          // tunnel without route: follow the curve
+}
+
 void MapView::setRoute(const QVector<QPointF> &latlon)
 {
     m_route = latlon;
@@ -108,10 +125,14 @@ QPointF MapView::estimate20(double *bearing)
     const double ageS = m_fixAge.isValid() ? m_fixAge.elapsed() / 1000.0 : 0;
     *bearing = m_bearing;
     if (ageS <= 2.0 || speedNow() < 1.0 || ageS > 600) {
-        // normal: the last fix moved on a little (smooth between fixes)
+        // normal: the last fix moved on a little (smooth between fixes); with the
+        // gyroscope the heading follows a turn at once, the position along the arc
         m_dr = false;
+        const double turn = gyroFresh() ? qBound(-120.0, m_gyroSinceFix, 120.0) : 0;
+        *bearing = m_bearing + turn;
+        const double mid = qDegreesToRadians(m_bearing + turn / 2);
         const double d = speedNow() * qMin(ageS, 2.0) / mpp;
-        return fix + QPointF(std::sin(qDegreesToRadians(m_bearing)) * d, -std::cos(qDegreesToRadians(m_bearing)) * d);
+        return fix + QPointF(std::sin(mid) * d, -std::cos(mid) * d);
     }
     // No GPS for > 2 s while driving (tunnel): keep going
     if (!m_dr) {
@@ -193,6 +214,22 @@ void MapView::updateFix(double lat, double lon, double bearing, double speed)
     m_prevLon = m_lon;
     m_lat = lat;
     m_lon = lon;
+    // Learn the gyroscope's sign: heading change by GPS vs. turn integrated by the gyro
+    if (gyroFresh() && bearing >= 0 && m_speed > 5 && (speed < 0 || speed > 5)) {
+        const double dGps = std::remainder(bearing - m_bearing, 360.0);
+        if (qAbs(dGps) > 4 && qAbs(m_rawSinceFix) > 2) {
+            // standard (z up, counter-clockwise positive): heading change = -raw
+            m_signVotes += dGps * -m_rawSinceFix > 0 ? 1 : -1;
+            m_signVotes = qBound(-20, m_signVotes, 20);
+            const int sign = m_signVotes <= -6 ? -1 : m_signVotes >= 6 ? 1 : m_gyroSign;
+            if (sign != m_gyroSign) {
+                m_gyroSign = sign;
+                emit log(QStringLiteral("Karte: Gyroskop-Richtung umgedreht (gelernt)"));
+            }
+        }
+    }
+    m_gyroSinceFix = 0;
+    m_rawSinceFix = 0;
     if (bearing >= 0 && (speed < 0 || speed > 1.0)) m_bearing = bearing; // keep heading when standing
     m_speed = speed < 0 ? 0 : speed;
     m_fixAge.start();
@@ -873,6 +910,20 @@ void MapView::drawSpeed(QPainter &p, double w, double h)
     p.setFont(f);
     p.setPen(m_night ? QColor(150, 158, 175) : QColor(100, 106, 120));
     p.drawText(QRectF(box.left(), box.top() + bh * 0.62, bw, bh * 0.3), Qt::AlignHCenter | Qt::AlignTop, QStringLiteral("km/h"));
+    // Car GPS weak (few satellites) or estimating (tunnel)
+    const bool weak = m_satsAge.isValid() && m_satsAge.elapsed() < 5000 && m_satsInUse >= 0 && m_satsInUse < 4;
+    if (m_dr || weak) {
+        f.setPixelSize(int(bh * 0.2));
+        f.setBold(true);
+        p.setFont(f);
+        const QString t = m_dr ? QStringLiteral("ohne GPS") : QStringLiteral("GPS schwach (%1)").arg(m_satsInUse);
+        const QRectF tr(box.left(), box.top() - bh * 0.32, QFontMetricsF(f).width(t) + 14, bh * 0.28);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(235, 140, 20));
+        p.drawRoundedRect(tr, 6, 6);
+        p.setPen(Qt::white);
+        p.drawText(tr, Qt::AlignCenter, t);
+    }
     p.restore();
 }
 

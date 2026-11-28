@@ -363,7 +363,8 @@ class HeadUnit:
         keys = b"".join(varint(k) for k in (3, 4, 84, 85, 87, 88, 89, 90))
         inp = f_varint(1, CH_INPUT) + f_bytes(4, f_bytes(1, keys) + f_bytes(2, touch))
         sensor = f_varint(1, CH_SENSOR) + f_bytes(2, f_bytes(1, f_varint(1, 13)) + f_bytes(1, f_varint(1, 10))
-                                                  + f_bytes(1, f_varint(1, 1)) + f_bytes(1, f_varint(1, 3)))
+                                                  + f_bytes(1, f_varint(1, 1)) + f_bytes(1, f_varint(1, 3))
+                                                  + f_bytes(1, f_varint(1, 20)) + f_bytes(1, f_varint(1, 21)))
         acfg = f_varint(1, 48000) + f_varint(2, 16) + f_varint(3, 2)
         audio = f_varint(1, CH_MEDIA_AUDIO) + f_bytes(3, f_varint(1, 1) + f_varint(2, 3) + f_bytes(3, acfg))
         speech = f_varint(1, 5) + f_bytes(3, f_varint(1, 1) + f_varint(2, 1) +
@@ -464,6 +465,13 @@ def main():
             else:
                 hu.log("tap", x, y)
                 hu.tap(x, y)
+        if args.drive and getattr(hu, "drive_at", None) and time.time() - getattr(hu, "gyro_last", 0) >= 0.1:
+            # gyroscope 10x a second: z up, counter-clockwise positive (curve drive turns clockwise 6 deg/s)
+            hu.gyro_last = time.time()
+            import math
+            z = 0.0 if args.straight else -math.radians(6)
+            def i32g(v): return int(v) & 0xffffffffffffffff
+            hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(20, f_varint(1, 0) + f_varint(2, 0) + f_varint(3, i32g(z * 1000))))
         if args.drive and getattr(hu, "drive_at", None) and time.time() - getattr(hu, "drive_last", 0) >= 1.0:
             hu.drive_last = time.time()
             t = time.time() - hu.drive_at
@@ -486,6 +494,7 @@ def main():
                 in_tunnel = a <= t < b
             if not in_tunnel:
                 hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(1, loc))
+            hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(21, f_varint(1, 0 if in_tunnel else 9) + f_varint(2, 3 if in_tunnel else 14)))
             hu.send(hu.ch_sensor, SENSOR_EVENT, f_bytes(3, f_varint(1, 13900)))  # wheel speed 50 km/h
         time.sleep(0.02)
 

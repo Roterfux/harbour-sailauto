@@ -86,7 +86,7 @@ enum : uint16_t {
     StartResponse = 0x8002,
     EventIndication = 0x8003,
 };
-enum Type { Location = 1, Speed = 3, Gear = 8, NightData = 10, DrivingStatus = 13 };
+enum Type { Location = 1, Speed = 3, Gear = 8, NightData = 10, DrivingStatus = 13, Gyroscope = 20, GpsSatellites = 21 };
 }
 
 enum class TouchAction { Press = 0, Release = 1, Drag = 2, PointerDown = 5, PointerUp = 6 };

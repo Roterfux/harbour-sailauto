@@ -1779,6 +1779,15 @@ void Controller::attachTransport(QIODevice *io, const QString &label)
         updateParked();
     });
     connect(m_session, &aap::Session::speedChanged, this, [this](double mps) { m_map.setCarSpeed(mps); });
+    connect(m_session, &aap::Session::gyroChanged, this, [this](double, double, double z) { m_map.setGyro(z); });
+    connect(m_session, &aap::Session::satellitesChanged, this, [this](int inUse, int inView) {
+        m_map.setSatellites(inUse, inView);
+        if (!m_satsLogged) {
+            m_satsLogged = true;
+            appendLog(QStringLiteral("Auto-GPS: %1 Satelliten genutzt%2").arg(inUse)
+                          .arg(inView >= 0 ? QStringLiteral(", %1 sichtbar").arg(inView) : QString()));
+        }
+    });
     // Tunnel: no GPS, the navigation goes on with the estimated position
     if (!m_drTimer) {
         m_drTimer = new QTimer(this);

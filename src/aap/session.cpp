@@ -534,6 +534,17 @@ void Session::handleServiceDiscovery(const QByteArray &payload)
             kind = Trace::Playback;
         } else if (ch.has(10)) {
             kind = Trace::Phone;
+        } else if (ch.has(12)) {
+            // VendorExtensionService { name = 1, package_white_list = 2 (repeated), data = 3 }:
+            // the car maker's own channel (VW: undocumented). Log what it says.
+            const pb::Reader ve(ch.bytes(12));
+            QStringList pk;
+            for (const pb::Value &v : ve.all(2)) pk << QString::fromUtf8(v.bytes);
+            const QByteArray data = ve.bytes(3);
+            detail = QStringLiteral("Hersteller-Erweiterung \"%1\"%2%3").arg(ve.string(1))
+                         .arg(pk.isEmpty() ? QString() : QStringLiteral(", Apps: ") + pk.join(QStringLiteral(", ")))
+                         .arg(data.isEmpty() ? QString() : QStringLiteral(", Daten %1 Bytes: %2").arg(data.size())
+                                                                   .arg(QString::fromLatin1(data.left(48).toHex())));
         } else {
             int f = 0;
             for (int k = 2; k <= 20; ++k) if (ch.has(k)) { f = k; break; }
@@ -632,6 +643,10 @@ void Session::onChannelOpened(quint8 channel, bool ok)
         if (m_sensorTypes.contains(sensor::Gear)) wanted << sensor::Gear;
         // Wheel speed: keeps the car moving on the map when GPS is gone (tunnel)
         if (m_sensorTypes.contains(sensor::Speed)) wanted << sensor::Speed;
+        // Gyroscope: turn rate (map turns at once, tunnels without a route)
+        if (m_sensorTypes.contains(sensor::Gyroscope)) wanted << sensor::Gyroscope;
+        // GPS satellites: how good the car's fix is
+        if (m_sensorTypes.contains(sensor::GpsSatellites)) wanted << sensor::GpsSatellites;
         for (int type : wanted) {
             pb::Writer w;
             w.varint(1, static_cast<uint64_t>(type)).sint(2, 0);
@@ -750,6 +765,17 @@ void Session::handleSensor(quint16 id, const QByteArray &payload)
         emit drivingStatusChanged(static_cast<int>(pb::Reader(v.bytes).number(1)));
     for (const pb::Value &v : r.all(8))
         emit gearChanged(static_cast<int>(pb::Reader(v.bytes).number(1)));
+    // GyroscopeData { rotation_speed_x_e3 = 1, y_e3 = 2, z_e3 = 3 } (rad/s * 1000, car frame, z up)
+    for (const pb::Value &v : r.all(20)) {
+        pb::Reader g(v.bytes);
+        auto val = [&](int f) { return g.has(f) ? static_cast<int32_t>(static_cast<int64_t>(g.number(f))) / 1e3 : 0.0; };
+        emit gyroChanged(val(1), val(2), val(3));
+    }
+    // GpsSatelliteData { number_in_use = 1, number_in_view = 2, satellites = 3 }
+    for (const pb::Value &v : r.all(21)) {
+        pb::Reader g(v.bytes);
+        emit satellitesChanged(int(g.number(1)), g.has(2) ? int(g.number(2)) : -1);
+    }
     // SpeedData { speed_e3 = 1 } (m/s * 1000)
     for (const pb::Value &v : r.all(3)) {
         pb::Reader sp(v.bytes);

@@ -324,6 +324,7 @@ private:
     int m_staticTicks = 0, m_skipTicks = 0;
     bool m_powerSave = true;
     QTimer *m_drTimer = nullptr;
+    bool m_satsLogged = false;
     TrafficService m_traffic;
     SpeedLimit m_speedLimit;
     QSet<QString> m_trafficAnnounced; // incidents already shown as a banner
