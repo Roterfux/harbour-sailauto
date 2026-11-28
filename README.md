@@ -319,6 +319,12 @@ also mit Lenkradtasten, Fortschritt usw.). Im Auto: Musik → „Liste“ (oder
 
 Adresssuche ohne OSM Scout Server: online über Photon (wie Pure Maps).
 
+## Helles Aussehen (ab 0.20.0)
+
+Einstellung „Anzeige im Auto → Aussehen“: Automatisch (hell am Tag, dunkel bei
+Nacht nach dem Lichtsensor des Autos, Standard), Immer hell, Immer dunkel.
+Die Karte hat eigene Tag- und Nachtfarben.
+
 ## Stromsparen (ab 0.18.1)
 
 Ein Bild, das sich nicht ändert, wird nicht neu kodiert: ruhige Seiten laufen

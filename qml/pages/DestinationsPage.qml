@@ -90,7 +90,18 @@ Page {
                 onCheckedChanged: controller.setSetting("map/smooth", checked)
             }
 
-            SectionHeader { text: qsTr("Strom") }
+            SectionHeader { text: qsTr("Anzeige im Auto") }
+            ComboBox {
+                label: qsTr("Aussehen")
+                description: qsTr("Automatisch: hell am Tag, dunkel bei Nacht (Lichtsensor des Autos)")
+                currentIndex: controller.setting("ui/theme", 0)
+                menu: ContextMenu {
+                    MenuItem { text: qsTr("Automatisch") }
+                    MenuItem { text: qsTr("Immer hell") }
+                    MenuItem { text: qsTr("Immer dunkel") }
+                }
+                onCurrentIndexChanged: controller.setSetting("ui/theme", currentIndex)
+            }
             TextSwitch {
                 text: qsTr("Stromsparen")
                 description: qsTr("Ruhige Seiten nur 1 Bild/s statt 30, volle Rate sobald sich etwas bewegt oder du tippst.")

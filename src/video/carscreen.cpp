@@ -40,6 +40,11 @@ Palette palette(bool night)
         return {QColor(8, 10, 16), QColor(28, 32, 44), QColor(52, 60, 84), QColor(220, 224, 235), QColor(120, 128, 150), QColor(0, 170, 200)};
     return {QColor(18, 22, 32), QColor(40, 48, 68), QColor(70, 84, 120), QColor(245, 247, 252), QColor(150, 160, 185), QColor(0, 200, 230)};
 }
+// Light (day) look: bright background, dark text, deeper turquoise for contrast
+Palette lightPalette()
+{
+    return {QColor(236, 239, 244), QColor(255, 255, 255), QColor(204, 222, 236), QColor(24, 28, 38), QColor(100, 108, 126), QColor(0, 140, 185)};
+}
 }
 
 CarScreen::CarScreen(QObject *parent) : QObject(parent)
@@ -119,7 +124,7 @@ void CarScreen::drawBanner(QPainter &p)
             return;
         }
     }
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const Banner &b = m_banners.first();
     const int bar = m_safe.height() / 8;
     m_bannerRect = QRect(m_safe.left() + m_safe.width() / 20, m_safe.top() + bar / 6,
@@ -162,9 +167,19 @@ void CarScreen::setNav(const NavState &s, const QImage &icon)
 
 void CarScreen::drawManeuver(QPainter &p, const QRect &r, bool small)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     if (!m_navIcon.isNull()) {
-        p.drawImage(r, m_navIcon);
+        if (!lightUi()) {
+            p.drawImage(r, m_navIcon);
+            return;
+        }
+        // Pure Maps' icons are white: dark on the light look
+        QImage tinted = m_navIcon.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+        QPainter tp(&tinted);
+        tp.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        tp.fillRect(tinted.rect(), c.text);
+        tp.end();
+        p.drawImage(r, tinted);
         return;
     }
     // Own arrow from the icon name: left/right/slight/sharp/uturn/roundabout/arrive.
@@ -227,7 +242,7 @@ void CarScreen::drawManeuver(QPainter &p, const QRect &r, bool small)
 
 void CarScreen::drawNavPage(QPainter &p, const QRect &body)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     m_navStartButton = QRect();
     m_navButtons.clear();
@@ -281,7 +296,7 @@ void CarScreen::drawNavPage(QPainter &p, const QRect &body)
         f.setPixelSize(bar * 2 / 5);
         f.setBold(true);
         p.setFont(f);
-        p.setPen(QColor(240, 170, 40));
+        p.setPen(lightUi() ? QColor(185, 95, 0) : QColor(240, 170, 40));
         p.drawText(QRect(right.left(), right.bottom() - bar / 2, right.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
                    QStringLiteral("Abseits der Route"));
     }
@@ -314,7 +329,7 @@ void CarScreen::drawCall(QPainter &p)
 {
     m_callButtons.clear();
     if (m_call.state == CallInfo::None) return;
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const QColor green(40, 170, 80), red(210, 50, 50);
     const int bar = m_safe.height() / 8;
     const QString who = m_call.name.isEmpty() ? (m_call.number.isEmpty() ? QStringLiteral("Unbekannt") : m_call.number)
@@ -466,7 +481,7 @@ QVector<int> CarScreen::phoneVisible() const
 
 void CarScreen::drawPhonePage(QPainter &p, const QRect &body)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     QFont f = p.font();
     m_phoneRows.clear();
@@ -775,7 +790,7 @@ void CarScreen::phoneTap(const QPoint &pt)
 
 void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     // Map uses the whole area below the top bar.
     const QRect area(m_safe.left(), m_safe.top() + bar, m_safe.width(), m_safe.height() - bar);
@@ -854,7 +869,7 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
         if (!m_nav.alongRoute) {
             f.setBold(true);
             p.setFont(f);
-            p.setPen(QColor(240, 170, 40));
+            p.setPen(lightUi() ? QColor(185, 95, 0) : QColor(240, 170, 40));
             p.drawText(QRect(cardR.left(), cardR.bottom() + 4, cardR.width(), bar / 2), Qt::AlignLeft | Qt::AlignVCenter,
                        QStringLiteral("Abseits der Route"));
         }
@@ -876,7 +891,7 @@ void CarScreen::drawNavOnMap(QPainter &p, const QRect &body)
 
 void CarScreen::drawNavChoose(QPainter &p, const QRect &body)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     QFont f = p.font();
     m_navButtons.clear();
@@ -1119,7 +1134,7 @@ void CarScreen::navButtonTapped(const NavButton &b)
 
 void CarScreen::drawMusicList(QPainter &p, const QRect &body)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     m_musicRows.clear();
     const int per = 5;
@@ -1219,7 +1234,7 @@ void CarScreen::drawWeatherIcon(QPainter &p, const QRectF &r, int code, bool day
     p.save();
     p.setRenderHint(QPainter::Antialiasing);
     const double u = r.width();
-    const QColor sun(250, 200, 50), cloud = m_night ? QColor(170, 176, 190) : QColor(225, 230, 240);
+    const QColor sun(250, 200, 50), cloud = lightUi() ? QColor(150, 160, 178) : m_night ? QColor(170, 176, 190) : QColor(225, 230, 240);
     const QColor rain(90, 170, 250), snow(240, 245, 255), bolt(250, 210, 60);
     auto drawSun = [&](const QPointF &c, double rad) {
         p.setPen(QPen(sun, qMax(1.5, u / 18), Qt::SolidLine, Qt::RoundCap));
@@ -1290,7 +1305,7 @@ void CarScreen::drawWeatherIcon(QPainter &p, const QRectF &r, int code, bool day
 
 void CarScreen::drawWeatherPage(QPainter &p, const QRect &body)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     QFont f = p.font();
     if (!m_weather.valid) {
@@ -1359,7 +1374,7 @@ void CarScreen::drawWeatherPage(QPainter &p, const QRect &body)
 void CarScreen::drawVolume(QPainter &p)
 {
     if (m_volume < 0 || !m_volumeClock.isValid() || m_volumeClock.elapsed() > 2000) return;
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     const QRect box(m_safe.center().x() - m_safe.width() / 4, m_safe.bottom() - bar * 2, m_safe.width() / 2, bar * 3 / 2);
     QColor bg = c.bg;
@@ -1399,7 +1414,7 @@ void CarScreen::drawLoading(QPainter &p)
         m_loadingName.clear();
         return;
     }
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     const QRect area(m_safe.left(), m_safe.top() + bar, m_safe.width(), m_safe.height() - bar);
     p.fillRect(area, c.bg);
@@ -1625,7 +1640,7 @@ void CarScreen::touch(int action, int x, int y)
 
 void CarScreen::drawTopBar(QPainter &p)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     QFont f = p.font();
     f.setPixelSize(bar / 2);
@@ -1698,7 +1713,7 @@ void CarScreen::drawTopBar(QPainter &p)
 
 int CarScreen::drawStatusIcons(QPainter &p, int right, int top, int height)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int h = height * 2 / 5;          // icon height
     const int cy = top + height / 2;
     const int gap = height / 3;
@@ -1799,7 +1814,7 @@ static void drawTileIcon(QPainter &p, const QRectF &r, int page, const QColor &c
 
 void CarScreen::drawHome(QPainter &p)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     for (int i = 0; i < m_tiles.size(); ++i) {
         const Tile &t = m_tiles[i];
         p.setPen(Qt::NoPen);
@@ -1819,7 +1834,7 @@ void CarScreen::drawHome(QPainter &p)
 
 void CarScreen::drawPage(QPainter &p)
 {
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     const int bar = m_safe.height() / 8;
     p.setPen(Qt::NoPen);
     p.setBrush(c.panel);
@@ -2147,7 +2162,7 @@ void CarScreen::drawPage(QPainter &p)
 const QImage &CarScreen::render()
 {
     ++m_frame;
-    const Palette c = palette(m_night);
+    const Palette c = (lightUi() ? lightPalette() : palette(m_night));
     m_image.fill(Qt::black);
     QPainter p(&m_image);
     p.setRenderHint(QPainter::Antialiasing);
@@ -2162,15 +2177,5 @@ const QImage &CarScreen::render()
     drawBanner(p);
     drawCall(p);
 
-    // Touch feedback: proves the input path end to end.
-    if (!m_trail.isEmpty()) {
-        p.setPen(QPen(c.accent, 4, Qt::SolidLine, Qt::RoundCap));
-        for (int i = 1; i < m_trail.size(); ++i) p.drawLine(m_trail[i - 1], m_trail[i]);
-    }
-    if (m_pressed) {
-        p.setPen(Qt::NoPen);
-        p.setBrush(QColor(255, 255, 255, 90));
-        p.drawEllipse(m_touch, 22, 22);
-    }
     return m_image;
 }

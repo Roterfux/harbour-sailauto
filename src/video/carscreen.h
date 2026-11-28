@@ -26,6 +26,9 @@ public:
 
     void setGeometry(int width, int height, int marginWidth, int marginHeight);
     void setNight(bool night);
+    // 0 automatic (light by day, dark at night), 1 always light, 2 always dark
+    void setTheme(int theme) { m_theme = theme; }
+    bool lightUi() const { return m_theme == 1 || (m_theme == 0 && !m_night); }
     void setInfo(const QString &headUnit, const QString &encoder);
     void setStats(double fps, double kbps);
     void setVersion(const QString &v) { m_version = v; }
@@ -115,6 +118,7 @@ private:
     QImage m_image;
     QRect m_safe;
     bool m_night = false;
+    int m_theme = 0;
     Page m_page = Home;
     QVector<Tile> m_tiles;
     QRect m_backButton;

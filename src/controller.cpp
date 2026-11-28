@@ -990,6 +990,7 @@ void Controller::applySettings()
     m_map.setRange(st.value(QStringLiteral("map/range"), 0).toInt());
     m_map.setSmooth(st.value(QStringLiteral("map/smooth"), true).toBool());
     m_powerSave = st.value(QStringLiteral("power/save"), true).toBool();
+    m_screen.setTheme(st.value(QStringLiteral("ui/theme"), 0).toInt());
 }
 
 void Controller::setWeatherEnabled(bool on)
